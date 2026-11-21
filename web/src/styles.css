@@ -689,3 +689,6 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .updateSub { margin: 2px 0 0; }
 .versionValue { font-size: 15px; line-height: 1.4; }
 code.versionValue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.statusSlot { min-height: 36px; display: flex; flex-direction: column; justify-content: center; margin: 4px 0 8px; }
+.statusSlot p { margin: 0; }
+.statusSlot > * { margin-top: 0; margin-bottom: 0; }

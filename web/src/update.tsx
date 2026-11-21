@@ -149,8 +149,9 @@ export function UpdateCard() {
             <div><dt>Installed</dt><dd><Version v={info.current} /></dd></div>
             <div><dt>Latest</dt><dd><Version v={info.latest} /></dd></div>
           </dl>
+          <div className="statusSlot">
           {checking && <Loading label="Checking for a newer version…" size="sm" block={false} />}
-          {building && (
+          {!checking && building && (
             <div className="updateBuilding">
               <Loading label="An even newer version is being built. It'll be ready to install in a minute or two." size="sm" block={false} />
               <p className="muted small">This page checks again every few seconds, so you can leave it open.</p>
@@ -173,9 +174,10 @@ export function UpdateCard() {
             </p>
           )}
           {phase === "failed" && u.message && <p className="bad">{u.message}</p>}
-          {available && !checking &&
+          </div>
+          {available &&
             (info.enabled ? (
-              <button type="button" className="button" onClick={() => void startUpdate()}>
+              <button type="button" className="button" onClick={() => void startUpdate()} disabled={checking}>
                 Update now
               </button>
             ) : (
@@ -272,14 +274,17 @@ export function EngineUpdateCard() {
             <div><dt>Installed</dt><dd><Version v={info.current} /></dd></div>
             <div><dt>Latest</dt><dd><Version v={info.latest} /></dd></div>
           </dl>
+          <div className="statusSlot">
+          {checking && <Loading label="Checking for a newer engine…" size="sm" block={false} />}
           {!checking && available && <p className="updateAvail"><span className="dot bad" /> A newer engine is available.</p>}
           {!checking && info.available === false && <p><span className="dot good" /> The engine is up to date.</p>}
           {!checking && info.problem === "engine" && <p className="bad">The engine isn't answering, so its version can't be read.</p>}
           {!checking && info.problem === "github" && <p className="bad">Couldn't check GitHub for the newest engine{info.detail ? ` (${info.detail})` : ""}. Try again in a moment.</p>}
           {phase === "failed" && message && <p className="bad">{message}</p>}
-          {available && !checking &&
+          </div>
+          {available &&
             (info.enabled ? (
-              <button type="button" className="button" onClick={() => void update()}>Update engine</button>
+              <button type="button" className="button" onClick={() => void update()} disabled={checking}>Update engine</button>
             ) : (
               <p className="muted small">One-tap engine updates aren't set up (see "Updating the engine" in the README). Update it from the Docker app instead.</p>
             ))}
