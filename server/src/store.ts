@@ -41,6 +41,17 @@ export interface LibraryItem extends LibraryEntry {
   unread: number | null;
 }
 
+export interface UpdateRow {
+  mangaId: number;
+  title: string;
+  sourceName: string | null;
+  adult: boolean;
+  latestNumber: number;
+  newCount: number;
+  caughtUp: boolean;
+  detectedAt: string;
+}
+
 export interface DownloadRow {
   chapterId: number;
   mangaId: number;
@@ -129,6 +140,17 @@ export class Store {
         bytes INTEGER NOT NULL DEFAULT 0,
         error TEXT,
         created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS updates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        manga_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        source_name TEXT,
+        adult INTEGER NOT NULL DEFAULT 0,
+        latest_number REAL NOT NULL,
+        new_count INTEGER NOT NULL,
+        caught_up INTEGER NOT NULL,
+        detected_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS tracker_links (
         manga_id INTEGER NOT NULL,
@@ -228,6 +250,37 @@ export class Store {
 
   deleteDownload(chapterId: number): void {
     this.db.prepare("DELETE FROM downloads WHERE chapter_id = ?").run(chapterId);
+  }
+
+  /** Notes that a library series got new chapters, for the Updates page and the home page. */
+  addUpdate(u: { mangaId: number; title: string; sourceName: string | null; adult: boolean; latestNumber: number; newCount: number; caughtUp: boolean }): void {
+    this.db
+      .prepare(
+        `INSERT INTO updates (manga_id, title, source_name, adult, latest_number, new_count, caught_up, detected_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(u.mangaId, u.title, u.sourceName, u.adult ? 1 : 0, u.latestNumber, u.newCount, u.caughtUp ? 1 : 0, new Date().toISOString());
+  }
+
+  updates(opts: { includeAdult?: boolean; caughtUpOnly?: boolean; limit?: number } = {}): UpdateRow[] {
+    const { includeAdult = false, caughtUpOnly = false, limit = 100 } = opts;
+    const where = [includeAdult ? "1" : "adult = 0", caughtUpOnly ? "caught_up = 1" : "1"].join(" AND ");
+    return (this.db.prepare(`SELECT * FROM updates WHERE ${where} ORDER BY detected_at DESC, id DESC LIMIT ?`).all(limit) as Record<string, unknown>[]).map((r) => ({
+      mangaId: r.manga_id as number,
+      title: r.title as string,
+      sourceName: (r.source_name as string | null) ?? null,
+      adult: r.adult === 1,
+      latestNumber: r.latest_number as number,
+      newCount: r.new_count as number,
+      caughtUp: r.caught_up === 1,
+      detectedAt: r.detected_at as string,
+    }));
+  }
+
+  /** When the library was last checked for new chapters. */
+  lastChecked(): string | null {
+    const r = this.db.prepare("SELECT MAX(checked_at) AS t FROM library").get() as { t: string | null };
+    return r.t;
   }
 
   deleteSetting(key: string): void {

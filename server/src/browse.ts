@@ -1,6 +1,17 @@
 import type { Config } from "./config.js";
 import { engineQuery } from "./engine.js";
-import { groupHits, listSources, type EngineSource, type SearchResult, type SourceHit, type SourceReport, type Scope, inScope } from "./search.js";
+import { canonKey, canonLabel } from "./genres.js";
+import {
+  fetchMangaDetails,
+  groupHits,
+  inScope,
+  listSources,
+  type EngineSource,
+  type Scope,
+  type SearchResult,
+  type SourceHit,
+  type SourceReport,
+} from "./search.js";
 
 type FetchLike = typeof fetch;
 
@@ -20,55 +31,91 @@ export interface FilterChange {
   groupChange?: FilterChange;
 }
 
-const norm = (s: string) => s.normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 const GENRE_NAME = /genre|categor|tag|theme/i;
+const CONDITION_NAME = /condition|match|mode|operator|logic/i;
 
 interface GenreSlot {
+  /** The name this source uses. */
   name: string;
   /** Builds the change that turns this genre on. */
   change: () => FilterChange;
 }
 
-/** Finds where in a source's filters each genre can be switched on. */
-export function genreSlots(filters: EngineFilter[]): GenreSlot[] {
+/** Finds where in a source's filters each genre can be switched on, keyed by canonical genre. */
+export function genreSlots(filters: EngineFilter[]): Map<string, GenreSlot> {
   const slots = new Map<string, GenreSlot>();
   filters.forEach((f, position) => {
     if (f.__typename === "GroupFilter" && GENRE_NAME.test(f.name ?? "")) {
       (f as Extract<EngineFilter, { __typename: "GroupFilter" }>).filters.forEach((child, i) => {
         if ((child.__typename !== "CheckBoxFilter" && child.__typename !== "TriStateFilter") || !child.name) return;
-        const key = norm(child.name);
+        const key = canonKey(child.name);
         if (slots.has(key)) return;
         const on = child.__typename === "CheckBoxFilter" ? { checkBoxState: true } : { triState: "INCLUDE" as const };
         slots.set(key, { name: child.name, change: () => ({ position, groupChange: { position: i, ...on } }) });
       });
     } else if (f.__typename === "SelectFilter" && /genre|categor/i.test(f.name ?? "")) {
       (f as Extract<EngineFilter, { __typename: "SelectFilter" }>).values.forEach((v, i) => {
-        const key = norm(v);
+        const key = canonKey(v);
         // Index 0 is nearly always "All"/"Any", which isn't a genre.
         if (i === 0 || !key || slots.has(key)) return;
         slots.set(key, { name: v, change: () => ({ position, selectState: i }) });
       });
     }
   });
-  return [...slots.values()];
+  return slots;
+}
+
+/** Some sources have an "OR / AND" switch for their genre list; this finds the change that picks AND. */
+function matchAllChange(filters: EngineFilter[]): FilterChange | null {
+  for (const [position, f] of filters.entries()) {
+    if (f.__typename !== "SelectFilter" || !CONDITION_NAME.test(f.name ?? "")) continue;
+    const values = (f as Extract<EngineFilter, { __typename: "SelectFilter" }>).values;
+    const idx = values.findIndex((v) => /^\s*(and|all)\b/i.test(v));
+    if (idx >= 0) return { position, selectState: idx };
+  }
+  return null;
+}
+
+export interface GenrePlan {
+  /** What to send to the source so it narrows the list itself. */
+  changes: FilterChange[];
+  /** Requested genres (canonical keys) the source can't filter by; results are checked against these afterwards. */
+  missing: string[];
 }
 
 /**
- * Turns "these genres" into the filter changes one source understands.
- * Returns null when the source can't filter by every requested genre, or when it only offers a
- * single-choice genre list and more than one genre was asked for.
+ * Turns "these genres" into the filter changes one source understands, and says which genres it
+ * can't filter by. Returns null when the source can't filter by any of them.
  */
-export function planGenreFilters(filters: EngineFilter[], genres: string[]): FilterChange[] | null {
-  const slots = new Map(genreSlots(filters).map((s) => [norm(s.name), s]));
+export function planGenreFilters(filters: EngineFilter[], genres: string[]): GenrePlan | null {
+  const slots = genreSlots(filters);
   const changes: FilterChange[] = [];
+  const missing: string[] = [];
+  let usedSelect = false;
   for (const g of genres) {
-    const slot = slots.get(norm(g));
-    if (!slot) return null;
-    changes.push(slot.change());
+    const key = canonKey(g);
+    const slot = slots.get(key);
+    if (!slot) {
+      missing.push(key);
+      continue;
+    }
+    const change = slot.change();
+    // A single-choice list can only take one genre; the rest get checked afterwards.
+    if (change.selectState !== undefined) {
+      if (usedSelect) {
+        missing.push(key);
+        continue;
+      }
+      usedSelect = true;
+    }
+    changes.push(change);
   }
-  const selects = changes.filter((c) => c.selectState !== undefined);
-  if (selects.length > 1) return null;
-  return changes;
+  if (changes.length === 0) return null;
+  if (changes.length > 1) {
+    const all = matchAllChange(filters);
+    if (all) changes.push(all);
+  }
+  return { changes, missing };
 }
 
 // The id is spliced in (digits only) so this doesn't depend on the engine's exact ID type name.
@@ -97,22 +144,42 @@ const filterCache = new Map<string, { at: number; value: EngineFilter[] }>();
 
 export function clearFilterCache(): void {
   filterCache.clear();
+  primedAt.clear();
+}
+
+const primedAt = new Map<string, number>();
+
+async function loadFilters(config: Config, sourceId: string, fetchImpl?: FetchLike): Promise<EngineFilter[]> {
+  const data = await engineQuery<{ source: { filters: EngineFilter[] } }>(config, filtersQuery(sourceId), {}, { fetchImpl });
+  return data.source.filters;
 }
 
 async function filtersFor(config: Config, sourceId: string, fetchImpl?: FetchLike): Promise<EngineFilter[]> {
   const hit = filterCache.get(sourceId);
   if (hit && Date.now() - hit.at < FILTER_TTL_MS) return hit.value;
   if (!/^-?\d+$/.test(sourceId)) throw new Error("bad source id");
-  const data = await engineQuery<{ source: { filters: EngineFilter[] } }>(config, filtersQuery(sourceId), {}, { fetchImpl });
-  filterCache.set(sourceId, { at: Date.now(), value: data.source.filters });
-  return data.source.filters;
+  let filters = await loadFilters(config, sourceId, fetchImpl);
+  // Many extensions fetch their genre list from the site the first time they're used, so it's
+  // empty until something has been loaded from them. Load one page, then ask again.
+  if (genreSlots(filters).size === 0 && Date.now() - (primedAt.get(sourceId) ?? 0) > 30 * 60 * 1000) {
+    primedAt.set(sourceId, Date.now());
+    await engineQuery(
+      config,
+      `mutation ($input: FetchSourceMangaInput!) { fetchSourceManga(input: $input) { mangas { id } } }`,
+      { input: { source: sourceId, type: "POPULAR", page: 1 } },
+      { fetchImpl, timeoutMs: 20000 },
+    ).catch(() => {});
+    filters = await loadFilters(config, sourceId, fetchImpl).catch(() => filters);
+  }
+  filterCache.set(sourceId, { at: Date.now(), value: filters });
+  return filters;
 }
 
 function browsableSources(all: EngineSource[], scope: Scope) {
   return all.filter((s) => inScope(s, scope));
 }
 
-/** Every genre any of your sources can filter by, with how many sources offer it. */
+/** Every genre any of your sources can filter by (similar spellings merged), with how many sources offer it. */
 export async function listGenres(
   config: Config,
   opts: { fetchImpl?: FetchLike; scope?: Scope } = {},
@@ -123,11 +190,10 @@ export async function listGenres(
   await Promise.all(
     sources.map(async (s) => {
       try {
-        for (const slot of genreSlots(await filtersFor(config, s.id, fetchImpl))) {
-          const key = norm(slot.name);
+        for (const [key, slot] of genreSlots(await filtersFor(config, s.id, fetchImpl))) {
           const entry = counts.get(key);
           if (entry) entry.sources++;
-          else counts.set(key, { name: slot.name, sources: 1 });
+          else counts.set(key, { name: canonLabel(slot.name), sources: 1 });
         }
       } catch {
         // A source that can't report filters just doesn't contribute genres.
@@ -135,6 +201,30 @@ export async function listGenres(
     }),
   );
   return [...counts.values()].sort((a, b) => b.sources - a.sources || a.name.localeCompare(b.name));
+}
+
+/** For the Sources page: which sources can filter by genre, and what their filters look like. */
+export async function genreSupport(
+  config: Config,
+  opts: { fetchImpl?: FetchLike; scope?: Scope } = {},
+): Promise<{ id: string; name: string; genres: number; filters: string[]; error?: string }[]> {
+  const { fetchImpl, scope = "safe" } = opts;
+  const sources = browsableSources(await listSources(config, fetchImpl), scope);
+  return Promise.all(
+    sources.map(async (s) => {
+      try {
+        const filters = await filtersFor(config, s.id, fetchImpl);
+        return {
+          id: s.id,
+          name: s.name,
+          genres: genreSlots(filters).size,
+          filters: filters.filter((f) => f.name).map((f) => `${f.__typename.replace(/Filter$/, "")}: ${f.name}`),
+        };
+      } catch (err) {
+        return { id: s.id, name: s.name, genres: 0, filters: [], error: err instanceof Error ? err.message : "unknown error" };
+      }
+    }),
+  );
 }
 
 const BROWSE_MUTATION = `
@@ -145,11 +235,27 @@ const BROWSE_MUTATION = `
   }`;
 
 export interface BrowseResult extends SearchResult {
-  /** Sources that were left out because they can't filter by every selected genre. */
+  /** Sources that couldn't be searched at all because they can't filter by any of the chosen genres. */
   skipped: string[];
 }
 
-/** Browses every source that supports all the chosen genres at once, optionally with a text query too. */
+/** Runs `task` over `items`, a few at a time. */
+async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      for (let i = next++; i < items.length; i = next++) out[i] = await task(items[i]);
+    }),
+  );
+  return out;
+}
+
+/**
+ * Browses your sources for series that have ALL the chosen genres, optionally with a text query too.
+ * Each source narrows by whatever genres it can filter on (asking for "match all" where it offers it);
+ * for genres a source can't filter on, its top results are checked against the series' own genre list.
+ */
 export async function browseByGenres(
   config: Config,
   genres: string[],
@@ -163,8 +269,8 @@ export async function browseByGenres(
   const results = await Promise.all(
     sources.map(async (source) => {
       try {
-        const changes = planGenreFilters(await filtersFor(config, source.id, fetchImpl), genres);
-        if (!changes) {
+        const plan = planGenreFilters(await filtersFor(config, source.id, fetchImpl), genres);
+        if (!plan) {
           skipped.push(source.name);
           return [];
         }
@@ -175,11 +281,25 @@ export async function browseByGenres(
         }>(
           config,
           BROWSE_MUTATION,
-          { input: { source: source.id, type: "SEARCH", page, query: query || null, filters: changes } },
+          { input: { source: source.id, type: "SEARCH", page, query: query || null, filters: plan.changes } },
           { fetchImpl, timeoutMs },
         );
         onResult?.(source, { ok: true, ms: Date.now() - started });
-        return data.fetchSourceManga.mangas.map<SourceHit>((m) => ({
+        let mangas = data.fetchSourceManga.mangas;
+        if (plan.missing.length > 0) {
+          // Check the rest against each series' own genres (a handful per page, to stay gentle on the site).
+          const checked = await mapLimit(mangas.slice(0, 10), 4, async (m) => {
+            try {
+              const details = await fetchMangaDetails(config, m.id, fetchImpl);
+              const have = new Set(details.genre.map(canonKey));
+              return plan.missing.every((k) => have.has(k)) ? m : null;
+            } catch {
+              return null;
+            }
+          });
+          mangas = checked.filter((m): m is NonNullable<typeof m> => m !== null);
+        }
+        return mangas.map<SourceHit>((m) => ({
           mangaId: m.id,
           sourceId: source.id,
           sourceName: source.name,

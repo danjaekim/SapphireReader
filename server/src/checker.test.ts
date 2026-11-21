@@ -67,3 +67,36 @@ describe("ntfy notifier", () => {
     expect(createNotifier(loadConfig({}))).toBeNull();
   });
 });
+
+describe("updates feed", () => {
+  it("records new chapters for every checked series, and flags the ones you were caught up on", async () => {
+    const store = setup();
+    await checkLibrary({
+      config,
+      store,
+      pauseMs: 0,
+      notify: null,
+      loadNumbers: async (id) => ({ 1: [1, 2, 3, 4], 2: [1, 2, 3, 4, 5], 3: [1, 2] })[id as 1 | 2 | 3],
+    });
+    const feed = store.updates();
+    expect(feed.map((u) => [u.title, u.caughtUp, u.newCount])).toEqual(expect.arrayContaining([["Caught Up", true, 1], ["Behind", false, 2]]));
+    expect(feed.find((u) => u.title === "Never Checked")).toBeUndefined(); // first check is a baseline, not news
+    expect(store.updates({ caughtUpOnly: true }).map((u) => u.title)).toEqual(["Caught Up"]);
+    expect(store.lastChecked()).toBeTruthy();
+  });
+});
+
+describe("home and updates api", () => {
+  it("shows what to continue and what's new", async () => {
+    const { buildApp } = await import("./app.js");
+    const store = setup();
+    store.setChapterNumbers(2, [1, 2, 3]);
+    const app = await buildApp(config, { store });
+    await checkLibrary({ config, store, pauseMs: 0, notify: null, loadNumbers: async (id) => (id === 1 ? [1, 2, 3, 4] : id === 2 ? [1, 2, 3, 4] : [1]) });
+    const home = (await app.inject({ url: "/api/home" })).json();
+    expect(home.continueReading.map((i: { title: string }) => i.title).sort()).toEqual(["Behind", "Caught Up"]); // both now have unread chapters
+    expect(home.newChapters.map((u: { title: string }) => u.title)).toEqual(["Caught Up"]);
+    expect(home.libraryCount).toBe(3);
+    expect((await app.inject({ url: "/api/updates" })).json().items.length).toBe(2);
+  });
+});

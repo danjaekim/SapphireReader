@@ -7,7 +7,7 @@ import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
 import { checkEngine, engineFile, engineQuery } from "./engine.js";
 import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
-import { browseByGenres, listGenres } from "./browse.js";
+import { browseByGenres, genreSupport, listGenres } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { discover, recommendFor, similarTo, type DiscoverSort } from "./discover.js";
 import { Downloader, mimeForFile } from "./downloader.js";
@@ -209,21 +209,61 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   }
 
-  app.get("/api/genres", async (req, reply) => {
+  // Which sources a genre request may use: the page says what it is ("safe" ordinary pages, "adult" the 18+ page);
+  // anything beyond ordinary sources needs the 18+ lock open.
+  const requestedScope = (req: { headers: { cookie?: string }; query: unknown }): Scope => {
+    const asked = (req.query as { scope?: string }).scope;
+    if (asked === "adult" || asked === "all") return gate.unlocked(req.headers.cookie) ? asked : "safe";
+    if (asked === "safe") return "safe";
+    return scopeFor(req);
+  };
+
+  app.get("/api/updates", async (req) => ({
+    items: store.updates({ includeAdult: gate.unlocked(req.headers.cookie) }),
+    lastCheckedAt: store.lastChecked(),
+  }));
+
+  // Everything the home page needs that comes from Sapphire's own database (recommendations load separately).
+  app.get("/api/home", async (req) => {
+    const unlocked = gate.unlocked(req.headers.cookie);
+    const library = store.library(unlocked);
+    const continueReading = library
+      .filter((i) => i.progress && (i.unread ?? 0) > 0)
+      .sort((a, b) => b.progress!.updatedAt.localeCompare(a.progress!.updatedAt))
+      .slice(0, 12);
+    return {
+      libraryCount: library.length,
+      continueReading,
+      newChapters: store.updates({ includeAdult: unlocked, caughtUpOnly: true, limit: 8 }),
+      lastCheckedAt: store.lastChecked(),
+      alertsOn: notify !== null,
+    };
+  });
+
+  app.get("/api/sources/genres", async (req, reply) => {
     try {
-      return { genres: await listGenres(config, { fetchImpl, scope: scopeFor(req) }) };
+      return { sources: await genreSupport(config, { fetchImpl, scope: scopeFor(req) }) };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
     }
   });
 
-  app.get<{ Querystring: { genres?: string; q?: string; page?: string } }>("/api/browse", async (req, reply) => {
+  app.get("/api/genres", async (req, reply) => {
+    try {
+      return { genres: await listGenres(config, { fetchImpl, scope: requestedScope(req) }) };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "The source engine isn't answering." });
+    }
+  });
+
+  app.get<{ Querystring: { genres?: string; q?: string; page?: string; scope?: string } }>("/api/browse", async (req, reply) => {
     const genres = (req.query.genres ?? "").split(",").map((g) => g.trim()).filter(Boolean).slice(0, 10);
     const q = (req.query.q ?? "").trim();
     if (genres.length === 0) return reply.code(400).send({ error: "Pick at least one genre." });
     try {
-      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: scopeFor(req), page: pageOf(req.query.page) });
+      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: requestedScope(req), page: pageOf(req.query.page) });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });

@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
-import { browseByGenres, planGenreFilters, type EngineFilter } from "./browse.js";
+import { browseByGenres, clearFilterCache, planGenreFilters, type EngineFilter } from "./browse.js";
 import { loadConfig } from "./config.js";
 
 const config = loadConfig({ WEB_DIR: "./does-not-exist" });
+
+// Each test sets up its own fake sources, so filters cached by an earlier test must not leak in.
+beforeEach(() => clearFilterCache());
 
 const groupSource: EngineFilter[] = [
   { __typename: "TextFilter" },
@@ -21,16 +24,37 @@ const selectSource: EngineFilter[] = [{ __typename: "SelectFilter", name: "Genre
 
 describe("genre filters", () => {
   it("turns several genres into one change per genre inside the genre group", () => {
-    expect(planGenreFilters(groupSource, ["action", "martial arts"])).toEqual([
-      { position: 1, groupChange: { position: 0, triState: "INCLUDE" } },
-      { position: 1, groupChange: { position: 1, triState: "INCLUDE" } },
+    expect(planGenreFilters(groupSource, ["action", "martial arts"])).toEqual({
+      changes: [
+        { position: 1, groupChange: { position: 0, triState: "INCLUDE" } },
+        { position: 1, groupChange: { position: 1, triState: "INCLUDE" } },
+      ],
+      missing: [],
+    });
+  });
+
+  it("matches genres spelled differently, and asks for AND when the source has an OR/AND switch", () => {
+    const withCondition: EngineFilter[] = [
+      { __typename: "SelectFilter", name: "Genres condition", values: ["OR", "AND"] },
+      { __typename: "GroupFilter", name: "Genres", filters: [
+        { __typename: "CheckBoxFilter", name: "Sci-fi" },
+        { __typename: "CheckBoxFilter", name: "Martial Art" },
+      ] },
+    ];
+    const plan = planGenreFilters(withCondition, ["Science Fiction", "Martial Arts"])!;
+    expect(plan.missing).toEqual([]);
+    expect(plan.changes).toEqual([
+      { position: 1, groupChange: { position: 0, checkBoxState: true } },
+      { position: 1, groupChange: { position: 1, checkBoxState: true } },
+      { position: 0, selectState: 1 },
     ]);
   });
 
-  it("skips sources that lack a genre, or can only pick one genre at a time", () => {
-    expect(planGenreFilters(groupSource, ["Action", "Isekai"])).toBeNull();
-    expect(planGenreFilters(selectSource, ["Romance"])).toEqual([{ position: 0, selectState: 2 }]);
-    expect(planGenreFilters(selectSource, ["Action", "Romance"])).toBeNull();
+  it("filters by what it can and reports the rest, and gives up only when it can filter by none", () => {
+    expect(planGenreFilters(groupSource, ["Action", "Isekai"])).toMatchObject({ missing: ["isekai"] });
+    expect(planGenreFilters(selectSource, ["Romance"])).toEqual({ changes: [{ position: 0, selectState: 2 }], missing: [] });
+    // A single-choice list takes one genre; the other is checked afterwards.
+    expect(planGenreFilters(selectSource, ["Action", "Romance"])).toEqual({ changes: [{ position: 0, selectState: 1 }], missing: ["romance"] });
     expect(planGenreFilters([{ __typename: "TextFilter" }], ["Action"])).toBeNull();
   });
 });
@@ -58,15 +82,16 @@ function engine(sent: unknown[]): typeof fetch {
 }
 
 describe("browse", () => {
-  it("searches only sources that support every genre and says which were left out", async () => {
+  it("searches sources that support the genres and says which couldn't be searched", async () => {
     const sent: unknown[] = [];
     const out = await browseByGenres(config, ["Action", "Romance"], { fetchImpl: engine(sent), query: "nano" });
     expect(out.searched).toBe(1);
     expect(out.skipped).toEqual(["Plain Site"]);
     expect(out.groups[0].title).toBe("Nano Machine");
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ source: "1", type: "SEARCH", query: "nano" });
-    expect((sent[0] as { filters: unknown[] }).filters).toHaveLength(2);
+    expect(sent.filter((s) => (s as { type: string }).type === "SEARCH")).toHaveLength(1);
+    const search = sent.find((s) => (s as { type: string }).type === "SEARCH")!;
+    expect(search).toMatchObject({ source: "1", type: "SEARCH", query: "nano" });
+    expect((search as { filters: unknown[] }).filters).toHaveLength(2);
   });
 
   it("lists genres and serves the browse route", async () => {
@@ -95,5 +120,37 @@ describe("extensions api", () => {
     expect(r.json().extension.isInstalled).toBe(true);
     expect((await app.inject({ method: "POST", url: "/api/extensions/bad..pkg;x/install" })).statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: `/api/extensions/${ext.pkgName}/delete` })).statusCode).toBe(400);
+  });
+});
+
+describe("AND across genres", () => {
+  it("narrows by the genres a source can filter on, then checks the rest against each series' genres", async () => {
+    const sent: { filters?: unknown[] }[] = [];
+    const fake = (async (_u: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      const q: string = body.query;
+      const json = (data: unknown) => new Response(JSON.stringify({ data }));
+      if (q.includes("sources {")) return json({ sources: { nodes: [{ id: "1", name: "Half Site", lang: "en", isNsfw: false }] } });
+      if (q.includes("source(id")) {
+        return json({ source: { filters: [{ __typename: "GroupFilter", name: "Genres", filters: [{ __typename: "CheckBoxFilter", name: "Action" }] }] } });
+      }
+      if (q.includes("fetchSourceManga")) {
+        sent.push(body.variables.input);
+        return json({ fetchSourceManga: { mangas: [
+          { id: 10, title: "Has Both", thumbnailUrl: null },
+          { id: 11, title: "Action Only", thumbnailUrl: null },
+        ] } });
+      }
+      if (q.includes("fetchManga(")) return json({ fetchManga: { manga: { id: 1 } } });
+      if (q.includes("manga(id")) {
+        const id = body.variables.id;
+        return json({ manga: { id, sourceId: "1", title: "x", thumbnailUrl: null, author: null, artist: null, description: null, genre: id === 10 ? ["Action", "Martial Arts"] : ["Action"], status: "ONGOING" } });
+      }
+      return new Response("?", { status: 500 });
+    }) as unknown as typeof fetch;
+
+    const out = await browseByGenres(config, ["Action", "Martial Art"], { fetchImpl: fake });
+    expect(out.groups.map((g) => g.title)).toEqual(["Has Both"]);
+    expect(sent[0].filters).toHaveLength(1); // only Action was sent to the site
   });
 });

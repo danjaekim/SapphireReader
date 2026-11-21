@@ -28,8 +28,19 @@ export async function checkLibrary(opts: {
       store.setChapterNumbers(item.mangaId, numbers);
       const after = store.library(true).find((x) => x.mangaId === item.mangaId);
       const wasCaughtUp = item.unread === 0 && item.latestNumber !== null;
-      if (!notify || !wasCaughtUp || !after || after.latestNumber === null || after.latestNumber <= item.latestNumber!) continue;
+      const isNew = item.unread !== null && item.latestNumber !== null && !!after && after.latestNumber !== null && after.latestNumber > item.latestNumber;
+      if (!isNew) continue;
       const fresh = numbers.filter((n) => n > item.latestNumber!).length;
+      store.addUpdate({
+        mangaId: item.mangaId,
+        title: item.title,
+        sourceName: item.sourceName,
+        adult: item.adult,
+        latestNumber: after!.latestNumber!,
+        newCount: fresh,
+        caughtUp: wasCaughtUp,
+      });
+      if (!notify || !wasCaughtUp) continue;
       try {
         await notify({
           // Titles from the 18+ library stay out of lock-screen notifications.
@@ -37,8 +48,8 @@ export async function checkLibrary(opts: {
           message: item.adult
             ? "New chapter in your 18+ library"
             : fresh > 1
-              ? `${fresh} new chapters, latest Ch. ${chapterWord(after.latestNumber)}`
-              : `Chapter ${chapterWord(after.latestNumber)} is out`,
+              ? `${fresh} new chapters, latest Ch. ${chapterWord(after!.latestNumber!)}`
+              : `Chapter ${chapterWord(after!.latestNumber!)} is out`,
           click: config.publicUrl ? `${config.publicUrl}/#/series/${item.mangaId}` : undefined,
         });
         alerts++;
