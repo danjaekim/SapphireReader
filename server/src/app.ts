@@ -10,6 +10,7 @@ import { checkEngine, engineFile, engineQuery } from "./engine.js";
 import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
 import { requestUpdate, updateInfo } from "./updater.js";
 import { rankByAnilist, ratingsFor } from "./ratings.js";
+import { parseDescription } from "./description.js";
 import { canonKey } from "./genres.js";
 import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
@@ -534,6 +535,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       store.recordSeriesMeta(id, manga.title, manga.sourceName, adult);
       return {
         manga,
+        about: parseDescription(manga.description, manga.title),
         adult,
         reader: readerPrefs(id),
         chapters,

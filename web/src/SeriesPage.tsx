@@ -5,6 +5,7 @@ import { genreHref, readHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
 import { useScore } from "./shared";
+import { chapterDate } from "./util";
 
 function chapterLabel(c: { name: string; chapterNumber: number }): string {
   return c.chapterNumber >= 0 ? `Ch. ${Number.isInteger(c.chapterNumber) ? c.chapterNumber : c.chapterNumber.toFixed(1)}` : c.name;
@@ -29,6 +30,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [fullDesc, setFullDesc] = useState(false);
   const [jump, setJump] = useState("");
   const score = useScore(data?.manga.title ?? null);
+  const [fullAlt, setFullAlt] = useState(false);
   // After marking one chapter read, offer to mark the unread ones before it too (handy when you read them elsewhere).
   const [shelves, setShelves] = useState<Category[]>([]);
   useEffect(() => {
@@ -107,10 +109,15 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   }
 
   const readIds = new Set(data?.readChapterIds ?? []);
+  const about = data?.about ?? { body: data?.manga.description ?? "", altTitles: [], stats: [] };
   const unread = data ? data.chapters.filter((c) => !readIds.has(c.id) && states[c.id]?.status !== "done") : [];
   const notSaved = data ? data.chapters.filter((c) => !states[c.id] || states[c.id].status === "failed") : [];
   const working = Object.values(states).filter((d) => d.status === "queued" || d.status === "downloading").length;
   const resume = data?.progress ? data.chapters.find((c) => c.id === data.progress!.chapterId) : undefined;
+  // Finished the chapter you were on: point at the next one, or say you're caught up.
+  const resumeDone = !!resume && readIds.has(resume.id);
+  const next = resume && resumeDone ? data!.chapters[data!.chapters.indexOf(resume) + 1] : undefined;
+  const caughtUp = resumeDone && !next;
 
   return (
     <section>
@@ -123,13 +130,32 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
             <img src={thumbnailUrl(mangaId)} alt="" width={120} height={173} />
             <div className="info">
               <h2>{data.manga.title}</h2>
+              {about.altTitles.length > 0 && (
+                <p className={`altTitles ${fullAlt ? "open" : ""}`}>
+                  {(fullAlt ? about.altTitles : about.altTitles.slice(0, 3)).join(" · ")}
+                  {about.altTitles.length > 3 && (
+                    <button type="button" className="linkish" onClick={() => setFullAlt((v) => !v)}>
+                      {fullAlt ? " less" : ` +${about.altTitles.length - 3} more`}
+                    </button>
+                  )}
+                </p>
+              )}
               <p className="muted">
                 {[data.manga.sourceName, data.manga.status.toLowerCase(), data.manga.author].filter(Boolean).join(" · ")}
               </p>
-              {score != null && (
-                <p className="muted">
-                  <span className="seriesScore" title="AniList average score">★ {(score / 10).toFixed(1)}</span> / 10 on AniList
-                </p>
+              {(score != null || about.stats.length > 0) && (
+                <ul className="statChips">
+                  {about.stats.map((st) => (
+                    <li key={st.label} title={`From ${data.manga.sourceName ?? "the source"}`}>
+                      <span className="muted">{st.label}</span> <strong>{st.value}</strong>
+                    </li>
+                  ))}
+                  {score != null && (
+                    <li title="AniList average score">
+                      <span className="muted">AniList</span> <strong className="seriesScore">★ {(score / 10).toFixed(1)}</strong>
+                    </li>
+                  )}
+                </ul>
               )}
               <p className="muted">
                 {data.latest.latestNumber !== null
@@ -137,11 +163,14 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   : `${data.latest.chapterCount} chapters`}
               </p>
               <div className="actions">
-                {data.chapters.length > 0 && (
-                  <a className="button" href={readHref(mangaId, (resume ?? data.chapters[0]).id)}>
-                    {resume ? `Continue ${chapterLabel(resume)}` : "Start reading"}
-                  </a>
-                )}
+                {data.chapters.length > 0 &&
+                  (caughtUp ? (
+                    <span className="button caughtUp" title={`You've read up to ${chapterLabel(resume!)}, the newest chapter.`}>Caught up ✓</span>
+                  ) : (
+                    <a className="button" href={readHref(mangaId, (next ?? resume ?? data.chapters[0]).id)}>
+                      {next ? `Next: ${chapterLabel(next)}` : resume ? `Continue ${chapterLabel(resume)}` : "Start reading"}
+                    </a>
+                  ))}
                 <button type="button" className="button secondary" onClick={toggleLibrary}>
                   {data.inLibrary ? "In library ✓" : "Add to library"}
                 </button>
@@ -177,10 +206,10 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
               ))}
             </ul>
           )}
-          {data.manga.description && (
+          {about.body && (
             <div className="descWrap">
-              <p className={`desc ${fullDesc ? "" : "clamped"}`}>{data.manga.description}</p>
-              {data.manga.description.length > 280 && (
+              <p className={`desc ${fullDesc ? "" : "clamped"}`}>{about.body}</p>
+              {about.body.length > 280 && (
                 <button type="button" className="linkish" onClick={() => setFullDesc((v) => !v)}>
                   {fullDesc ? "Show less" : "Show more"}
                 </button>
@@ -277,7 +306,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                 <a href={readHref(mangaId, c.id)}>
                   <span>{chapterLabel(c)}</span>
                   {c.name && c.chapterNumber >= 0 && c.name !== chapterLabel(c) && <span className="muted"> {c.name}</span>}
-                  <span className="muted date">{c.uploadDate ? new Date(c.uploadDate).toLocaleDateString() : ""}</span>
+                  <span className="muted date" title={c.uploadDate ? new Date(c.uploadDate).toLocaleDateString() : undefined}>{chapterDate(c.uploadDate)}</span>
                 </a>
                 <button
                   type="button"

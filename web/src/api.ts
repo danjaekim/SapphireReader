@@ -74,6 +74,8 @@ export const setReaderPrefs = (mangaId: number, p: ReaderPrefs, everywhere = fal
 
 export interface SeriesData {
   manga: MangaDetails;
+  /** The description split into story, other names and the site's own numbers. */
+  about?: { body: string; altTitles: string[]; stats: { label: string; value: string }[] };
   adult?: boolean;
   reader?: ReaderPrefs & { custom: boolean };
   chapters: ChapterInfo[]; // oldest first

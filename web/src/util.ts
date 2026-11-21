@@ -10,3 +10,18 @@ export function ago(iso: string | null): string {
 export function chapterText(n: number): string {
   return `Ch. ${Number.isInteger(n) ? n : n.toFixed(1)}`;
 }
+
+/** "today", "3 days ago", "2 weeks ago" within a month; a short date after that. */
+export function chapterDate(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(d)) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return "last week";
+  if (days < 31) return `${Math.floor(days / 7)} weeks ago`;
+  return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
