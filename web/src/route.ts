@@ -58,6 +58,44 @@ export const seriesHref = (mangaId: number) => `#/series/${mangaId}`;
 /** Opens the reader; `page` (counted from 0) jumps straight to that page. */
 export const readHref = (mangaId: number, chapterId: number, page = 0) => `#/read/${mangaId}/${chapterId}${page > 0 ? `?page=${page}` : ""}`;
 
+// The pages visited, mirroring the browser's history, so "back to the series" from the reader can tell
+// whether the series page is already the previous entry (then it goes back, rather than adding another).
+const trail: string[] = [];
+let at = -1;
+let replacing = false;
+if (typeof window !== "undefined") {
+  trail.push(window.location.hash);
+  at = 0;
+  window.addEventListener("hashchange", () => {
+    const h = window.location.hash;
+    if (replacing) trail[at] = h;
+    else if (trail[at - 1] === h) at--;
+    else if (trail[at + 1] === h) at++;
+    else {
+      trail.length = at + 1;
+      trail.push(h);
+      at++;
+    }
+    replacing = false;
+  });
+}
+
+/** Goes to a page without adding a history entry (so Back skips over it). */
+export function replaceHash(href: string) {
+  if (window.location.hash === href) return;
+  replacing = true;
+  window.location.replace(href);
+}
+
+/**
+ * "Back to X" for a page that normally comes right after X: steps back in history if X is the previous
+ * page, otherwise swaps this page for X. Either way you never end up bouncing between two pages.
+ */
+export function backTo(href: string) {
+  if (trail[at - 1] === href) window.history.back();
+  else replaceHash(href);
+}
+
 // How many times the address has changed since the app opened. Zero means this page was opened directly
 // (a bookmark, an alert), so there's nowhere "back" to inside Sapphire.
 let moves = 0;

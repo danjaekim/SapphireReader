@@ -2,7 +2,7 @@ import { Loading } from "./Loading";
 import { useEffect, useRef, useState, type MouseEvent, type TouchEvent } from "react";
 import { chapterPages, saveProgress, series, setReaderPrefs, type PrefsScope, type ReaderPrefs, type SeriesData } from "./api";
 import { DownloadButton } from "./SeriesPage";
-import { readHref, seriesHref } from "./route";
+import { backTo, readHref, replaceHash, seriesHref } from "./route";
 import { useSeriesDownloads } from "./useDownloads";
 import { OfflineButton } from "./offline";
 
@@ -78,7 +78,8 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
   const chapter = index >= 0 ? data!.chapters[index] : null;
   const prev = index > 0 ? data!.chapters[index - 1] : null;
   const next = index >= 0 && index < data!.chapters.length - 1 ? data!.chapters[index + 1] : null;
-  const go = (c: { id: number } | null) => c && (window.location.hash = readHref(mangaId, c.id));
+  // Moving between chapters swaps the page, so Back from any chapter returns to the series, not the last chapter.
+  const go = (c: { id: number } | null) => c && replaceHash(readHref(mangaId, c.id));
 
   function restoreFor(i: number, img: HTMLImageElement) {
     if (paged) return;
@@ -205,7 +206,7 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
       }
       if (right) go(next);
       else if (left) go(prev);
-      else if (e.key === "Escape") window.location.hash = seriesHref(mangaId);
+      else if (e.key === "Escape") backTo(seriesHref(mangaId));
       else if (e.key === "m") setChrome((v) => !v);
     };
     window.addEventListener("keydown", onKey);
@@ -270,11 +271,11 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
     <div className="readerEnd">
       <p className="muted">{chapter ? `End of ${chapterText(chapter)}` : ""}</p>
       {next ? (
-        <a className="button nextChapter" href={readHref(mangaId, next.id)}>Next: {chapterText(next)} →</a>
+        <a className="button nextChapter" href={readHref(mangaId, next.id)} onClick={(e) => { e.preventDefault(); replaceHash(readHref(mangaId, next.id)); }}>Next: {chapterText(next)} →</a>
       ) : (
         <p className="muted">You're caught up. Sapphire will alert you when a new chapter comes out{data?.inLibrary ? "" : " if you add this series to your library"}.</p>
       )}
-      <a className="linkish" href={seriesHref(mangaId)}>All chapters</a>
+      <a className="linkish" href={seriesHref(mangaId)} onClick={(e) => { e.preventDefault(); backTo(seriesHref(mangaId)); }}>All chapters</a>
     </div>
   );
 
@@ -284,7 +285,7 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
   return (
     <section className={`reader ${paged ? "paged" : ""}`} onClick={onTap} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       <header className={`readerBar readerTop ${chrome ? "show" : ""}`}>
-        <a className="iconBtn" href={seriesHref(mangaId)} aria-label="Back to the series">←</a>
+        <a className="iconBtn" href={seriesHref(mangaId)} aria-label="Back to the series" onClick={(e) => { e.preventDefault(); backTo(seriesHref(mangaId)); }}>←</a>
         <div className="readerHeading">
           <strong className="readerSeries">{data?.manga.title ?? ""}</strong>
           <span className="readerSub">
