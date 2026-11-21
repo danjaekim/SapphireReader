@@ -90,12 +90,21 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const report: SourceReport = (source, r) => store.recordSource(source.id, source.name, r);
   const chapterCache = new Map<number, { at: number; value: ChapterInfo[] }>();
   // The chapter list comes from the source site, so it is slow; keep it for a few minutes.
+  // A search card and the series page opened from it ask for the same list; share one request.
+  const chaptersInFlight = new Map<number, Promise<ChapterInfo[]>>();
   async function chaptersFor(mangaId: number): Promise<ChapterInfo[]> {
     const cached = chapterCache.get(mangaId);
     if (cached && Date.now() - cached.at < LATEST_TTL_MS) return cached.value;
-    const value = await fetchChapterList(config, mangaId, fetchImpl);
-    chapterCache.set(mangaId, { at: Date.now(), value });
-    return value;
+    const running = chaptersInFlight.get(mangaId);
+    if (running) return running;
+    const job = fetchChapterList(config, mangaId, fetchImpl).then((value) => {
+      chapterCache.set(mangaId, { at: Date.now(), value });
+      return value;
+    });
+    chaptersInFlight.set(mangaId, job);
+    const done = () => chaptersInFlight.delete(mangaId);
+    job.then(done, done);
+    return job;
   }
 
   // Series details come from the source site too (and the reader asks for them on every chapter),

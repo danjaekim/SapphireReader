@@ -44,8 +44,9 @@ function Card({ group, queue, lookups, hideBad, onBad }: { group: SeriesGroup; q
         (e: unknown) => {
           if (cancelled) return;
           setChapters((prev) => ({ ...prev, [hit.mangaId]: { state: "error", reason: (e as { detail?: string })?.detail } }));
-          // Sites often fail once and answer the next time: try each failure again after a pause.
-          if (tries === 0) window.setTimeout(() => !cancelled && setTries(1), 5000);
+          // Sites often fail once and answer the next time (especially when a search asks many at once):
+          // try each failure again after a pause, twice, before giving up.
+          if (tries < 2) window.setTimeout(() => !cancelled && setTries(tries + 1), tries === 0 ? 5000 : 15000);
         },
       );
     }
@@ -68,7 +69,7 @@ function Card({ group, queue, lookups, hideBad, onBad }: { group: SeriesGroup; q
   const saved = group.hits.some((h) => lib.has(h.mangaId));
   const fetched = useRating(group.title, group.score == null && near);
   const rating = group.score != null ? { value: group.score / 10, source: "AniList" } : bestRating(fetched);
-  const allFailed = lookups && tries > 0 && group.hits.every((h) => chapters[h.mangaId]?.state === "error");
+  const allFailed = lookups && tries > 1 && group.hits.every((h) => chapters[h.mangaId]?.state === "error");
   useEffect(() => {
     onBad(group.key, allFailed);
     return () => onBad(group.key, false);
@@ -107,7 +108,7 @@ function Card({ group, queue, lookups, hideBad, onBad }: { group: SeriesGroup; q
               ? "checking sources…"
               : (
                 <span title={failReason ? `The source said: ${failReason}` : "The source didn't answer for this series."}>
-                  couldn't load ·{" "}
+                  {failReason && failReason.length <= 40 ? `${failReason.replace(/\.$/, "").toLowerCase()}` : "couldn't load"} ·{" "}
                   <button type="button" className="linkish inlineRetry" onClick={() => setTries((n) => n + 1)}>retry</button>
                 </span>
               )
