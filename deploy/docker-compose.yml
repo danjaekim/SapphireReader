@@ -1,0 +1,79 @@
+# Sapphire — Phase 0 engine stack
+#
+# Runs the pieces Sapphire's own server will sit on top of:
+#   engine        Suwayomi-Server, used only as a headless runtime for Keiyoushi extensions
+#   flaresolverr  Cloudflare challenge solver the engine calls when a site blocks it
+#   ntfy          self-hosted push notifications for new chapters
+#
+# Phase 0 only: the engine's web UI and port 4567 are exposed so you can install
+# extensions and test your sites by hand. From Phase 1 on, Sapphire's server talks to
+# the engine over the internal network and port 4567 is removed (see the PHASE 1 notes).
+#
+# Before starting: replace every CHANGE_ME value below.
+# Setup guide: docs/phase-0-setup.md
+
+name: sapphire
+
+services:
+  engine:
+    image: ghcr.io/suwayomi/suwayomi-server:stable
+    container_name: sapphire-engine
+    restart: unless-stopped
+    environment:
+      - TZ=America/New_York
+      # Keiyoushi extension repository (Mihon/Tachiyomi extensions).
+      - EXTENSION_STORES=["https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb"]
+      - FLARESOLVERR_ENABLED=true
+      - FLARESOLVERR_URL=http://flaresolverr:8191
+      # Login for the Phase 0 web UI. PHASE 1: Sapphire's server uses these too.
+      - AUTH_MODE=basic_auth
+      - AUTH_USERNAME=sapphire
+      - AUTH_PASSWORD=CHANGE_ME
+      # Cap the Java heap so the engine can't grow past ~768 MB of heap.
+      - JAVA_TOOL_OPTIONS=-Xmx768m
+      # The engine's own library updates are not used; Sapphire runs its own checks.
+      - UPDATE_INTERVAL=0
+    volumes:
+      - ./data/engine:/home/suwayomi/.local/share/Tachidesk
+    ports:
+      # PHASE 0 ONLY. Remove this in Phase 1 and set WEB_UI_ENABLED=false.
+      - "4567:4567"
+    networks:
+      - sapphire
+
+  flaresolverr:
+    # Byparr is a FlareSolverr-compatible solver; it is what Suwayomi's own
+    # compose template ships with. Not exposed outside the stack.
+    image: ghcr.io/thephaseless/byparr:latest
+    container_name: sapphire-flaresolverr
+    restart: unless-stopped
+    environment:
+      - TZ=America/New_York
+    networks:
+      - sapphire
+
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: sapphire-ntfy
+    restart: unless-stopped
+    command: serve
+    environment:
+      - TZ=America/New_York
+      # The address your phone uses to reach ntfy, e.g. http://192.168.1.50:8090
+      - NTFY_BASE_URL=http://CHANGE_ME_NAS_IP:8090
+      - NTFY_CACHE_FILE=/var/lib/ntfy/cache.db
+      - NTFY_AUTH_FILE=/var/lib/ntfy/user.db
+      # Nobody can read or post without logging in.
+      - NTFY_AUTH_DEFAULT_ACCESS=deny-all
+      # Needed for instant delivery on iPhone. Only a message id is relayed, never the text.
+      - NTFY_UPSTREAM_BASE_URL=https://ntfy.sh
+    volumes:
+      - ./data/ntfy:/var/lib/ntfy
+    ports:
+      - "8090:80"
+    networks:
+      - sapphire
+
+networks:
+  sapphire:
+    name: sapphire

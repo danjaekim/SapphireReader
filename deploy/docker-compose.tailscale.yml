@@ -1,0 +1,34 @@
+# Sapphire — optional remote access with Tailscale
+#
+# Run this as its own project, separate from the main stack, when you want to read
+# away from home. It joins the whole NAS to your private Tailscale network, so your
+# phone can reach Sapphire and ntfy at the NAS's Tailscale address from anywhere.
+# Nothing is opened on your router, and nothing is reachable from the public internet.
+#
+# 1. Create a free account at https://tailscale.com and generate an auth key
+#    (Settings > Keys > Generate auth key).
+# 2. Replace CHANGE_ME below with that key and start this project.
+# 3. Install the Tailscale app on your phone/tablet and sign in to the same account.
+# 4. Once the NAS shows up in the Tailscale admin console, you can delete the key value
+#    here; the login is kept in ./data/tailscale.
+
+name: sapphire-remote
+
+services:
+  tailscale:
+    image: tailscale/tailscale:stable
+    container_name: sapphire-tailscale
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - TS_AUTHKEY=CHANGE_ME
+      - TS_HOSTNAME=sapphire
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+    volumes:
+      - ./data/tailscale:/var/lib/tailscale
