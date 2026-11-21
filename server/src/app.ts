@@ -736,6 +736,27 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  // ♥ a series: it counts toward "For you" whether or not it's in the library.
+  app.put<{ Params: { id: string }; Body: { on?: unknown } }>("/api/manga/:id/like", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    const on = req.body?.on !== false;
+    if (!on) {
+      store.setLiked(id, "", false, false);
+    } else {
+      // Likes learn from the series' tags and keep 18+ ones with the 18+ taste, so read the details.
+      const manga = await detailsFor(id).catch(() => null);
+      if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+      if ((manga.genre ?? []).length > 0) store.recordSeriesTags(id, manga.genre);
+      const fromAdultSite = (await listSources(config, fetchImpl).catch(() => [])).find((x) => x.id === manga.sourceId)?.isNsfw === true;
+      const adult = fromAdultSite || store.seriesAdult([id]).get(id) === true;
+      store.setLiked(id, manga.title, adult, true);
+    }
+    forYouCache.clear();
+    alsoLikedCache.clear();
+    return { liked: on };
+  });
+
   // "Not interested" on a recommendation: it's never suggested again, and its tags count a little against.
   app.put<{ Params: { id: string }; Body: { title?: unknown; on?: unknown; adult?: unknown } }>("/api/manga/:id/not-interested", async (req, reply) => {
     const id = Number(req.params.id);
@@ -829,6 +850,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         about: parseDescription(manga.description, manga.title),
         adult,
         reader: readerPrefs(id, manga.sourceId, deviceOf(req)),
+        liked: store.isLiked(id),
         chapters,
         latest: latestFromChapters(chapters),
         inLibrary: store.inLibrary(id),

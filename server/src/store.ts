@@ -254,6 +254,8 @@ export class Store {
     // Tags of every series Sapphire has looked at, so it can tell common tags from telling ones.
     // Which chapter numbers of a series (by normalised title) have been read on any source, so another source of the same series starts out with them marked.
     this.db.exec("CREATE TABLE IF NOT EXISTS read_numbers (title_key TEXT NOT NULL, chapter_number REAL NOT NULL, read_at TEXT NOT NULL, PRIMARY KEY (title_key, chapter_number))");
+    // Series you liked (♥): a strong signal for recommendations, whether or not they're in the library.
+    this.db.exec("CREATE TABLE IF NOT EXISTS likes (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
     // Series marked "Not interested" in recommendations: never suggested again, and their tags count against.
     this.db.exec("CREATE TABLE IF NOT EXISTS not_interested (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS series_tags (manga_id INTEGER PRIMARY KEY, tags TEXT NOT NULL, seen_at TEXT NOT NULL)");
@@ -734,6 +736,19 @@ export class Store {
       out.push({ mangaId: r.id, title: r.title, tags, weight: base * recency(r.lastRead) });
       seen.add(r.id);
     }
+    // A ♥ is the clearest signal there is: it counts most, in the library or not.
+    const likes = this.db.prepare("SELECT manga_id AS id, title FROM likes WHERE adult = ?").all(adult ? 1 : 0) as { id: number; title: string }[];
+    for (const r of likes) {
+      const have = out.find((o) => o.mangaId === r.id);
+      if (have) {
+        have.weight += 3;
+        continue;
+      }
+      const tags = this.seriesTags(r.id);
+      if (!tags || tags.length === 0) continue;
+      out.push({ mangaId: r.id, title: r.title, tags, weight: 4 });
+      seen.add(r.id);
+    }
     // Read a few chapters of something without adding it: still a sign you liked it.
     const extra = this.db
       .prepare(
@@ -749,6 +764,20 @@ export class Store {
       out.push({ mangaId: r.id, title: r.title, tags, weight: 1.5 * recency(r.lastRead) });
     }
     return out;
+  }
+
+  setLiked(mangaId: number, title: string, adult: boolean, on: boolean): void {
+    if (!on) {
+      this.db.prepare("DELETE FROM likes WHERE manga_id = ?").run(mangaId);
+      return;
+    }
+    this.db
+      .prepare("INSERT INTO likes (manga_id, title, adult, at) VALUES (?, ?, ?, ?) ON CONFLICT(manga_id) DO UPDATE SET title = excluded.title, adult = excluded.adult")
+      .run(mangaId, title, adult ? 1 : 0, new Date().toISOString());
+  }
+
+  isLiked(mangaId: number): boolean {
+    return this.db.prepare("SELECT 1 FROM likes WHERE manga_id = ?").get(mangaId) !== undefined;
   }
 
   markNotInterested(mangaId: number, title: string, adult: boolean, on: boolean): void {

@@ -1,6 +1,6 @@
 import { Loading } from "./Loading";
 import { useEffect, useRef, useState } from "react";
-import { addToLibrary, alternatives, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, alternatives, setLiked, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -304,6 +304,17 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     }
   }
 
+  async function toggleLike() {
+    if (!data) return;
+    const next = !data.liked;
+    setData({ ...data, liked: next });
+    try {
+      await setLiked(mangaId, next);
+    } catch {
+      setData((d) => (d ? { ...d, liked: !next } : d));
+    }
+  }
+
   async function toggleLibrary() {
     if (!data) return;
     const next = !data.inLibrary;
@@ -507,6 +518,15 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     ))}
                   <button type="button" className="button secondary" onClick={toggleLibrary}>
                     {data.inLibrary ? "In library ✓" : "Add to library"}
+                  </button>
+                  <button
+                    type="button"
+                    className={`button secondary likeBtn ${data.liked ? "on" : ""}`}
+                    onClick={toggleLike}
+                    aria-pressed={data.liked === true}
+                    title={data.liked ? "Liked: For you suggests more like this (tap to undo)" : "Like it: For you suggests more like this"}
+                  >
+                    <span aria-hidden="true">{data.liked ? "♥" : "♡"}</span> {data.liked ? "Liked" : "Like"}
                   </button>
                 </div>
                 {data.inLibrary && shelves.length > 0 && (

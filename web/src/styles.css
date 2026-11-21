@@ -834,3 +834,8 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .dismissedCard p { margin: 0; overflow-wrap: anywhere; }
 .dismissedCard .button { align-self: flex-start; }
 .statusSlot .loading + p { margin-top: 6px; }
+
+/* ♥ Like on the series page and at the end of a series. */
+.likeBtn span { color: var(--muted); }
+.likeBtn.on { border-color: color-mix(in srgb, #e11d48 50%, var(--line)); }
+.likeBtn.on span { color: #e11d48; }

@@ -1,6 +1,6 @@
 import { Loading } from "./Loading";
 import { useEffect, useRef, useState, type MouseEvent, type TouchEvent } from "react";
-import { chapterPages, saveProgress, series, setReaderPrefs, type PrefsScope, type ReaderPrefs, type SeriesData } from "./api";
+import { chapterPages, saveProgress, series, setLiked, setReaderPrefs, type PrefsScope, type ReaderPrefs, type SeriesData } from "./api";
 import { DownloadButton } from "./SeriesPage";
 import { backTo, readHref, replaceHash, seriesHref } from "./route";
 import { useSeriesDownloads } from "./useDownloads";
@@ -273,7 +273,24 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
       {next ? (
         <a className="button nextChapter" href={readHref(mangaId, next.id)} onClick={(e) => { e.preventDefault(); replaceHash(readHref(mangaId, next.id)); }}>Next: {chapterText(next)} →</a>
       ) : (
-        <p className="muted">You're caught up. Sapphire will alert you when a new chapter comes out{data?.inLibrary ? "" : " if you add this series to your library"}.</p>
+        <>
+          <p className="muted">You're caught up. Sapphire will alert you when a new chapter comes out{data?.inLibrary ? "" : " if you add this series to your library"}.</p>
+          {data && (
+            <button
+              type="button"
+              className={`button secondary likeBtn ${data.liked ? "on" : ""}`}
+              aria-pressed={data.liked === true}
+              onClick={(e) => {
+                e.stopPropagation();
+                const on = !data.liked;
+                setData({ ...data, liked: on });
+                setLiked(mangaId, on).catch(() => setData((d) => (d ? { ...d, liked: !on } : d)));
+              }}
+            >
+              <span aria-hidden="true">{data.liked ? "♥" : "♡"}</span> {data.liked ? "Liked: you'll see more like this" : "Liked it? Get more like this"}
+            </button>
+          )}
+        </>
       )}
       <a className="linkish" href={seriesHref(mangaId)} onClick={(e) => { e.preventDefault(); backTo(seriesHref(mangaId)); }}>All chapters</a>
     </div>

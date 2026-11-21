@@ -103,6 +103,8 @@ export interface SeriesData {
   chapters: ChapterInfo[]; // oldest first
   latest: LatestChapter;
   inLibrary: boolean;
+  /** ♥: counts toward For you, in the library or not. */
+  liked?: boolean;
   progress: Progress | null;
   readChapterIds: number[];
   categories?: number[];
@@ -220,6 +222,7 @@ export const discoverList = (sort: "popular" | "latest" | "rating" | "newest" | 
   getJson<BrowseResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}&page=${page}`);
 export const alsoLiked = (adult = false) =>
   getJson<{ rows: { from: string; groups: SeriesGroup[] }[] }>(`/api/for-you/also-liked${adult ? "?adult=1" : ""}`);
+export const setLiked = (mangaId: number, on: boolean) => send("PUT", `/api/manga/${mangaId}/like`, { on });
 export const setNotInterested = (mangaId: number, title: string, on: boolean, adult = false) =>
   send("PUT", `/api/manga/${mangaId}/not-interested`, { title, on, adult });
 export interface Shelf {

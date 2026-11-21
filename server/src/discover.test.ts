@@ -134,6 +134,20 @@ describe("for you rows", () => {
     expect(await titles()).toContain("Nano Machine");
   });
 
+  it("learns from a liked series that isn't in the library", async () => {
+    const store = new Store(":memory:");
+    const app = await buildApp(config, { fetchImpl: engine(), store });
+    expect((await app.inject({ url: "/api/for-you" })).json().shelves).toEqual([]);
+    const res = await app.inject({ method: "PUT", url: "/api/manga/10/like", payload: { on: true } });
+    expect(res.json()).toEqual({ liked: true });
+    expect((await app.inject({ url: "/api/manga/10" })).json().liked).toBe(true);
+    expect(store.likedSeries().map((l) => l.title)).toEqual(["Nano Machine"]);
+    const out = (await app.inject({ url: "/api/for-you" })).json();
+    expect(out.shelves.length).toBeGreaterThan(0);
+    await app.inject({ method: "PUT", url: "/api/manga/10/like", payload: { on: false } });
+    expect(store.likedSeries()).toEqual([]);
+  });
+
   it("tries other mixes, then single tags, when a mix finds nothing", async () => {
     const { recommendShelves } = await import("./discover.js");
     const tried: string[] = [];
