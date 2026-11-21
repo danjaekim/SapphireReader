@@ -167,3 +167,27 @@ describe("tag-style filters", () => {
     expect(planGenreFilters(filters, ["ongoing"])).toBeNull();
   });
 });
+
+describe("18+ sources without a tag filter", () => {
+  it("searches them with tag:\"…\" in the query", async () => {
+    const sent: unknown[] = [];
+    const fake = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      const q: string = body.query;
+      const json = (data: unknown) => new Response(JSON.stringify({ data }));
+      if (q.includes("sources {")) return json({ sources: { nodes: [{ id: "7", name: "NHentai", lang: "all", isNsfw: true }] } });
+      if (q.includes("source(id")) return json({ source: { filters: [{ __typename: "TextFilter", name: "x" }] } });
+      if (q.includes("fetchSourceManga")) {
+        sent.push(body.variables.input);
+        return json({ fetchSourceManga: { mangas: [{ id: 5, title: "Some Doujin", thumbnailUrl: null }] } });
+      }
+      if (q.includes("fetchManga(")) return json({ fetchManga: { manga: { id: 5 } } });
+      if (q.includes("manga(")) return json({ manga: { id: 5, sourceId: "7", title: "Some Doujin", author: null, artist: null, description: null, genre: ["glasses"], status: "ONGOING" } });
+      return new Response("?", { status: 500 });
+    }) as unknown as typeof fetch;
+    clearFilterCache();
+    const out = await browseByGenres(config, ["glasses"], { fetchImpl: fake, scope: "adult" });
+    expect(sent.find((s) => (s as { type?: string }).type === "SEARCH")).toMatchObject({ type: "SEARCH", query: 'tag:"glasses"' });
+    expect(out.groups[0].title).toBe("Some Doujin");
+  });
+});

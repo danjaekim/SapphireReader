@@ -276,6 +276,10 @@ export async function browseByGenres(
         const plan: GenrePlan =
           planGenreFilters(await filtersFor(config, source.id, fetchImpl).catch(() => []), genres) ??
           { changes: [], missing: genres.map(canonKey) };
+        // Sites like NHentai have no tag filter but take tags in the search box (tag:"glasses").
+        // Only 18+ sources get this, and results are still checked against the series' own tags.
+        const tagQuery =
+          plan.changes.length === 0 && source.isNsfw ? [query, ...genres.map((g) => `tag:"${canonLabel(g).toLowerCase()}"`)].filter(Boolean).join(" ") : null;
         searched++;
         const started = Date.now();
         const data = await engineQuery<{
@@ -286,9 +290,9 @@ export async function browseByGenres(
           {
             input: {
               source: source.id,
-              type: plan.changes.length === 0 && !query ? "POPULAR" : "SEARCH",
+              type: plan.changes.length === 0 && !query && !tagQuery ? "POPULAR" : "SEARCH",
               page,
-              query: query || null,
+              query: tagQuery ?? (query || null),
               filters: plan.changes,
             },
           },

@@ -22,13 +22,14 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
   const page: PageName = adult ? "discover-18" : "discover";
   const mode: Mode = MODES.some((m) => m.id === params.get("mode")) ? (params.get("mode") as Mode) : "for-you";
   const genres = params.getAll("genre");
+  const seed = params.get("seed") ?? undefined;
   const [empty, setEmpty] = useState<string | undefined>();
 
   const { result, busy, error, more, loadMore } = usePaged(
     async (p): Promise<SearchResult> => {
       if (p === 1) setEmpty(undefined);
       if (genres.length > 0) {
-        const b = await browse(genres, "", p, adult ? "adult" : "safe");
+        const b = await browse(genres, "", p, adult ? "adult" : "safe", seed);
         return { ...b, note: b.skipped.length ? `${b.skipped.join(", ")} can't filter by these genres, so ${b.skipped.length === 1 ? "it was" : "they were"} not searched.` : undefined };
       }
       if (mode === "for-you") {
@@ -46,7 +47,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       }
       return discoverList(mode === "latest" ? "latest" : "popular", adult, p);
     },
-    `${page}|${scopeTag}|${mode}|${genres.join(",")}`,
+    `${page}|${scopeTag}|${mode}|${genres.join(",")}|${seed ?? ""}`,
   );
 
   return (
@@ -65,7 +66,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
           </button>
         ))}
       </div>
-      <GenrePicker selected={genres} scope={adult ? "adult" : "safe"} onChange={(g) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: g }))} />
+      <GenrePicker selected={genres} scope={adult ? "adult" : "safe"} onChange={(g) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: g, seed }))} />
       {error && <p className="bad">{error}</p>}
       {busy && <Loading label="Asking your sources. This can take several seconds." />}
       {result && <Results result={result} empty={empty ?? (genres.length ? "No series have all of those genres. Try removing one." : undefined)} lookups={false} hasMore={more} onMore={loadMore} />}

@@ -463,8 +463,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
         store.setGenres(id, manga.genre);
       }
+      const adult = (await listSources(config, fetchImpl).catch(() => [])).find((x) => x.id === manga.sourceId)?.isNsfw === true;
       return {
         manga,
+        adult,
         chapters,
         latest: latestFromChapters(chapters),
         inLibrary: store.inLibrary(id),

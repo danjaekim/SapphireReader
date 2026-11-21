@@ -64,6 +64,7 @@ export interface Progress {
 
 export interface SeriesData {
   manga: MangaDetails;
+  adult?: boolean;
   chapters: ChapterInfo[]; // oldest first
   latest: LatestChapter;
   inLibrary: boolean;
