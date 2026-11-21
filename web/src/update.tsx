@@ -134,13 +134,19 @@ export function UpdateCard() {
       </div>
 
       {busy ? (
-        <div className="updateBusy">
-          <Loading label={u.message ?? "Updating…"} size="md" />
-          <p className="muted small">
-            Keep this page open. It reloads by itself when the new version is up.
-            {phase === "updating" && u.startedAt ? ` Started ${ago(new Date(u.startedAt).toISOString())}.` : ""}
-          </p>
-        </div>
+        <>
+          <dl className="versionList">
+            <div><dt>Installed</dt><dd><Version v={info?.current} /></dd></div>
+            <div><dt>Latest</dt><dd><Version v={info?.latest} /></dd></div>
+          </dl>
+          <div className="statusSlot">
+            <Loading label={u.message ?? "Updating…"} size="sm" block={false} />
+            <p className="muted small">
+              Keep this page open. It reloads by itself when the new version is up.
+              {phase === "updating" && u.startedAt ? ` Started ${ago(new Date(u.startedAt).toISOString())}.` : ""}
+            </p>
+          </div>
+        </>
       ) : !info ? (
         <Loading label="Checking for a newer version…" size="sm" />
       ) : (
@@ -262,10 +268,16 @@ export function EngineUpdateCard() {
         </button>
       </div>
       {busy ? (
-        <div className="updateBusy">
-          <Loading label={message ?? "Updating…"} size="md" />
-          <p className="muted small">Searches and downloads pause for a moment while it restarts.</p>
-        </div>
+        <>
+          <dl className="versionList">
+            <div><dt>Installed</dt><dd><Version v={info?.current} /></dd></div>
+            <div><dt>Latest</dt><dd><Version v={info?.latest} /></dd></div>
+          </dl>
+          <div className="statusSlot">
+            <Loading label={message ?? "Updating…"} size="sm" block={false} />
+            <p className="muted small">Searches and downloads pause for a moment while it restarts.</p>
+          </div>
+        </>
       ) : !info ? (
         <Loading label="Checking the engine…" size="sm" />
       ) : (

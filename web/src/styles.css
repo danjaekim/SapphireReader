@@ -833,3 +833,4 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .dismissedCard { display: flex; flex-direction: column; justify-content: center; gap: 10px; aspect-ratio: 2 / 3; padding: 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 13px; }
 .dismissedCard p { margin: 0; overflow-wrap: anywhere; }
 .dismissedCard .button { align-self: flex-start; }
+.statusSlot .loading + p { margin-top: 6px; }
