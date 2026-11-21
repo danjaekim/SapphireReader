@@ -33,13 +33,14 @@ const TAG_CAP = 12;
  * A series with a single chapter (one-shots, galleries) doesn't need a chapter list: show its
  * pages instead, with read and download controls. Tapping a page opens the reader there.
  */
-function OneChapter({ mangaId, chapter, read, state, onMark, onDownload }: {
+function OneChapter({ mangaId, chapter, read, state, onMark, onDownload, onPages }: {
   mangaId: number;
   chapter: ChapterInfo;
   read: boolean;
   state?: { status: string; error: string | null };
   onMark: (read: boolean) => void;
   onDownload: () => void;
+  onPages: (count: number | null) => void;
 }) {
   const [pages, setPages] = useState<string[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -48,7 +49,11 @@ function OneChapter({ mangaId, chapter, read, state, onMark, onDownload }: {
     let cancelled = false;
     setPages(null);
     setFailed(false);
-    chapterPages(chapter.id).then((r) => !cancelled && setPages(r.pages), () => !cancelled && setFailed(true));
+    onPages(null);
+    chapterPages(chapter.id).then(
+      (r) => { if (!cancelled) { setPages(r.pages); onPages(r.pages.length); } },
+      () => { if (!cancelled) { setFailed(true); onPages(-1); } },
+    );
     return () => void (cancelled = true);
   }, [chapter.id]);
   const shown = pages ? (all ? pages : pages.slice(0, PREVIEW_PAGES)) : [];
@@ -152,6 +157,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [newestFirst, setNewestFirst] = useState(true);
   const [fullDesc, setFullDesc] = useState(false);
   const [allTags, setAllTags] = useState(false);
+  const [pageCount, setPageCount] = useState<number | null>(null);
   const [jump, setJump] = useState("");
   // Wait for the series (and its other names) before asking, so the lookup can use them.
   const rating = useRating(data?.manga.title ?? null, data !== null, data ? (data.about?.altTitles ?? []) : undefined);
@@ -326,9 +332,12 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     ...about.stats.filter((st) => isRating(st.label)).map((st) => ({ label: data?.manga.sourceName ?? "Site", value: st.value, title: `${st.label} on ${data?.manga.sourceName ?? "the source"}` })),
     ...(rating?.mu != null ? [{ label: "MangaUpdates", value: rating.mu.toFixed(1), title: "MangaUpdates rating, out of 10" }] : []),
   ];
+  const single = data?.chapters.length === 1;
   // Plain numbers for the box on the left: chapters plus whatever else the site counts (bookmarks, views…).
   const counts = [
-    { label: "Chapters", value: String(data ? (data.latest.latestNumber !== null ? Math.floor(data.latest.latestNumber) : data.latest.chapterCount) : 0) },
+    single
+      ? { label: "Pages", value: pageCount === null ? "…" : pageCount < 0 ? "—" : String(pageCount) }
+      : { label: "Chapters", value: String(data ? (data.latest.latestNumber !== null ? Math.floor(data.latest.latestNumber) : data.latest.chapterCount) : 0) },
     ...about.stats.filter((st) => !isRating(st.label) && !/^rank$/i.test(st.label)),
   ].slice(0, 3);
 
@@ -379,7 +388,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   {data.manga.sourceName && <div><dt>Source</dt><dd>{data.manga.sourceName}</dd></div>}
                   {data.manga.author && <div><dt>Author</dt><dd><People names={data.manga.author} /></dd></div>}
                   {data.manga.artist && data.manga.artist !== data.manga.author && <div><dt>Artist</dt><dd><People names={data.manga.artist} /></dd></div>}
-                  {data.latest.latestNumber !== null && (
+                  {!single && data.latest.latestNumber !== null && (
                     <div><dt>Latest</dt><dd>{chapterLabel({ name: "", chapterNumber: data.latest.latestNumber })}</dd></div>
                   )}
                 </dl>
@@ -490,6 +499,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   state={states[data.chapters[0].id]}
                   onMark={(r) => void mark([data.chapters[0].id], r)}
                   onDownload={() => download(data.manga, [data.chapters[0]])}
+                  onPages={setPageCount}
                 />
               ) : (
               <div className="seriesChapters">
