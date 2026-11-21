@@ -14,6 +14,11 @@ export interface Config {
   /** How Sapphire is reached from your phone, so tapping an alert opens the series. */
   publicUrl: string;
   checkIntervalHours: number;
+  /** Watchtower's address and token, so the app can ask for an update. Empty turns the button off. */
+  updateUrl: string;
+  updateToken: string;
+  /** GitHub repo checked for newer versions. */
+  updateRepo: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -31,5 +36,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ntfyPassword: env.NTFY_PASSWORD ?? "",
     publicUrl: (env.PUBLIC_URL ?? "").replace(/\/+$/, ""),
     checkIntervalHours: Number(env.CHECK_INTERVAL_HOURS ?? 6),
+    updateUrl: (env.UPDATE_URL ?? "").replace(/\/+$/, ""),
+    updateToken: env.UPDATE_TOKEN ?? "",
+    updateRepo: env.UPDATE_REPO ?? "danjaekim/SapphireReader",
   };
 }

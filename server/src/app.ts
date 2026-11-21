@@ -7,6 +7,7 @@ import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
 import { checkEngine, engineFile, engineQuery } from "./engine.js";
 import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
+import { requestUpdate, updateInfo } from "./updater.js";
 import { browseByGenres, genreSupport, listGenres } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { discover, recommendFor, similarTo, type DiscoverSort } from "./discover.js";
@@ -84,6 +85,17 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     engine: await checkEngine(config, fetchImpl),
     alerts: { enabled: notify !== null, everyHours: config.checkIntervalHours },
   }));
+
+  app.get("/api/update", async () => updateInfo(config, VERSION, fetchImpl ?? fetch));
+
+  app.post("/api/update", async (_req, reply) => {
+    try {
+      await requestUpdate(config, fetchImpl ?? fetch);
+      return reply.code(202).send({ started: true });
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : "Couldn't start the update." });
+    }
+  });
 
   app.get<{ Querystring: { q?: string; page?: string } }>("/api/search", async (req, reply) => {
     const q = (req.query.q ?? "").trim();

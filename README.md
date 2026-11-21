@@ -70,3 +70,10 @@ database, progress tracking, source ranking and recommendations.
 
 Sapphire is a single-user app for one household's network. It ships no sources of its
 own; sources come from extensions installed by the user.
+
+## Updating
+
+The compose file includes Watchtower, which updates the Sapphire app when a new image is published
+(it checks every 6 hours). The Status page also has an **Update now** button. Set `UPDATE_TOKEN` on the
+`sapphire` service and `WATCHTOWER_HTTP_API_TOKEN` on `watchtower` to the same random string. Changes to the
+compose file itself (new services, ports, env vars) still need a redeploy from the Docker app.
