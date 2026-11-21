@@ -519,7 +519,7 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 
 /* Picking several chapters. */
 .chapters .pick {
-  flex: none; width: 40px; display: grid; place-items: center; border: 0; background: none; cursor: pointer; padding: 0; color: inherit;
+  flex: none; width: 46px; display: grid; place-items: center start; border: 0; background: none; cursor: pointer; padding: 0 0 0 16px; color: inherit;
 }
 .chapters .pick span { width: 18px; height: 18px; border-radius: 5px; border: 2px solid var(--muted); display: grid; place-items: center; font-size: 12px; line-height: 1; opacity: 0.55; }
 .chapters li:hover .pick span, .chapters.picking .pick span { opacity: 1; }

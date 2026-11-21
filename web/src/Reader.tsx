@@ -337,6 +337,7 @@ export function Reader({ mangaId, chapterId, onMenu }: { mangaId: number; chapte
             <span>{total}</span>
           </label>
         )}
+        {(data?.chapters.length ?? 2) > 1 && (
         <div className="readerBarRow">
           <button type="button" className="iconBtn" disabled={!prev} onClick={() => go(prev)} aria-label="Previous chapter">⏮</button>
           {data && (
@@ -350,6 +351,7 @@ export function Reader({ mangaId, chapterId, onMenu }: { mangaId: number; chapte
           )}
           <button type="button" className="iconBtn" disabled={!next} onClick={() => go(next)} aria-label="Next chapter">⏭</button>
         </div>
+        )}
       </footer>
 
       {settingsOpen && (
