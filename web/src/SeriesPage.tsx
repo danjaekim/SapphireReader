@@ -541,8 +541,39 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
             <div className="card similarCard">
               <h3>Similar series</h3>
               {basedOn.length > 0 && <p className="muted small">Matched mostly on {basedOn.join(", ")}.</p>}
-              <ul className="similar">
-                {similarGroups.map((g) => (
+              <SimilarGrid groups={similarGroups} />
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Similar series fill whole rows only: as many columns as fit, at most two rows, and never a
+ * half-empty last row. If there aren't enough for one full row, it shows what there is.
+ */
+function SimilarGrid({ groups }: { groups: SeriesGroup[] }) {
+  const ref = useRef<HTMLUListElement | null>(null);
+  const [cols, setCols] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const tracks = getComputedStyle(el).gridTemplateColumns.split(" ").filter((t) => t && t !== "0px").length;
+      setCols(tracks);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const rows = cols > 0 ? Math.min(2, Math.floor(groups.length / cols)) : 0;
+  const shown = cols === 0 ? groups.slice(0, 8) : rows === 0 ? groups : groups.slice(0, rows * cols);
+  return (
+              <ul className="similar" ref={ref}>
+                {shown.map((g) => (
                   <li key={g.key}>
                     <a href={`#/series/${g.hits[0].mangaId}`}>
                       <img src={thumbnailUrl(g.hits[0].mangaId)} alt="" loading="lazy" width={120} height={174} />
@@ -551,10 +582,5 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
-        </>
-      )}
-    </section>
   );
 }

@@ -113,6 +113,8 @@ export function tagWeights(stats: { total: number; counts: Map<string, number> }
 
 /** Similar shows a handful, not a feed. */
 const LIMIT = 8;
+/** Similar series hands back more than it needs, so the page can fill whole rows at any width. */
+const SIMILAR_MAX = 24;
 
 const plainKnowledge: TagKnowledge = { weight: tagWeights({ total: 0, counts: new Map() }), tagsOf: () => null };
 
@@ -185,7 +187,7 @@ export async function similarTo(
   // Anything that shares none of this series' tags doesn't belong, whatever the site returned.
   const scored = [...candidates.values()].map((c) => ({ c, s: score(c) })).filter((x) => x.s > 0);
   scored.sort((a, b) => b.s - a.s || b.c.hits - a.c.hits || a.c.first - b.c.first);
-  return { groups: scored.slice(0, LIMIT).map((x) => x.c.group), basedOn: seeds };
+  return { groups: scored.slice(0, SIMILAR_MAX).map((x) => x.c.group), basedOn: seeds };
 }
 
 /** Picks to try for the "For you" page: your top genres on their own, then the top two together. */
