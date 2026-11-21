@@ -1,5 +1,5 @@
 import { Loading } from "./Loading";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { addToLibrary, alternatives, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, readHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
@@ -33,12 +33,38 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const score = rating?.score ?? null;
   const banner = rating?.banner ?? null;
   const [fullAlt, setFullAlt] = useState(false);
+  // On wide screens the chapter list is as tall as the left column (at least ~one screen's worth of rows), then scrolls.
+  const leftRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const [listMax, setListMax] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [anchor, setAnchor] = useState<number | null>(null);
   useEffect(() => {
     setSelected(new Set());
     setAnchor(null);
   }, [mangaId]);
+  const loadedOnce = data !== null;
+  useEffect(() => {
+    const left = leftRef.current;
+    const list = listRef.current;
+    if (!left || !list) return;
+    const wide = window.matchMedia("(min-width: 901px)");
+    const measure = () => {
+      if (!wide.matches) return setListMax(null);
+      const top = list.getBoundingClientRect().top - left.getBoundingClientRect().top;
+      setListMax(Math.max(Math.round(left.offsetHeight - top), Math.round(window.innerHeight * 0.6), 420));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(left);
+    wide.addEventListener("change", measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      wide.removeEventListener("change", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, [loadedOnce, mangaId, fullDesc, fullAlt]);
   // Esc clears the selection.
   useEffect(() => {
     if (selected.size === 0) return;
@@ -179,7 +205,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
       {data && (
         <>
           <div className="seriesLayout">
-            <div className="seriesLeft">
+            <div className="seriesLeft" ref={leftRef}>
               <img className="seriesCover" src={thumbnailUrl(mangaId)} alt="" width={300} height={450} />
               <aside className="seriesSide">
                 {(siteStats.length > 0 || score != null || data.chapters.length > 0) && (
@@ -376,7 +402,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     <button type="button" className="linkish" onClick={() => setOffer(null)}>No thanks</button>
                   </div>
                 )}
-                <ul className={`chapters ${selected.size > 0 ? "picking" : ""}`}>
+                <ul ref={listRef} className={`chapters ${selected.size > 0 ? "picking" : ""}`} style={listMax ? { maxHeight: listMax } : undefined}>
                   {listed.map((c) => {
                     const on = selected.has(c.id);
                     return (
