@@ -119,9 +119,62 @@ export async function searchAll(
 const CHAPTERS_MUTATION = `
   mutation ($input: FetchChaptersInput!) {
     fetchChapters(input: $input) {
-      chapters { chapterNumber uploadDate }
+      chapters { id name chapterNumber uploadDate scanlator }
     }
   }`;
+
+export interface ChapterInfo {
+  id: number;
+  name: string;
+  /** -1 when the extension couldn't work out a number. */
+  chapterNumber: number;
+  uploadDate: string | null;
+  scanlator: string | null;
+}
+
+/** Fetches the chapter list from the source site and returns it in reading order, oldest first. */
+export async function fetchChapterList(
+  config: Config,
+  mangaId: number,
+  fetchImpl?: FetchLike,
+): Promise<ChapterInfo[]> {
+  const data = await engineQuery<{
+    fetchChapters: {
+      chapters: {
+        id: number;
+        name: string;
+        chapterNumber: number;
+        uploadDate: string | number;
+        scanlator: string | null;
+      }[];
+    };
+  }>(config, CHAPTERS_MUTATION, { input: { mangaId } }, { fetchImpl, timeoutMs: 30000 });
+
+  const chapters = data.fetchChapters.chapters.map<ChapterInfo>((c) => {
+    const uploaded = Number(c.uploadDate);
+    return {
+      id: c.id,
+      name: c.name,
+      chapterNumber: c.chapterNumber,
+      uploadDate: uploaded > 0 ? new Date(uploaded).toISOString() : null,
+      scanlator: c.scanlator,
+    };
+  });
+  return sortReadingOrder(chapters);
+}
+
+/**
+ * Oldest first. Uses chapter numbers when every chapter has one, otherwise upload dates,
+ * since extensions return -1 for chapters they couldn't number.
+ */
+export function sortReadingOrder(chapters: ChapterInfo[]): ChapterInfo[] {
+  const allNumbered = chapters.every((c) => c.chapterNumber >= 0);
+  const byDate = (a: ChapterInfo, b: ChapterInfo) =>
+    (a.uploadDate ?? "").localeCompare(b.uploadDate ?? "") || a.id - b.id;
+  return [...chapters].sort(
+    allNumbered ? (a, b) => a.chapterNumber - b.chapterNumber || byDate(a, b) : byDate,
+  );
+}
 
 export interface LatestChapter {
   chapterCount: number;
@@ -129,27 +182,88 @@ export interface LatestChapter {
   latestUploadDate: string | null;
 }
 
-/** Fetches the chapter list from the source and returns the highest chapter number. */
-export async function latestChapter(
-  config: Config,
-  mangaId: number,
-  fetchImpl?: FetchLike,
-): Promise<LatestChapter> {
-  const data = await engineQuery<{
-    fetchChapters: { chapters: { chapterNumber: number; uploadDate: string | number }[] };
-  }>(config, CHAPTERS_MUTATION, { input: { mangaId } }, { fetchImpl, timeoutMs: 30000 });
-
-  const chapters = data.fetchChapters.chapters;
-  // Extensions report chapterNumber -1 when they can't parse a number; ignore those.
+export function latestFromChapters(chapters: ChapterInfo[]): LatestChapter {
   const numbered = chapters.filter((c) => c.chapterNumber >= 0);
   if (numbered.length === 0) {
     return { chapterCount: chapters.length, latestNumber: null, latestUploadDate: null };
   }
   const latest = numbered.reduce((a, b) => (b.chapterNumber > a.chapterNumber ? b : a));
-  const uploaded = Number(latest.uploadDate);
   return {
     chapterCount: chapters.length,
     latestNumber: latest.chapterNumber,
-    latestUploadDate: uploaded > 0 ? new Date(uploaded).toISOString() : null,
+    latestUploadDate: latest.uploadDate,
   };
+}
+
+const MANGA_QUERY = `
+  query ($id: Int!) {
+    manga(id: $id) {
+      id sourceId title thumbnailUrl author artist description genre status
+    }
+  }`;
+
+export interface MangaDetails {
+  id: number;
+  sourceId: string;
+  sourceName: string | null;
+  title: string;
+  author: string | null;
+  artist: string | null;
+  description: string | null;
+  genre: string[];
+  status: string;
+}
+
+export async function fetchMangaDetails(
+  config: Config,
+  mangaId: number,
+  fetchImpl?: FetchLike,
+): Promise<MangaDetails> {
+  const [data, sources] = await Promise.all([
+    engineQuery<{
+      manga: Omit<MangaDetails, "sourceName" | "sourceId"> & { sourceId: string | number };
+    }>(config, MANGA_QUERY, { id: mangaId }, { fetchImpl }),
+    listSources(config, fetchImpl).catch(() => [] as EngineSource[]),
+  ]);
+  const { manga } = data;
+  const sourceId = String(manga.sourceId);
+  return {
+    id: manga.id,
+    sourceId,
+    sourceName: sources.find((s) => s.id === sourceId)?.name ?? null,
+    title: manga.title,
+    author: manga.author,
+    artist: manga.artist,
+    description: manga.description,
+    genre: manga.genre ?? [],
+    status: manga.status,
+  };
+}
+
+const PAGES_MUTATION = `
+  mutation ($input: FetchChapterPagesInput!) {
+    fetchChapterPages(input: $input) { pages }
+  }`;
+
+/**
+ * Asks the engine for a chapter's page images and returns Sapphire URLs for them.
+ * The engine's own page paths are checked against a strict pattern before use.
+ */
+export async function fetchPageUrls(
+  config: Config,
+  chapterId: number,
+  fetchImpl?: FetchLike,
+): Promise<string[]> {
+  const data = await engineQuery<{ fetchChapterPages: { pages: string[] } }>(
+    config,
+    PAGES_MUTATION,
+    { input: { chapterId } },
+    { fetchImpl, timeoutMs: 45000 },
+  );
+  return data.fetchChapterPages.pages.map((page) => {
+    const path = new URL(page, "http://engine").pathname;
+    const m = /^\/api\/v1\/manga\/(\d+)\/chapter\/(\d+)\/page\/(\d+)$/.exec(path);
+    if (!m) throw new Error(`unexpected page address from the engine: ${path}`);
+    return `/api/read/${m[1]}/${m[2]}/${m[3]}`;
+  });
 }

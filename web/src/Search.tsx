@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { seriesHref } from "./route";
 import { createQueue, latest, search, thumbnailUrl, type LatestChapter, type SearchResult, type SourceHit } from "./api";
 
 type Chapter = { state: "loading" } | { state: "error" } | { state: "done"; value: LatestChapter };
@@ -99,14 +100,16 @@ export function Search() {
                 <li key={group.key} className="result">
                   <img src={thumbnailUrl(cover)} alt="" loading="lazy" width={72} height={104} />
                   <div className="info">
-                    <h3>{group.title}</h3>
+                    <h3>
+                      <a href={seriesHref(cover)}>{group.title}</a>
+                    </h3>
                     <ul className="sources">
                       {group.hits.map((hit) => {
                         const c = chapters[hit.mangaId];
                         const isBest = best?.mangaId === hit.mangaId && group.hits.length > 1;
                         return (
                           <li key={hit.mangaId} className={isBest ? "best" : undefined}>
-                            <span>{hit.sourceName}</span>
+                            <a href={seriesHref(hit.mangaId)}>{hit.sourceName}</a>
                             <span className="muted">
                               {c?.state === "done"
                                 ? formatChapter(c.value.latestNumber)

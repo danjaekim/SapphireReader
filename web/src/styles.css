@@ -90,5 +90,42 @@ h2 { margin: 0 0 12px; }
 .result h3 { margin: 0 0 6px; font-size: 16px; overflow-wrap: anywhere; }
 .sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 14px; }
 .sources li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.sources li.best span:first-child { font-weight: 600; }
+.sources li.best a:first-child { font-weight: 600; }
 .tag { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--fg); }
+a { color: var(--fg); }
+.result h3 a, .sources a { text-decoration-color: var(--line); text-underline-offset: 3px; }
+.back { display: inline-block; margin-bottom: 12px; color: var(--muted); text-decoration: none; }
+.seriesHead { display: flex; gap: 16px; margin-bottom: 12px; }
+.seriesHead img { width: 120px; height: 173px; object-fit: cover; border-radius: 10px; background: var(--line); flex: none; }
+.seriesHead h2 { margin: 0 0 4px; overflow-wrap: anywhere; }
+.seriesHead p { margin: 0 0 6px; }
+.button {
+  display: inline-block; padding: 10px 16px; font-weight: 600; color: #fff; background: var(--accent);
+  border-radius: 10px; text-decoration: none;
+}
+.genres { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.desc { color: var(--muted); max-width: 70ch; }
+.chapterHead { display: flex; justify-content: space-between; align-items: baseline; margin-top: 16px; }
+.chapterHead h3 { margin: 0; }
+.linkish { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 4px; }
+.chapters { list-style: none; margin: 8px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.chapters li + li { border-top: 1px solid var(--line); }
+.chapters a { display: flex; gap: 8px; padding: 12px; text-decoration: none; background: var(--panel); }
+.chapters a:hover { background: var(--line); }
+.chapters .date { margin-left: auto; white-space: nowrap; }
+.reading { background: #000; padding-top: 0; }
+.reader { max-width: 800px; width: 100%; margin: 0 auto; }
+.readerTop {
+  position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; gap: 12px;
+  padding: 10px max(16px, env(safe-area-inset-left)); background: rgba(11, 18, 32, 0.92);
+  padding-top: calc(10px + env(safe-area-inset-top));
+}
+.readerTop a { color: var(--fg); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip { display: flex; flex-direction: column; }
+.strip img { display: block; width: 100%; height: auto; min-height: 200px; background: #0a0a0a; }
+.readerNav {
+  display: flex; justify-content: space-between; padding: 16px max(16px, env(safe-area-inset-left));
+  padding-bottom: calc(24px + env(safe-area-inset-bottom)); background: var(--bg);
+}
+.readerNav a { color: var(--fg); font-weight: 600; text-decoration: none; padding: 8px 4px; }
+.reader .muted, .reader .bad { padding: 16px; }

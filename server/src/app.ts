@@ -4,7 +4,14 @@ import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
 import { checkEngine, engineFile } from "./engine.js";
-import { latestChapter, searchAll, type LatestChapter } from "./search.js";
+import {
+  fetchChapterList,
+  fetchMangaDetails,
+  fetchPageUrls,
+  latestFromChapters,
+  searchAll,
+  type ChapterInfo,
+} from "./search.js";
 
 const rawVersion = process.env.APP_VERSION ?? "dev";
 // A full commit hash is unreadable in the UI; keep the short form.
@@ -19,7 +26,15 @@ export interface AppOptions {
 export async function buildApp(config: Config, options: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
   const { fetchImpl } = options;
-  const latestCache = new Map<number, { at: number; value: LatestChapter }>();
+  const chapterCache = new Map<number, { at: number; value: ChapterInfo[] }>();
+  // The chapter list comes from the source site, so it is slow; keep it for a few minutes.
+  async function chaptersFor(mangaId: number): Promise<ChapterInfo[]> {
+    const cached = chapterCache.get(mangaId);
+    if (cached && Date.now() - cached.at < LATEST_TTL_MS) return cached.value;
+    const value = await fetchChapterList(config, mangaId, fetchImpl);
+    chapterCache.set(mangaId, { at: Date.now(), value });
+    return value;
+  }
 
   app.get("/api/health", async () => ({ ok: true, name: "sapphire", version: VERSION }));
 
@@ -39,21 +54,59 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  // The chapter list comes from the source site, so it is slow; cache it briefly.
   app.get<{ Params: { id: string } }>("/api/manga/:id/latest", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
-    const cached = latestCache.get(id);
-    if (cached && Date.now() - cached.at < LATEST_TTL_MS) return cached.value;
     try {
-      const value = await latestChapter(config, id, fetchImpl);
-      latestCache.set(id, { at: Date.now(), value });
-      return value;
+      return latestFromChapters(await chaptersFor(id));
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't load chapters from the source." });
     }
   });
+
+  app.get<{ Params: { id: string } }>("/api/manga/:id", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    try {
+      const [manga, chapters] = await Promise.all([fetchMangaDetails(config, id, fetchImpl), chaptersFor(id)]);
+      return { manga, chapters, latest: latestFromChapters(chapters) };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "Couldn't load this series from the source." });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>("/api/chapters/:id/pages", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    try {
+      return { pages: await fetchPageUrls(config, id, fetchImpl) };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "Couldn't load this chapter's pages from the source." });
+    }
+  });
+
+  // One page image, proxied so the engine never has to be reachable from the reading device.
+  app.get<{ Params: { manga: string; chapter: string; page: string } }>(
+    "/api/read/:manga/:chapter/:page",
+    async (req, reply) => {
+      const { manga, chapter, page } = req.params;
+      if (![manga, chapter, page].every((v) => /^\d+$/.test(v))) return reply.code(400).send({ error: "Bad address." });
+      try {
+        const res = await engineFile(config, `/api/v1/manga/${manga}/chapter/${chapter}/page/${page}`, fetchImpl);
+        if (!res.ok) return reply.code(404).send({ error: "Page not available." });
+        return reply
+          .header("content-type", res.headers.get("content-type") ?? "image/jpeg")
+          .header("cache-control", "public, max-age=604800, immutable")
+          .send(Buffer.from(await res.arrayBuffer()));
+      } catch (err) {
+        req.log.error(err);
+        return reply.code(502).send({ error: "Page unavailable." });
+      }
+    },
+  );
 
   // Covers are served through Sapphire so the engine never needs to be reachable from devices.
   app.get<{ Params: { id: string } }>("/api/manga/:id/thumbnail", async (req, reply) => {

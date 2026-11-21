@@ -31,6 +31,36 @@ async function getJson<T>(url: string): Promise<T> {
   return body as T;
 }
 
+export interface MangaDetails {
+  id: number;
+  sourceId: string;
+  sourceName: string | null;
+  title: string;
+  author: string | null;
+  artist: string | null;
+  description: string | null;
+  genre: string[];
+  status: string;
+}
+
+export interface ChapterInfo {
+  id: number;
+  name: string;
+  chapterNumber: number;
+  uploadDate: string | null;
+  scanlator: string | null;
+}
+
+export interface SeriesData {
+  manga: MangaDetails;
+  chapters: ChapterInfo[]; // oldest first
+  latest: LatestChapter;
+}
+
+export const series = (mangaId: number) => getJson<SeriesData>(`/api/manga/${mangaId}`);
+export const chapterPages = (chapterId: number) =>
+  getJson<{ pages: string[] }>(`/api/chapters/${chapterId}/pages`);
+
 export const search = (q: string) => getJson<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`);
 export const latest = (mangaId: number) => getJson<LatestChapter>(`/api/manga/${mangaId}/latest`);
 export const thumbnailUrl = (mangaId: number) => `/api/manga/${mangaId}/thumbnail`;
