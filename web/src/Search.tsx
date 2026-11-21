@@ -5,6 +5,8 @@ import { Results } from "./Results";
 import { navigate, pageHref } from "./route";
 import { usePaged } from "./usePaged";
 import { sortFrom, unsortedNote } from "./SortSelect";
+import { rememberSearch, SearchStart } from "./SearchStart";
+import { useEffect } from "react";
 
 /**
  * Search box plus stackable genre filters, with results that keep loading as you scroll.
@@ -21,6 +23,13 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
     (page) => (genres.length > 0 ? browse(genres, q, page, undefined, seed, sort) : search(q, page, sort)),
     active ? `search|${scopeTag}|${q}|${genres.join(",")}|${seed ?? ""}|${sort}` : null,
   );
+
+  // Remember each search that brought results back, for the empty Search page.
+  const found = (result?.groups.length ?? 0) > 0;
+  useEffect(() => {
+    if (active && found) rememberSearch({ q, genres, adult: scopeTag === "true" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, found, q, genres.join("|"), scopeTag]);
 
   const go = (next: { q?: string; genre?: string[]; sort?: string }) => {
     const s = next.sort ?? sort;
@@ -45,6 +54,7 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
         sort={sort}
         onSort={(next) => go({ sort: next })}
       />
+      {!active && <SearchStart adultOn={scopeTag === "true"} />}
       {error && <p className="bad">{error}</p>}
       {busy && <Loading label="Searching every source. This can take several seconds." />}
       {result && (
