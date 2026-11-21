@@ -678,3 +678,5 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .pageThumbs span { position: absolute; right: 6px; bottom: 6px; padding: 1px 6px; border-radius: 6px; font-size: 11px; background: rgba(0,0,0,.65); color: #fff; }
 .moreTag { border: 0; cursor: pointer; font: inherit; font-size: 12px; color: var(--accent); }
 .oneChapter .chapterHead { margin: 0; } .oneChapter > .linkish { padding-left: 0; }
+@media (max-width: 900px) { .oneChapter { order: 5; } }
+@media (max-width: 900px) { .pageThumbs { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; } }

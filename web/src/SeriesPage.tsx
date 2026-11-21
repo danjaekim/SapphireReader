@@ -33,7 +33,7 @@ const TAG_CAP = 12;
  * A series with a single chapter (one-shots, galleries) doesn't need a chapter list: show its
  * pages instead, with read and download controls. Tapping a page opens the reader there.
  */
-function OneChapter({ mangaId, chapter, read, state, onMark, onDownload, onPages }: {
+function OneChapter({ mangaId, chapter, read, state, onMark, onDownload, onPages, leftRef }: {
   mangaId: number;
   chapter: ChapterInfo;
   read: boolean;
@@ -41,6 +41,7 @@ function OneChapter({ mangaId, chapter, read, state, onMark, onDownload, onPages
   onMark: (read: boolean) => void;
   onDownload: () => void;
   onPages: (count: number | null) => void;
+  leftRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [pages, setPages] = useState<string[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -56,7 +57,38 @@ function OneChapter({ mangaId, chapter, read, state, onMark, onDownload, onPages
     );
     return () => void (cancelled = true);
   }, [chapter.id]);
-  const shown = pages ? (all ? pages : pages.slice(0, PREVIEW_PAGES)) : [];
+  // Show as many whole rows as fill the space: down to the bottom of the left column on wide
+  // screens, about a screen's worth on phones. At least two rows.
+  const gridRef = useRef<HTMLUListElement>(null);
+  const [fit, setFit] = useState(PREVIEW_PAGES);
+  const hasPages = pages !== null;
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const wide = window.matchMedia("(min-width: 901px)");
+    const measure = () => {
+      const tracks = getComputedStyle(grid).gridTemplateColumns.split(" ").filter((t) => t && t !== "0px");
+      const cols = Math.max(1, tracks.length);
+      const gap = parseFloat(getComputedStyle(grid).rowGap) || 10;
+      const rowH = (parseFloat(tracks[0]) || 110) * 1.5 + gap;
+      const left = leftRef.current;
+      const avail = wide.matches && left
+        ? left.getBoundingClientRect().bottom - grid.getBoundingClientRect().top
+        : window.innerHeight * 0.75;
+      const rows = Math.max(2, Math.floor((avail + gap) / rowH));
+      setFit(rows * cols);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(grid);
+    if (leftRef.current) ro.observe(leftRef.current);
+    wide.addEventListener("change", measure);
+    return () => {
+      ro.disconnect();
+      wide.removeEventListener("change", measure);
+    };
+  }, [hasPages, leftRef]);
+  const shown = pages ? (all ? pages : pages.slice(0, fit)) : [];
   return (
     <div className="card oneChapter">
       <div className="chapterHead">
@@ -71,7 +103,7 @@ function OneChapter({ mangaId, chapter, read, state, onMark, onDownload, onPages
       {failed && <p className="muted small">Couldn't load a preview of the pages. You can still open it to read.</p>}
       {!pages && !failed && <Loading label="Loading pages…" size="sm" />}
       {pages && (
-        <ul className="pageThumbs">
+        <ul className="pageThumbs" ref={gridRef}>
           {shown.map((src, i) => (
             <li key={src}>
               <a href={readHref(mangaId, chapter.id, i)} aria-label={`Open page ${i + 1}`}>
@@ -82,7 +114,7 @@ function OneChapter({ mangaId, chapter, read, state, onMark, onDownload, onPages
           ))}
         </ul>
       )}
-      {pages && pages.length > PREVIEW_PAGES && (
+      {pages && pages.length > fit && (
         <button type="button" className="linkish" onClick={() => setAll((v) => !v)}>
           {all ? "Show fewer" : `Show all ${pages.length} pages`}
         </button>
@@ -500,6 +532,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   onMark={(r) => void mark([data.chapters[0].id], r)}
                   onDownload={() => download(data.manga, [data.chapters[0]])}
                   onPages={setPageCount}
+                  leftRef={leftRef}
                 />
               ) : (
               <div className="seriesChapters">
