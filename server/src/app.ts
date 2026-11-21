@@ -8,7 +8,7 @@ import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
 import { checkEngine, engineFile, engineQuery } from "./engine.js";
 import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
-import { requestUpdate, updateInfo } from "./updater.js";
+import { clearUpdateCache, requestUpdate, updateInfo } from "./updater.js";
 import { rankByAnilist, ratingsFor, type RatingMeta } from "./ratings.js";
 import { parseDescription } from "./description.js";
 import { canonKey } from "./genres.js";
@@ -118,7 +118,11 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     alerts: { enabled: notify !== null, everyHours: config.checkIntervalHours },
   }));
 
-  app.get("/api/update", async () => updateInfo(config, VERSION, fetchImpl ?? fetch));
+  // ?refresh=1 skips the 10-minute memory of GitHub's answer, for the "Check for updates" button.
+  app.get<{ Querystring: { refresh?: string } }>("/api/update", async (req) => {
+    if (req.query.refresh === "1") clearUpdateCache();
+    return { ...(await updateInfo(config, VERSION, fetchImpl ?? fetch)), current: VERSION };
+  });
 
   app.post("/api/update", async (_req, reply) => {
     try {

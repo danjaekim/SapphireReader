@@ -7,6 +7,7 @@ import { Downloads } from "./Downloads";
 import { Home } from "./Home";
 import { History } from "./History";
 import { savedTheme, setTheme, type Theme } from "./theme";
+import { UpdateCard, startUpdate, useUpdate } from "./update";
 import { automation, setAutomation, type Automation } from "./api";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
@@ -24,12 +25,6 @@ interface Status {
   alerts?: { enabled: boolean; everyHours: number };
 }
 
-interface UpdateInfo {
-  enabled: boolean;
-  available: boolean | null;
-  latest: string | null;
-  problem?: "private" | "token" | "github" | "offline" | "version" | null;
-}
 
 const NAV: { page: PageName; label: string; icon: string; adultOnly?: boolean }[] = [
   { page: "home", label: "Home", icon: "🏠" },
@@ -60,6 +55,43 @@ const TITLES: Record<PageName, string> = {
 /** Pages made of a grid use the full width; the rest are centered in a readable column. */
 const WIDE: PageName[] = ["home", "search", "library", "discover", "discover-18"];
 
+/** Under Settings in the menu: shows up when a newer version is out (or while one installs). */
+function UpdatePrompt({ onClose }: { onClose: () => void }) {
+  const u = useUpdate();
+  const busy = u.phase === "starting" || u.phase === "updating";
+  if (!busy && u.info?.available !== true) return null;
+  return (
+    <div className="updatePrompt">
+      {busy ? (
+        <a className="updateCta busy" href={pageHref("status")} onClick={onClose}>
+          <span className="spin" aria-hidden="true" /> Updating…
+        </a>
+      ) : (
+        <button
+          type="button"
+          className="updateCta"
+          onClick={() => {
+            onClose();
+            navigate(pageHref("status"));
+            if (u.info?.enabled) void startUpdate();
+          }}
+        >
+          <span aria-hidden="true">⬆️</span>
+          <span className="updateText">
+            <strong>Update available</strong>
+            <small>{u.info?.enabled ? `Install ${u.info.latest ?? "the new version"}` : "See Settings"}</small>
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function UpdateDot() {
+  const u = useUpdate();
+  return u.info?.available === true ? <span className="navBadge on" title="A newer version is available">New</span> : null;
+}
+
 function SideNav({
   current,
   adult,
@@ -87,9 +119,11 @@ function SideNav({
             <a key={n.page} className="navItem" href={pageHref(n.page)} onClick={onClose} aria-current={n.page === current ? "page" : undefined} title={n.label}>
               <span className="navIcon" aria-hidden="true">{n.icon}</span>
               <span className="navLabel">{n.label}</span>
+              {n.page === "status" && <UpdateDot />}
             </a>
           ))}
         </nav>
+        <UpdatePrompt onClose={onClose} />
         <AdultButton state={adult} onOpen={onAdult} />
         <ThemeButton />
       </aside>
@@ -230,35 +264,7 @@ function StatusCard() {
     setTestResult(res?.ok ? "Sent. Check your phone." : (body.error ?? "Couldn't reach the Sapphire server."));
   }
 
-  const [update, setUpdate] = useState<UpdateInfo | null>(null);
-  const [updateMsg, setUpdateMsg] = useState<string | null>(null);
-
-  async function updateNow() {
-    setUpdateMsg("Starting the update…");
-    const res = await fetch("/api/update", { method: "POST" }).catch(() => null);
-    const body = res ? ((await res.json().catch(() => ({}))) as { error?: string }) : {};
-    if (!res?.ok) return setUpdateMsg(body.error ?? "Couldn't reach the Sapphire server.");
-    setUpdateMsg("Updating. Sapphire restarts in a minute or so; this page reloads when it's back.");
-    // Wait for the server to go down and come back with a different version, then reload.
-    const before = status?.server.version;
-    const timer = window.setInterval(async () => {
-      const s = await fetch("/api/status").then((r) => r.json() as Promise<Status>).catch(() => null);
-      if (s && s.server.version !== before) {
-        window.clearInterval(timer);
-        window.location.reload();
-      }
-    }, 5000);
-    window.setTimeout(() => {
-      window.clearInterval(timer);
-      setUpdateMsg("Still on the old version. If the new build isn't published yet, try again in a few minutes.");
-    }, 5 * 60 * 1000);
-  }
-
   useEffect(() => {
-    fetch("/api/update")
-      .then((r) => r.json())
-      .then(setUpdate)
-      .catch(() => {});
     fetch("/api/status")
       .then((r) => r.json())
       .then(setStatus)
@@ -281,32 +287,6 @@ function StatusCard() {
               ? `Source engine${status.engine.version ? `, version ${status.engine.version}` : ""}`
               : `Source engine unreachable${status.engine.error ? `: ${status.engine.error}` : ""}`}
           </li>
-          {update && (
-            <li>
-              <span className={`dot ${update.available ? "bad" : "good"}`} />{" "}
-              {update.available === null
-                ? {
-                    private: "Can't check for a newer version: the GitHub repo is private. Set UPDATE_GITHUB_TOKEN in the compose file (see README, Updating). ",
-                    token: "Can't check for a newer version: GitHub refused UPDATE_GITHUB_TOKEN. It may have expired. ",
-                    github: "Couldn't check for a newer version: GitHub had a problem. ",
-                    offline: "Couldn't check for a newer version: GitHub can't be reached from the NAS. ",
-                    version: "This copy wasn't built by GitHub, so there's no version to compare. ",
-                  }[update.problem ?? "github"] ?? "Couldn't check for a newer version. "
-                : update.available
-                  ? `A newer version is available (${update.latest}). `
-                  : "You're on the latest version. "}
-              {update.enabled ? (
-                (update.available !== false || updateMsg) && (
-                  <button type="button" className="linkish" onClick={updateNow}>
-                    Update now
-                  </button>
-                )
-              ) : (
-                <span className="muted">Updates from the app aren't set up (see the Watchtower part of the compose file).</span>
-              )}
-              {updateMsg && <span className="muted"> {updateMsg}</span>}
-            </li>
-          )}
           {status.alerts && (
             <li>
               <span className={`dot ${status.alerts.enabled ? "good" : "bad"}`} />{" "}
@@ -412,6 +392,7 @@ export function App() {
             {page === "status" && (
               <>
                 <StatusCard />
+                <UpdateCard />
                 <AppearanceCard />
                 <AutomationCard />
                 <TrackerSettings />
