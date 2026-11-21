@@ -585,3 +585,22 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .content.withBackdrop .seriesPage { position: static; isolation: auto; }
 .content.withBackdrop .seriesBackdrop, .content.withBackdrop .seriesBackdrop.banner { left: -48px; right: -48px; top: -48px; }
 .adultFlag { display: inline-flex; align-items: center; gap: 4px; margin: 0 10px; white-space: nowrap; }
+
+/* Installed sources: one row per extension with its health, expanding to per-source details. */
+.extItem + .extItem { border-top: 1px solid var(--line); }
+.extItem .extRow + .extRow { border-top: 0; }
+.extItem .extRow { align-items: flex-start; }
+.extToggle { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; border-radius: 8px; }
+.extToggle.static { cursor: default; }
+.extToggle:hover:not(.static) { background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.extToggle .dot { margin-right: 2px; }
+.extRow .info { flex: 1; min-width: 0; }
+.extRow .info .small { overflow-wrap: anywhere; }
+.extActions { display: flex; gap: 6px; flex: none; }
+.extDetails { padding: 4px 12px 12px 44px; background: color-mix(in srgb, var(--panel) 70%, var(--bg)); display: grid; gap: 10px; }
+.srcHead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.srcDetail .adultFlag { margin-left: auto; }
+.errBox { margin-top: 6px; border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.errHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px; }
+.errBox pre { margin: 0; padding: 8px 10px; max-height: 180px; overflow: auto; font-size: 11.5px; line-height: 1.45; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--line); }
+@media (max-width: 720px) { .extDetails { padding-left: 14px; } .extItem .extRow { flex-wrap: wrap; } }
