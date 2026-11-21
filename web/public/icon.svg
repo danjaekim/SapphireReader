@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sapphire the cat">
+  <rect width="512" height="512" rx="112" fill="#0b1220"/>
+  <!-- original cat head: sapphire-blue silhouette with pointed ears -->
+  <path d="M110 210 L132 92 L220 160 Q256 150 292 160 L380 92 L402 210 Q420 250 410 300 Q392 400 256 410 Q120 400 102 300 Q92 250 110 210 Z" fill="#3b82f6"/>
+  <path d="M138 128 L196 170 Q160 180 140 206 Z" fill="#93c5fd"/>
+  <path d="M374 128 L316 170 Q352 180 372 206 Z" fill="#93c5fd"/>
+  <ellipse cx="200" cy="268" rx="26" ry="32" fill="#0b1220"/>
+  <ellipse cx="312" cy="268" rx="26" ry="32" fill="#0b1220"/>
+  <ellipse cx="208" cy="258" rx="8" ry="10" fill="#e0f2fe"/>
+  <ellipse cx="320" cy="258" rx="8" ry="10" fill="#e0f2fe"/>
+  <path d="M242 318 L270 318 L256 336 Z" fill="#fbcfe8"/>
+  <path d="M256 336 Q256 356 232 358 M256 336 Q256 356 280 358" stroke="#0b1220" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <g stroke="#e0f2fe" stroke-width="5" stroke-linecap="round">
+    <path d="M150 322 L84 308"/><path d="M150 342 L88 352"/>
+    <path d="M362 322 L428 308"/><path d="M362 342 L424 352"/>
+  </g>
+</svg>
