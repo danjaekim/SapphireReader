@@ -40,7 +40,7 @@ const NAV: { page: PageName; label: string; icon: string; adultOnly?: boolean }[
   { page: "updates", label: "Updates", icon: "🔔" },
   { page: "history", label: "History", icon: "🕘" },
   { page: "sources", label: "Sources", icon: "🧩" },
-  { page: "status", label: "Status", icon: "📊" },
+  { page: "status", label: "Settings", icon: "⚙️" },
 ];
 
 const TITLES: Record<PageName, string> = {
@@ -53,7 +53,7 @@ const TITLES: Record<PageName, string> = {
   updates: "Updates",
   history: "History",
   sources: "Sources",
-  status: "Status",
+  status: "Settings",
 };
 
 /** Pages made of a grid use the full width; the rest are centered in a readable column. */
@@ -109,6 +109,25 @@ function TopBar({ title, onMenu }: { title: string; onMenu: () => void }) {
       </a>
       <a className="iconBtn" href={pageHref("search")} aria-label="Search">🔍</a>
     </header>
+  );
+}
+
+const TABS: PageName[] = ["home", "search", "library", "discover", "updates"];
+
+/** Phones: the main pages one tap away at the bottom; everything else stays in the ☰ menu. */
+function TabBar({ current }: { current: PageName | null }) {
+  return (
+    <nav className="tabbar" aria-label="Main">
+      {TABS.map((p) => {
+        const n = NAV.find((x) => x.page === p)!;
+        return (
+          <a key={p} href={pageHref(p)} className={current === p ? "active" : ""} aria-current={current === p ? "page" : undefined}>
+            <span aria-hidden="true">{n.icon}</span>
+            <span>{n.label}</span>
+          </a>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -182,10 +201,17 @@ function AutomationCard() {
       </label>
       <label className="settingRow">
         <span>
-          <strong>Switch to the source that's furthest ahead</strong>
-          <span className="muted small">When you're caught up and another source has newer chapters of the same series, move it there. Your place and read chapters come along, and you get an alert.</span>
+          <strong>Suggest moving to the source that's furthest ahead</strong>
+          <span className="muted small">When you're caught up and another source has newer chapters of the same series, you get an alert and a "Move to…?" card in Updates. Nothing moves until you say so; your place and read chapters come along.</span>
         </span>
         <input type="checkbox" checked={a.autoSwitch} onChange={(e) => change({ autoSwitch: e.target.checked })} />
+      </label>
+      <label className="settingRow">
+        <span>
+          <strong>Delete downloads after reading</strong>
+          <span className="muted small">Once you finish a chapter, its copy on the NAS is removed to save space. Chapters saved on this device aren't touched.</span>
+        </span>
+        <input type="checkbox" checked={a.autoDelete} onChange={(e) => change({ autoDelete: e.target.checked })} />
       </label>
     </section>
   );
@@ -395,6 +421,7 @@ export function App() {
           </>
         )}
       </main>
+      <TabBar current={route.name === "series" ? null : page} />
     </div>
   );
 }

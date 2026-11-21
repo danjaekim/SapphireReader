@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { refreshLibrary, thumbnailUrl, updatesFeed, type UpdateRow } from "./api";
-import { seriesHref } from "./route";
+import { acceptSwitch, dismissSwitch, refreshLibrary, switchOffers, thumbnailUrl, updatesFeed, type SwitchOffer, type UpdateRow } from "./api";
+import { navigate, seriesHref } from "./route";
 import { ago, chapterText } from "./util";
 
 /** New chapters found in your library, newest first. */
@@ -18,12 +18,35 @@ export function Updates() {
       },
       (e: unknown) => setError(e instanceof Error ? e.message : "Couldn't load updates."),
     );
-  useEffect(() => void load(), []);
+  const [offers, setOffers] = useState<SwitchOffer[]>([]);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [offerError, setOfferError] = useState<string | null>(null);
+  const loadOffers = () => switchOffers().then(setOffers, () => {});
+  useEffect(() => {
+    void load();
+    void loadOffers();
+  }, []);
+
+  async function move(o: SwitchOffer) {
+    setBusy(o.mangaId);
+    setOfferError(null);
+    try {
+      const { mangaId } = await acceptSwitch(o.mangaId);
+      navigate(seriesHref(mangaId));
+    } catch (e) {
+      setOfferError(e instanceof Error ? e.message : "Couldn't move it.");
+      setBusy(null);
+    }
+  }
+  async function notNow(o: SwitchOffer) {
+    setOffers((list) => list.filter((x) => x.mangaId !== o.mangaId));
+    await dismissSwitch(o.mangaId).catch(() => loadOffers());
+  }
 
   async function check() {
     setChecking(true);
     await refreshLibrary().catch(() => {});
-    await load();
+    await Promise.all([load(), loadOffers()]);
     setChecking(false);
   }
 
@@ -35,6 +58,28 @@ export function Updates() {
           {checking ? "Checking sources…" : "Check now"}
         </button>
       </p>
+      {offers.length > 0 && (
+        <ul className="feed offers" aria-label="Sources that are further ahead">
+          {offers.map((o) => (
+            <li key={o.mangaId} className="feedRow offerRow">
+              <img src={thumbnailUrl(o.mangaId)} alt="" width={44} height={60} loading="lazy" />
+              <div className="info">
+                <strong>Move {o.title} to {o.toSourceName ?? "another source"}?</strong>
+                <div className="muted small">
+                  It has up to {chapterText(o.toLatest)}; {o.fromSourceName ?? "your current source"} stops at {chapterText(o.fromLatest)}. Your place and read chapters come along.
+                </div>
+                <div className="offerActions">
+                  <button type="button" className="button small" disabled={busy !== null} onClick={() => void move(o)}>
+                    {busy === o.mangaId ? "Moving…" : "Move"}
+                  </button>
+                  <button type="button" className="button small secondary" disabled={busy !== null} onClick={() => void notNow(o)}>Not now</button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {offerError && <p className="bad">{offerError}</p>}
       {error && <p className="bad">{error}</p>}
       {items && items.length === 0 && <p className="muted">Nothing new yet. Sapphire checks your library every few hours.</p>}
       <ul className="feed">

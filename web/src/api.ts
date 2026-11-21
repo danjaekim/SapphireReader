@@ -122,6 +122,7 @@ export const setSeriesCategories = (mangaId: number, ids: number[]) =>
 export interface Automation {
   autoDownload: number;
   autoSwitch: boolean;
+  autoDelete: boolean;
 }
 export const automation = () => getJson<Automation>("/api/settings/automation");
 export const setAutomation = (a: Partial<Automation>) => send("PUT", "/api/settings/automation", a) as Promise<Automation>;
@@ -355,3 +356,16 @@ export interface GenreSupport {
   error?: string;
 }
 export const genreSupport = () => getJson<{ sources: GenreSupport[] }>("/api/sources/genres");
+
+export interface SwitchOffer {
+  mangaId: number;
+  toMangaId: number;
+  toSourceName: string | null;
+  toLatest: number;
+  fromLatest: number;
+  title: string;
+  fromSourceName: string | null;
+}
+export const switchOffers = () => getJson<{ offers: SwitchOffer[] }>("/api/switch-offers").then((r) => r.offers);
+export const acceptSwitch = (mangaId: number) => send("POST", `/api/switch-offers/${mangaId}/accept`) as Promise<{ mangaId: number }>;
+export const dismissSwitch = (mangaId: number) => send("POST", `/api/switch-offers/${mangaId}/dismiss`);

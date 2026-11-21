@@ -26,7 +26,7 @@ the cat branding and a left-hand menu. What it does today:
 - Discover: For you, Popular, Latest, and genre filters.
 - An 18+ mode behind a PIN with its own library and Discover (18+) page.
 - A Sources page to install, update and remove extensions, and to see which sources are healthy.
-- Daily backups of the library database (`data/app/backups`), plus a download button on the Status page.
+- Daily backups of the library database (`data/app/backups`), plus a download button on the Settings page.
 
 - `server/`: Fastify + TypeScript API, serves the built web app.
 - `web/`: React + Vite web app.
@@ -74,7 +74,7 @@ own; sources come from extensions installed by the user.
 ## Updating
 
 The compose file includes Watchtower, which updates the Sapphire app when a new image is published
-(it checks every 6 hours). The Status page also has an **Update now** button. Set `UPDATE_TOKEN` on the
+(it checks every 6 hours). The Settings page also has an **Update now** button. Set `UPDATE_TOKEN` on the
 `sapphire` service and `WATCHTOWER_HTTP_API_TOKEN` on `watchtower` to the same random string. Changes to the
 compose file itself (new services, ports, env vars) still need a redeploy from the Docker app.
 
