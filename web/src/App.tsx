@@ -1,7 +1,7 @@
 import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
 import { AdultButton, AdultDialog } from "./AdultLock";
-import { adultState, type AdultState } from "./api";
+import { adultState, lockAdult, type AdultState } from "./api";
 import { Discover } from "./Discover";
 import { Downloads } from "./Downloads";
 import { Home } from "./Home";
@@ -318,7 +318,16 @@ function StatusCard() {
 export function App() {
   const [adult, setAdult] = useState<AdultState>({ pinSet: false, unlocked: false });
   useEffect(() => {
-    adultState().then(setAdult, () => {});
+    // On a phone or tablet, closing the app and opening it again starts locked. A reload inside the
+    // same session (an update, a refresh) keeps the unlock, because the session marker survives it.
+    let fresh = false;
+    try {
+      if (window.matchMedia("(pointer: coarse)").matches && !sessionStorage.getItem("sapphire.session")) fresh = true;
+      sessionStorage.setItem("sapphire.session", "1");
+    } catch {
+      // No session storage: never lock on every load.
+    }
+    (fresh ? lockAdult().catch(() => undefined) : Promise.resolve()).then(() => adultState().then(setAdult, () => {}));
   }, []);
   const route = useRoute();
 
