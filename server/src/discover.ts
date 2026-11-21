@@ -7,6 +7,7 @@ import {
   listSources,
   scopedSources,
   normalizeTitle,
+  type EngineSource,
   type Scope,
   type SearchResult,
   type SeriesGroup,
@@ -32,10 +33,10 @@ export type DiscoverSort = "popular" | "latest";
 export async function discover(
   config: Config,
   sort: DiscoverSort,
-  opts: { fetchImpl?: FetchLike; scope?: Scope; onResult?: SourceReport; timeoutMs?: number; page?: number } = {},
+  opts: { fetchImpl?: FetchLike; scope?: Scope; onResult?: SourceReport; timeoutMs?: number; page?: number; only?: (s: EngineSource) => boolean } = {},
 ): Promise<SearchResult> {
-  const { fetchImpl, scope = "safe", onResult, timeoutMs = 10000, page = 1 } = opts;
-  const sources = scopedSources(await listSources(config, fetchImpl), scope);
+  const { fetchImpl, scope = "safe", onResult, timeoutMs = 10000, page = 1, only } = opts;
+  const sources = scopedSources(await listSources(config, fetchImpl), scope, only);
   const failed: SearchResult["failed"] = [];
   const lists = await Promise.all(
     sources.map(async (source) => {

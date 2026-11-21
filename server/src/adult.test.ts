@@ -74,7 +74,7 @@ describe("18+ lock", () => {
     expect((await app.inject({ url: "/api/for-you?adult=1" })).statusCode).toBe(403);
     const cookie = cookieOf(await app.inject({ method: "POST", url: "/api/adult/pin", payload: { pin: "4321" } }));
     const adult = await app.inject({ url: "/api/discover?adult=1", headers: { cookie } });
-    expect(adult.json().searched).toBe(1); // only the 18+ source
+    expect(adult.json().searched).toBe(4); // the 18+ source, plus the three ordinary ones checked for adult series
     expect((await app.inject({ url: "/api/discover" , headers: { cookie } })).json().searched).toBe(3);
   });
 
@@ -128,5 +128,15 @@ describe("18+ session lifetime", () => {
     const { app } = await setup();
     const res = await app.inject({ method: "POST", url: "/api/adult/pin", payload: { pin: "4321" } });
     expect(String(res.headers["set-cookie"])).not.toMatch(/Max-Age|Expires/i);
+  });
+});
+
+describe("18+ discover with mixed sources", () => {
+  it("leaves mixed sources out when their per-title check is switched off", async () => {
+    const { app } = await setup();
+    const cookie = cookieOf(await app.inject({ method: "POST", url: "/api/adult/pin", payload: { pin: "4321" } }));
+    for (const id of ["1", "2", "4", "5", "6"]) await app.inject({ method: "PUT", url: `/api/sources/${id}/check`, headers: { cookie }, payload: { check: false } });
+    const adult = await app.inject({ url: "/api/discover?adult=1", headers: { cookie } });
+    expect(adult.json().searched).toBeLessThan(4);
   });
 });

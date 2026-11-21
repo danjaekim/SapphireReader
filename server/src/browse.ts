@@ -244,8 +244,8 @@ async function filtersFor(config: Config, sourceId: string, fetchImpl?: FetchLik
   return filters;
 }
 
-function browsableSources(all: EngineSource[], scope: Scope) {
-  return scopedSources(all, scope);
+function browsableSources(all: EngineSource[], scope: Scope, only?: (s: EngineSource) => boolean) {
+  return scopedSources(all, scope, only);
 }
 
 /** Every genre any of your sources can filter by (similar spellings merged), with how many sources offer it. */
@@ -333,13 +333,13 @@ async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Prom
 export async function browseByGenres(
   config: Config,
   genres: string[],
-  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number; seed?: number; sort?: SortKey; strict?: boolean } = {},
+  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number; seed?: number; sort?: SortKey; strict?: boolean; only?: (s: EngineSource) => boolean } = {},
 ): Promise<BrowseResult> {
   // strict: only sources that can filter by every genre themselves; no per-series checks, no text
   // fallback. Fast, and every result really has the genres. Used for Similar and recommendations.
-  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult, page = 1, seed, sort = "relevance", strict = false } = opts;
+  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult, page = 1, seed, sort = "relevance", strict = false, only } = opts;
   const unsorted: string[] = [];
-  const sources = browsableSources(await listSources(config, fetchImpl), scope);
+  const sources = browsableSources(await listSources(config, fetchImpl), scope, only);
   const failed: BrowseResult["failed"] = [];
   const skipped: string[] = [];
   let searched = 0;

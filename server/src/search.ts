@@ -15,9 +15,9 @@ export function inScope(s: EngineSource, scope: Scope): boolean {
  * English and a multi-language build); asking both just shows the same site twice, so keep one,
  * preferring English.
  */
-export function scopedSources(all: EngineSource[], scope: Scope): EngineSource[] {
+export function scopedSources(all: EngineSource[], scope: Scope, only?: (s: EngineSource) => boolean): EngineSource[] {
   const best = new Map<string, EngineSource>();
-  for (const s of all.filter((x) => inScope(x, scope))) {
+  for (const s of all.filter((x) => inScope(x, scope) && (!only || only(x)))) {
     const key = s.name.trim().toLowerCase();
     const have = best.get(key);
     if (!have || (have.lang !== "en" && s.lang === "en")) best.set(key, s);

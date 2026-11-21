@@ -34,7 +34,9 @@ import {
   groupKey,
   latestFromChapters,
   searchAll,
+  type EngineSource,
   type Scope,
+  type SearchResult,
   type SourceReport,
   type ChapterInfo,
   type SeriesGroup,
@@ -199,6 +201,33 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     for (const [id, adult] of found) if (adult === true) hide[id] = true;
     return { hide };
   });
+
+  /**
+   * For the 18+ pages: the 18+ sources' results, plus the adult series from mixed sources (the ones
+   * with "Check each title" on). Mixed sources' lists are fetched like any other, then only the
+   * series found to be adult are kept.
+   */
+  async function adultWithMixed<T extends SearchResult>(run: (scope: Scope, only?: (s: EngineSource) => boolean) => Promise<T>): Promise<T> {
+    const skip = noCheck();
+    const [adultRes, mixed] = await Promise.all([run("adult"), run("safe", (s) => !skip.has(s.id)).catch(() => null)]);
+    if (!mixed || mixed.groups.length === 0) return adultRes;
+    const probe = mixed.groups.slice(0, 40);
+    const found = await classifyAdult(store, probe.map((g) => ({ mangaId: g.hits[0].mangaId, title: g.title })), {
+      fetchImpl,
+      details: async (id) => (await detailsFor(id)).genre ?? [],
+    }).catch(() => new Map<number, boolean | null>());
+    const keep = probe.filter((g) => found.get(g.hits[0].mangaId) === true);
+    if (keep.length === 0) return { ...adultRes, searched: adultRes.searched + mixed.searched };
+    // Take turns between the 18+ sources' series and the mixed sources' adult ones.
+    const seen = new Set(adultRes.groups.map((g) => g.key));
+    const extra = keep.filter((g) => !seen.has(g.key));
+    const groups: SeriesGroup[] = [];
+    for (let i = 0; i < Math.max(adultRes.groups.length, extra.length); i++) {
+      if (i < adultRes.groups.length) groups.push(adultRes.groups[i]);
+      if (i < extra.length) groups.push(extra[i]);
+    }
+    return { ...adultRes, groups, failed: [...adultRes.failed, ...mixed.failed], searched: adultRes.searched + mixed.searched };
+  }
 
   app.put<{ Params: { id: string }; Body: { check?: unknown } }>("/api/sources/:id/check", async (req, reply) => {
     if (typeof req.body?.check !== "boolean") return reply.code(400).send({ error: "Bad request." });
@@ -541,10 +570,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const other = sortOf(req.query.sort);
     try {
       // Popular and Latest use each site's own lists; other orders go through each site's sort filter.
+      const page = pageOf(req.query.page);
       if (other === "rating" || other === "newest" || other === "az") {
-        return await ranked(await browseByGenres(config, [], { sort: other, fetchImpl, onResult: report, scope: adult ? "adult" : "safe", page: pageOf(req.query.page) }), other);
+        const run = (scope: Scope, only?: (s: EngineSource) => boolean) => browseByGenres(config, [], { sort: other, fetchImpl, onResult: report, scope, page, only });
+        return await ranked(adult ? await adultWithMixed(run) : await run("safe"), other);
       }
-      return await ranked(await discover(config, sort, { fetchImpl, onResult: report, scope: adult ? "adult" : "safe", page: pageOf(req.query.page) }), sort);
+      const run = (scope: Scope, only?: (s: EngineSource) => boolean) => discover(config, sort, { fetchImpl, onResult: report, scope, page, only });
+      return await ranked(adult ? await adultWithMixed(run) : await run("safe"), sort);
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
