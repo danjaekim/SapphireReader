@@ -1028,10 +1028,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       // Use the path the engine itself reports; fall back to the classic one.
       let path = iconPaths.get(req.params.apk);
       if (!path) {
-        for (const x of await listExtensions(config, fetchImpl)) if (x.apkName && x.iconUrl?.startsWith("/")) iconPaths.set(x.apkName, x.iconUrl);
+        for (const x of await listExtensions(config, fetchImpl)) if (x.apkName && x.iconUrl && (x.iconUrl.startsWith("/") || x.iconUrl.startsWith("https://"))) iconPaths.set(x.apkName, x.iconUrl);
         path = iconPaths.get(req.params.apk) ?? `/api/v1/extension/icon/${req.params.apk}`;
       }
-      const res = await engineFile(config, path, fetchImpl);
+      // Installed extensions' icons live in the engine; ones not installed yet point at the extension repo.
+      const res = path.startsWith("https://")
+        ? await (fetchImpl ?? fetch)(path, { signal: AbortSignal.timeout(15000) })
+        : await engineFile(config, path, fetchImpl);
       if (!res.ok) return reply.code(404).send({ error: "No icon." });
       return reply
         .header("content-type", res.headers.get("content-type") ?? "image/png")

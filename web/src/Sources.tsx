@@ -161,6 +161,15 @@ export function Sources() {
     };
   }, [list, filter, englishOnly, kind, sourceRows]);
 
+  // A row's "⋯" menu closes when you click anywhere else.
+  useEffect(() => {
+    const close = (ev: MouseEvent) => {
+      for (const d of document.querySelectorAll<HTMLDetailsElement>("details.extMenu[open]")) if (!d.contains(ev.target as Node)) d.open = false;
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, []);
+
   // Reveal more of the available list as the end comes into view; start over when the search changes.
   useEffect(() => setShown(40), [filter, englishOnly, kind]);
   useEffect(() => {

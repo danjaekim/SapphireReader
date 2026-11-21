@@ -224,7 +224,9 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .chip { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 999px; cursor: pointer; color: var(--fg); background: var(--panel); border: 1px solid var(--line); }
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .genreList input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: inherit; }
-.extList { list-style: none; margin: 8px 0 16px; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.extList { list-style: none; margin: 8px 0 16px; padding: 0; border: 1px solid var(--line); border-radius: 12px; }
+.extList > li:first-child, .extList > li:first-child > .extRow { border-top-left-radius: 11px; border-top-right-radius: 11px; }
+.extList > li:last-child, .extList > li:last-child > .extRow, .extList > li:last-child .extDetails { border-bottom-left-radius: 11px; border-bottom-right-radius: 11px; }
 .extRow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; background: var(--panel); }
 .extRow + .extRow { border-top: 1px solid var(--line); }
 .extActions { display: flex; gap: 6px; }
