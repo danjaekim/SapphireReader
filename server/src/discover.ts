@@ -111,6 +111,9 @@ export function tagWeights(stats: { total: number; counts: Map<string, number> }
   };
 }
 
+/** Similar shows a handful, not a feed. */
+const LIMIT = 8;
+
 const plainKnowledge: TagKnowledge = { weight: tagWeights({ total: 0, counts: new Map() }), tagsOf: () => null };
 
 /**
@@ -142,9 +145,23 @@ export async function similarTo(
   const candidates = new Map<string, { group: SeriesGroup; matched: Set<string>; hits: number; first: number }>();
   let order = 0;
   const run = async (queries: string[][]) => {
-    const results = await Promise.all(queries.map((q) => browseByGenres(config, q, browseOpts).catch(() => null)));
+    const results = await Promise.all(
+      queries.map((q) => browseByGenres(config, q, { ...browseOpts, strict: true, timeoutMs: 8000 }).catch(() => null)),
+    );
+    // A site that returns the same list for different genre picks is ignoring the filter (some
+    // extensions' genre filters are broken), so its results say nothing about these tags.
+    const perSource = new Map<string, string[]>();
+    for (const r of results) {
+      const ids = new Map<string, number[]>();
+      for (const g of r?.groups ?? []) for (const h of g.hits) ids.set(h.sourceId, [...(ids.get(h.sourceId) ?? []), h.mangaId]);
+      for (const [src, list] of ids) perSource.set(src, [...(perSource.get(src) ?? []), list.slice(0, 6).join(",")]);
+    }
+    const ignoring = new Set([...perSource].filter(([, lists]) => lists.length > 1 && new Set(lists).size === 1).map(([src]) => src));
     results.forEach((r, qi) => {
-      for (const g of r?.groups ?? []) {
+      for (const raw of r?.groups ?? []) {
+        const hits = raw.hits.filter((h) => !ignoring.has(h.sourceId));
+        if (hits.length === 0) continue;
+        const g = { ...raw, hits };
         if (g.key === self || g.hits.some((h) => h.mangaId === selfId)) continue;
         const c = candidates.get(g.key) ?? { group: g, matched: new Set<string>(), hits: 0, first: order++ };
         for (const t of queries[qi]) c.matched.add(canonKey(t));
@@ -156,7 +173,7 @@ export async function similarTo(
   const pairs: string[][] = [];
   for (let a = 0; a < seeds.length; a++) for (let b = a + 1; b < seeds.length; b++) pairs.push([seeds[a], seeds[b]]);
   await run(pairs.length > 0 ? pairs : [[seeds[0]]]);
-  if (candidates.size < 12 && pairs.length > 0) await run(seeds.slice(0, 2).map((t) => [t]));
+  if (candidates.size < LIMIT && pairs.length > 0) await run(seeds.slice(0, 2).map((t) => [t]));
 
   const score = (c: { group: SeriesGroup; matched: Set<string> }) => {
     const known = c.group.hits.map((h) => knowledge.tagsOf(h.mangaId)).find((t) => t !== null);
@@ -165,9 +182,10 @@ export async function similarTo(
     for (const k of shared) total += own.get(k) ?? 0;
     return total;
   };
-  const scored = [...candidates.values()].map((c) => ({ c, s: score(c) }));
+  // Anything that shares none of this series' tags doesn't belong, whatever the site returned.
+  const scored = [...candidates.values()].map((c) => ({ c, s: score(c) })).filter((x) => x.s > 0);
   scored.sort((a, b) => b.s - a.s || b.c.hits - a.c.hits || a.c.first - b.c.first);
-  return { groups: scored.slice(0, 30).map((x) => x.c.group), basedOn: seeds };
+  return { groups: scored.slice(0, LIMIT).map((x) => x.c.group), basedOn: seeds };
 }
 
 /** Picks to try for the "For you" page: your top genres on their own, then the top two together. */
@@ -188,7 +206,7 @@ export async function recommendFor(
   const queries = recommendationQueries(profile);
   if (queries.length === 0) return { groups: [], because: [] };
   const own = new Set(ownTitles.map(normalizeTitle));
-  const results = await Promise.all(queries.map((q) => browseByGenres(config, q, opts).catch(() => null)));
+  const results = await Promise.all(queries.map((q) => browseByGenres(config, q, { ...opts, strict: true }).catch(() => null)));
   // Series that match the combined query come first, then each single-genre list in turn.
   const seen = new Set<string>();
   const merged: SeriesGroup[] = [];

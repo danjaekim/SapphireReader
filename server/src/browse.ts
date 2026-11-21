@@ -333,9 +333,11 @@ async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Prom
 export async function browseByGenres(
   config: Config,
   genres: string[],
-  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number; seed?: number; sort?: SortKey } = {},
+  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number; seed?: number; sort?: SortKey; strict?: boolean } = {},
 ): Promise<BrowseResult> {
-  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult, page = 1, seed, sort = "relevance" } = opts;
+  // strict: only sources that can filter by every genre themselves; no per-series checks, no text
+  // fallback. Fast, and every result really has the genres. Used for Similar and recommendations.
+  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult, page = 1, seed, sort = "relevance", strict = false } = opts;
   const unsorted: string[] = [];
   const sources = browsableSources(await listSources(config, fetchImpl), scope);
   const failed: BrowseResult["failed"] = [];
@@ -349,6 +351,7 @@ export async function browseByGenres(
         const filters = await filtersFor(config, source.id, fetchImpl).catch(() => [] as EngineFilter[]);
         const plan: GenrePlan =
           (genres.length > 0 ? planGenreFilters(filters, genres) : null) ?? { changes: [], missing: genres.map(canonKey) };
+        if (strict && plan.missing.length > 0 && !(source.isNsfw && plan.changes.length === 0)) return [];
         const order = sortChange(filters, sort);
         if (sort !== "relevance" && !order) unsorted.push(source.name);
         const changes = order ? [...plan.changes, order] : plan.changes;
@@ -407,7 +410,7 @@ export async function browseByGenres(
   let lists: SourceHit[][] = results;
   // Last resort: nothing matched by genre anywhere, so search the genre names as plain text.
   let textFallback = false;
-  if (hits.length === 0 && genres.length > 0) {
+  if (hits.length === 0 && genres.length > 0 && !strict) {
     const text = [query, ...genres.map((g) => canonLabel(g))].filter(Boolean).join(" ");
     const loose = await Promise.all(
       sources.map(async (source) => {
