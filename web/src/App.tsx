@@ -20,6 +20,50 @@ const baseTabs = ["Search", "Library", "Discover", "Updates", "Sources", "Status
 const adultTabs = ["Search", "Library", "Discover", "Discover (18+)", "Updates", "Sources", "Status"] as const;
 type Tab = (typeof adultTabs)[number];
 
+const ICONS: Record<Tab, string> = {
+  Search: "🔍",
+  Library: "📚",
+  Discover: "✨",
+  "Discover (18+)": "🔞",
+  Updates: "🔔",
+  Sources: "🧩",
+  Status: "📊",
+};
+
+function SideNav({
+  tabs,
+  current,
+  onPick,
+  adult,
+  onAdult,
+  overlay = false,
+}: {
+  tabs: readonly Tab[];
+  current: Tab | null;
+  onPick: (t: Tab) => void;
+  adult: AdultState;
+  onAdult: (s: AdultState) => void;
+  overlay?: boolean;
+}) {
+  return (
+    <aside className={`sidenav ${overlay ? "overlay" : ""}`}>
+      <div className="brand">
+        <img src="/icon.svg" alt="" width={32} height={32} />
+        <h1>Sapphire</h1>
+      </div>
+      <nav aria-label="Main">
+        {tabs.map((t) => (
+          <button key={t} className="navItem" aria-current={t === current ? "page" : undefined} onClick={() => onPick(t)} title={t}>
+            <span className="navIcon" aria-hidden="true">{ICONS[t]}</span>
+            <span className="navLabel">{t}</span>
+          </button>
+        ))}
+      </nav>
+      <AdultLock state={adult} onChange={onAdult} />
+    </aside>
+  );
+}
+
 function StatusCard() {
   const [status, setStatus] = useState<Status | null>(null);
   const [failed, setFailed] = useState(false);
@@ -88,28 +132,38 @@ export function App() {
   // If 18+ mode is switched off while its page is open, fall back to Search.
   const tab: Tab = genres.length > 0 ? "Search" : tabs.includes(pickedTab) ? pickedTab : "Search";
 
-  if (route.name === "read") {
-    return (
-      <div className="shell reading">
-        <Reader mangaId={route.mangaId} chapterId={route.chapterId} />
-      </div>
-    );
-  }
-
   function pickTab(t: Tab) {
     setTab(t);
     // Leaving a series page: go back to the tab view.
     if (route.name !== "tab" || route.genres.length > 0) window.location.hash = "#/";
   }
 
+  const nav = (overlay: boolean) => (
+    <SideNav
+      tabs={tabs}
+      current={!overlay && route.name === "tab" ? tab : null}
+      onPick={pickTab}
+      adult={adult}
+      onAdult={setAdult}
+      overlay={overlay}
+    />
+  );
+
+  if (route.name === "read") {
+    return (
+      <div className="reading">
+        <Reader mangaId={route.mangaId} chapterId={route.chapterId} nav={nav(true)} />
+      </div>
+    );
+  }
+
+  // Search and Discover use the full width for their grids; everything else reads better narrower.
+  const wide = route.name === "tab" && (tab === "Search" || tab === "Discover" || tab === "Discover (18+)");
+
   return (
     <div className="shell">
-      <header className="top">
-        <img src="/icon.svg" alt="" width={32} height={32} />
-        <h1>Sapphire</h1>
-        <AdultLock state={adult} onChange={setAdult} />
-      </header>
-      <main className="content">
+      {nav(false)}
+      <main className={`content ${wide ? "" : "narrow"}`}>
         {route.name === "series" ? (
           <SeriesPage mangaId={route.mangaId} />
         ) : (
@@ -138,13 +192,6 @@ export function App() {
           </>
         )}
       </main>
-      <nav className="tabs" aria-label="Main">
-        {tabs.map((t) => (
-          <button key={t} aria-current={route.name === "tab" && t === tab ? "page" : undefined} onClick={() => pickTab(t)}>
-            {t}
-          </button>
-        ))}
-      </nav>
     </div>
   );
 }

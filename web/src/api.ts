@@ -13,6 +13,8 @@ export interface SeriesGroup {
 }
 
 export interface SearchResult {
+  /** A line to show under the count, e.g. which sources were left out. */
+  note?: string;
   groups: SeriesGroup[];
   failed: { sourceName: string; error: string }[];
   searched: number;
@@ -115,8 +117,8 @@ export const chapterPages = (chapterId: number) =>
 export interface BrowseResult extends SearchResult {
   skipped: string[];
 }
-export const browse = (genres: string[], q: string) =>
-  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}`);
+export const browse = (genres: string[], q: string, page = 1) =>
+  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}&page=${page}`);
 export const genreList = () => getJson<{ genres: { name: string; sources: number }[] }>("/api/genres");
 
 export interface ExtensionInfo {
@@ -133,8 +135,8 @@ export const refreshExtensionList = () =>
 export const changeExtension = (pkg: string, action: "install" | "update" | "uninstall") =>
   send("POST", `/api/extensions/${pkg}/${action}`) as Promise<{ extension: ExtensionInfo }>;
 
-export const discoverList = (sort: "popular" | "latest", adult = false) =>
-  getJson<SearchResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}`);
+export const discoverList = (sort: "popular" | "latest", adult = false, page = 1) =>
+  getJson<SearchResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}&page=${page}`);
 export const forYou = (adult = false) =>
   getJson<{ groups: SeriesGroup[]; because: string[] }>(`/api/for-you${adult ? "?adult=1" : ""}`);
 
@@ -149,7 +151,7 @@ export const unlockAdult = (pin: string) => send("POST", "/api/adult/unlock", { 
 export const lockAdult = () => send("POST", "/api/adult/lock") as Promise<AdultState>;
 export const similar = (mangaId: number) => getJson<{ groups: SeriesGroup[] }>(`/api/manga/${mangaId}/similar`);
 
-export const search = (q: string) => getJson<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`);
+export const search = (q: string, page = 1) => getJson<SearchResult>(`/api/search?q=${encodeURIComponent(q)}&page=${page}`);
 export const latest = (mangaId: number) => getJson<LatestChapter>(`/api/manga/${mangaId}/latest`);
 export const thumbnailUrl = (mangaId: number) => `/api/manga/${mangaId}/thumbnail`;
 

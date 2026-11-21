@@ -14,7 +14,7 @@ const genreFilters = [
   ] },
 ];
 
-function engine(log: { type?: string; filters?: unknown }[] = []): typeof fetch {
+function engine(log: { type?: string; filters?: unknown; page?: number }[] = []): typeof fetch {
   return (async (_u: string, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body));
     const q: string = body.query;
@@ -32,7 +32,7 @@ function engine(log: { type?: string; filters?: unknown }[] = []): typeof fetch 
     if (q.includes("fetchChapters")) return json({ fetchChapters: { chapters: [{ id: 1, name: "Chapter 1", chapterNumber: 1, uploadDate: "1700000000000", scanlator: null }] } });
     if (q.includes("fetchSourceManga")) {
       const input = body.variables.input;
-      log.push({ type: input.type, filters: input.filters });
+      log.push({ type: input.type, filters: input.filters, page: input.page });
       const src = input.source;
       const titles = input.type === "LATEST" ? ["Fresh One", "Fresh Two"] : ["Nano Machine", `Hit ${src}`, "Shared Hit"];
       return json({ fetchSourceManga: { mangas: titles.map((t, i) => ({ id: Number(src) * 100 + i, title: t, thumbnailUrl: null })) } });
@@ -50,6 +50,18 @@ describe("discover", () => {
     const latest = (await app.inject({ url: "/api/discover?sort=latest" })).json();
     expect(latest.groups.map((g: { title: string }) => g.title)).toEqual(["Fresh One", "Fresh Two"]);
     expect(log.some((l) => l.type === "LATEST")).toBe(true);
+  });
+});
+
+describe("paging", () => {
+  it("asks each source for the requested page, and treats a bad page as 1", async () => {
+    const log: { page?: number }[] = [];
+    const app = await buildApp(config, { fetchImpl: engine(log), store: new Store(":memory:") });
+    await app.inject({ url: "/api/discover?sort=popular&page=3" });
+    await app.inject({ url: "/api/search?q=nano&page=2" });
+    await app.inject({ url: "/api/browse?genres=Action&page=4" });
+    await app.inject({ url: "/api/discover?page=abc" });
+    expect([...new Set(log.map((l) => l.page))].sort()).toEqual([1, 2, 3, 4]);
   });
 });
 

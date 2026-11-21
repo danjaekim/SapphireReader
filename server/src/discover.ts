@@ -31,9 +31,9 @@ export type DiscoverSort = "popular" | "latest";
 export async function discover(
   config: Config,
   sort: DiscoverSort,
-  opts: { fetchImpl?: FetchLike; scope?: Scope; onResult?: SourceReport; timeoutMs?: number } = {},
+  opts: { fetchImpl?: FetchLike; scope?: Scope; onResult?: SourceReport; timeoutMs?: number; page?: number } = {},
 ): Promise<SearchResult> {
-  const { fetchImpl, scope = "safe", onResult, timeoutMs = 10000 } = opts;
+  const { fetchImpl, scope = "safe", onResult, timeoutMs = 10000, page = 1 } = opts;
   const sources = (await listSources(config, fetchImpl)).filter((s) => inScope(s, scope));
   const failed: SearchResult["failed"] = [];
   const lists = await Promise.all(
@@ -45,7 +45,7 @@ export async function discover(
         }>(
           config,
           LIST_MUTATION,
-          { input: { source: source.id, type: sort === "latest" ? "LATEST" : "POPULAR", page: 1 } },
+          { input: { source: source.id, type: sort === "latest" ? "LATEST" : "POPULAR", page } },
           { fetchImpl, timeoutMs },
         );
         onResult?.(source, { ok: true, ms: Date.now() - started });

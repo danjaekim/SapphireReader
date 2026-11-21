@@ -89,9 +89,9 @@ const SEARCH_MUTATION = `
 export async function searchAll(
   config: Config,
   query: string,
-  opts: { fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport } = {},
+  opts: { fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number } = {},
 ): Promise<SearchResult> {
-  const { fetchImpl, scope = "safe", timeoutMs = 8000, onResult } = opts;
+  const { fetchImpl, scope = "safe", timeoutMs = 8000, onResult, page = 1 } = opts;
   const all = await listSources(config, fetchImpl);
   // English and multi-language sources only; 18+ sources are used only when 18+ mode is unlocked.
   const sources = all.filter((s) => inScope(s, scope));
@@ -106,7 +106,7 @@ export async function searchAll(
         }>(
           config,
           SEARCH_MUTATION,
-          { input: { source: source.id, type: "SEARCH", page: 1, query } },
+          { input: { source: source.id, type: "SEARCH", page, query } },
           { fetchImpl, timeoutMs },
         );
         onResult?.(source, { ok: true, ms: Date.now() - started });

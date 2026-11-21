@@ -1,54 +1,35 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { browse, search, type SearchResult } from "./api";
+import { useEffect, useState, type FormEvent } from "react";
+import { browse, search } from "./api";
 import { GenrePicker } from "./GenrePicker";
 import { Results } from "./Results";
+import { usePaged } from "./usePaged";
 
-/** Search box plus stackable genre filters. */
+interface Request {
+  genres: string[];
+  q: string;
+}
+
+/** Search box plus stackable genre filters, with results that keep loading as you scroll. */
 export function Search({ initialGenres = [] }: { initialGenres?: string[] }) {
   const [genres, setGenres] = useState<string[]>(initialGenres);
-  const [skipped, setSkipped] = useState<string[]>([]);
   const [query, setQuery] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<SearchResult | null>(null);
+  // Results follow the last submitted request, not every keystroke. Arriving from a genre link submits at once.
+  const [request, setRequest] = useState<Request | null>(initialGenres.length ? { genres: initialGenres, q: "" } : null);
   const canRun = genres.length > 0 || query.trim().length >= 2;
-  // Only the newest request may fill in results.
-  const runId = useRef(0);
 
-  async function run(g: string[] = genres) {
-    const q = query.trim();
-    if (g.length === 0 && q.length < 2) return;
-    const id = ++runId.current;
-    setBusy(true);
-    setError(null);
-    setResult(null);
-    setSkipped([]);
-    try {
-      if (g.length > 0) {
-        const r = await browse(g, q);
-        if (id !== runId.current) return;
-        setSkipped(r.skipped);
-        setResult(r);
-      } else {
-        const r = await search(q);
-        if (id === runId.current) setResult(r);
-      }
-    } catch (err) {
-      if (id === runId.current) setError(err instanceof Error ? err.message : "Search failed.");
-    } finally {
-      if (id === runId.current) setBusy(false);
-    }
-  }
+  const { result, busy, error, more, loadMore } = usePaged(
+    (page) => (request!.genres.length > 0 ? browse(request!.genres, request!.q, page) : search(request!.q, page)),
+    request ? JSON.stringify(request) : null,
+  );
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    void run();
+    if (canRun) setRequest({ genres, q: query.trim() });
   }
 
-  // Arriving from a genre link on a series page runs straight away.
+  const skipped = (result as { skipped?: string[] } | null)?.skipped ?? [];
   useEffect(() => {
-    if (initialGenres.length > 0) void run(initialGenres);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    document.title = "Sapphire";
   }, []);
 
   return (
@@ -71,6 +52,8 @@ export function Search({ initialGenres = [] }: { initialGenres?: string[] }) {
       {result && (
         <Results
           result={result}
+          hasMore={more}
+          onMore={loadMore}
           note={skipped.length > 0 ? `Left out because they can't filter by every genre picked: ${skipped.join(", ")}.` : undefined}
         />
       )}

@@ -153,9 +153,9 @@ export interface BrowseResult extends SearchResult {
 export async function browseByGenres(
   config: Config,
   genres: string[],
-  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport } = {},
+  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number } = {},
 ): Promise<BrowseResult> {
-  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult } = opts;
+  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult, page = 1 } = opts;
   const sources = browsableSources(await listSources(config, fetchImpl), scope);
   const failed: BrowseResult["failed"] = [];
   const skipped: string[] = [];
@@ -175,7 +175,7 @@ export async function browseByGenres(
         }>(
           config,
           BROWSE_MUTATION,
-          { input: { source: source.id, type: "SEARCH", page: 1, query: query || null, filters: changes } },
+          { input: { source: source.id, type: "SEARCH", page, query: query || null, filters: changes } },
           { fetchImpl, timeoutMs },
         );
         onResult?.(source, { ok: true, ms: Date.now() - started });

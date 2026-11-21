@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { chapterPages, saveProgress, series, type SeriesData } from "./api";
 import { readHref, seriesHref } from "./route";
 
-export function Reader({ mangaId, chapterId }: { mangaId: number; chapterId: number }) {
+export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; chapterId: number; nav: ReactNode }) {
+  // Chrome (top bar and menu) stays hidden while reading; tapping the page shows or hides it.
+  const [chrome, setChrome] = useState(false);
   const [data, setData] = useState<SeriesData | null>(null);
   const [pages, setPages] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function Reader({ mangaId, chapterId }: { mangaId: number; chapterId: num
   const prev = index > 0 ? data!.chapters[index - 1] : null;
   const next = index >= 0 && index < data!.chapters.length - 1 ? data!.chapters[index + 1] : null;
 
-  const nav = (
+  const bottomNav = (
     <div className="readerNav">
       {prev ? <a href={readHref(mangaId, prev.id)}>← Previous</a> : <span className="muted">← Previous</span>}
       <a href={seriesHref(mangaId)}>Chapters</a>
@@ -96,14 +98,23 @@ export function Reader({ mangaId, chapterId }: { mangaId: number; chapterId: num
     };
   }, [pages, chapter?.id, mangaId, chapterId]);
 
+  function onTap(e: MouseEvent) {
+    // Links and buttons do their own thing; only a tap on the page itself toggles the menu.
+    if ((e.target as HTMLElement).closest("a, button, input, aside")) return;
+    setChrome((v) => !v);
+  }
+
+  useEffect(() => setChrome(false), [chapterId]);
+
   // Warm the next chapter's page list so "Next" starts fast.
   useEffect(() => {
     if (pages && next) chapterPages(next.id).catch(() => {});
   }, [pages, next?.id]);
 
   return (
-    <section className="reader">
-      <header className="readerTop">
+    <section className="reader" onClick={onTap}>
+      {chrome && sideNav}
+      <header className={`readerTop ${chrome ? "show" : ""}`}>
         <a href={seriesHref(mangaId)}>← {data?.manga.title ?? "Back"}</a>
         <strong>{chapter ? (chapter.chapterNumber >= 0 ? `Chapter ${chapter.chapterNumber}` : chapter.name) : ""}</strong>
       </header>
@@ -126,7 +137,7 @@ export function Reader({ mangaId, chapterId }: { mangaId: number; chapterId: num
           ))}
         </div>
       )}
-      {pages && nav}
+      {pages && bottomNav}
     </section>
   );
 }

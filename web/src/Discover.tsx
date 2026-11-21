@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { browse, discoverList, forYou, type SearchResult } from "./api";
 import { GenrePicker } from "./GenrePicker";
 import { Results } from "./Results";
+import { usePaged } from "./usePaged";
 
 type Mode = "For you" | "Popular" | "Latest";
 const modes: Mode[] = ["For you", "Popular", "Latest"];
@@ -10,43 +11,29 @@ const modes: Mode[] = ["For you", "Popular", "Latest"];
 export function Discover({ adult = false }: { adult?: boolean }) {
   const [mode, setMode] = useState<Mode>("For you");
   const [genres, setGenres] = useState<string[]>([]);
-  const [result, setResult] = useState<SearchResult | null>(null);
-  const [note, setNote] = useState<string | undefined>();
   const [empty, setEmpty] = useState<string | undefined>();
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(true);
-  const runId = useRef(0);
 
-  useEffect(() => {
-    const id = ++runId.current;
-    setBusy(true);
-    setError(null);
-    setResult(null);
-    setNote(undefined);
-    setEmpty(undefined);
-    (async () => {
-      try {
-        let r: SearchResult;
-        if (genres.length > 0) {
-          const b = await browse(genres, "");
-          if (b.skipped.length > 0) setNote(`Left out because they can't filter by every genre picked: ${b.skipped.join(", ")}.`);
-          r = b;
-        } else if (mode === "For you") {
-          const f = await forYou(adult);
-          if (f.because.length === 0) setEmpty(adult ? "Add a few 18+ series to your library and this page will start recommending similar ones. It never mixes with your regular recommendations." : "Add a few series to your library and Sapphire will start recommending similar ones here.");
-          else setNote(`Because you like ${f.because.join(", ")}.`);
-          r = { groups: f.groups, failed: [], searched: 0 };
-        } else {
-          r = await discoverList(mode === "Latest" ? "latest" : "popular", adult);
-        }
-        if (id === runId.current) setResult(r);
-      } catch (err) {
-        if (id === runId.current) setError(err instanceof Error ? err.message : "Couldn't load this.");
-      } finally {
-        if (id === runId.current) setBusy(false);
-      }
-    })();
-  }, [mode, genres, adult]);
+  const { result, busy, error, more, loadMore } = usePaged(async (page): Promise<SearchResult> => {
+    if (page === 1) setEmpty(undefined);
+    if (genres.length > 0) {
+      const b = await browse(genres, "", page);
+      return { ...b, note: b.skipped.length ? `Left out because they can't filter by every genre picked: ${b.skipped.join(", ")}.` : undefined };
+    }
+    if (mode === "For you") {
+      // Recommendations come as one list, not pages.
+      if (page > 1) return { groups: [], failed: [], searched: 0 };
+      const f = await forYou(adult);
+      setEmpty(
+        f.because.length === 0
+          ? adult
+            ? "Add a few 18+ series to your library and this page will start recommending similar ones. It never mixes with your regular recommendations."
+            : "Add a few series to your library and Sapphire will start recommending similar ones here."
+          : undefined,
+      );
+      return { groups: f.groups, failed: [], searched: 0, note: f.because.length ? `Because you like ${f.because.join(", ")}.` : undefined };
+    }
+    return discoverList(mode === "Latest" ? "latest" : "popular", adult, page);
+  }, `${adult}|${mode}|${genres.join(",")}`);
 
   return (
     <section>
@@ -70,7 +57,7 @@ export function Discover({ adult = false }: { adult?: boolean }) {
       <GenrePicker selected={genres} onChange={setGenres} />
       {error && <p className="bad">{error}</p>}
       {busy && <p className="muted">Asking your sources. This can take several seconds.</p>}
-      {result && <Results result={result} note={note} empty={empty} lookups={false} />}
+      {result && <Results result={result} empty={empty} lookups={false} hasMore={more} onMore={loadMore} />}
     </section>
   );
 }

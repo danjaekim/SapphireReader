@@ -46,6 +46,12 @@ export interface AppOptions {
   store?: Store;
 }
 
+/** Results come in pages (infinite scroll); anything odd means page 1. */
+const pageOf = (v: string | undefined) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= 50 ? n : 1;
+};
+
 export async function buildApp(config: Config, options: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
   const { fetchImpl } = options;
@@ -73,11 +79,11 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     alerts: { enabled: notify !== null, everyHours: config.checkIntervalHours },
   }));
 
-  app.get<{ Querystring: { q?: string } }>("/api/search", async (req, reply) => {
+  app.get<{ Querystring: { q?: string; page?: string } }>("/api/search", async (req, reply) => {
     const q = (req.query.q ?? "").trim();
     if (q.length < 2) return reply.code(400).send({ error: "Type at least 2 characters." });
     try {
-      return await searchAll(config, q, { fetchImpl, onResult: report, scope: scopeFor(req) });
+      return await searchAll(config, q, { fetchImpl, onResult: report, scope: scopeFor(req), page: pageOf(req.query.page) });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -206,12 +212,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  app.get<{ Querystring: { genres?: string; q?: string } }>("/api/browse", async (req, reply) => {
+  app.get<{ Querystring: { genres?: string; q?: string; page?: string } }>("/api/browse", async (req, reply) => {
     const genres = (req.query.genres ?? "").split(",").map((g) => g.trim()).filter(Boolean).slice(0, 10);
     const q = (req.query.q ?? "").trim();
     if (genres.length === 0) return reply.code(400).send({ error: "Pick at least one genre." });
     try {
-      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: scopeFor(req) });
+      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: scopeFor(req), page: pageOf(req.query.page) });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -325,12 +331,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  app.get<{ Querystring: { sort?: string; adult?: string } }>("/api/discover", async (req, reply) => {
+  app.get<{ Querystring: { sort?: string; adult?: string; page?: string } }>("/api/discover", async (req, reply) => {
     const sort: DiscoverSort = req.query.sort === "latest" ? "latest" : "popular";
     const adult = req.query.adult === "1";
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     try {
-      return await discover(config, sort, { fetchImpl, onResult: report, scope: adult ? "adult" : "safe" });
+      return await discover(config, sort, { fetchImpl, onResult: report, scope: adult ? "adult" : "safe", page: pageOf(req.query.page) });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
