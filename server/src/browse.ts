@@ -21,6 +21,7 @@ export type EngineFilter =
   | { __typename: "TriStateFilter"; name: string }
   | { __typename: "SelectFilter"; name: string; values: string[] }
   | { __typename: "GroupFilter"; name: string; filters: EngineFilter[] }
+  | { __typename: "TextFilter"; name: string }
   | { __typename: string; name?: string };
 
 export interface FilterChange {
@@ -29,6 +30,7 @@ export interface FilterChange {
   triState?: "INCLUDE";
   selectState?: number;
   groupChange?: FilterChange;
+  textState?: string;
 }
 
 // Sources call the same idea "genre", "tag", "category", "theme", "content" and so on.
@@ -42,19 +44,30 @@ interface GenreSlot {
   change: () => FilterChange;
 }
 
+type Group = Extract<EngineFilter, { __typename: "GroupFilter" }>;
+
+/** Tick boxes inside a group, including groups nested in it (some sites split tags A–Z into subgroups). */
+function addGroupSlots(slots: Map<string, GenreSlot>, group: Group, wrap: (inner: FilterChange) => FilterChange): void {
+  group.filters.forEach((child, i) => {
+    if (child.__typename === "GroupFilter") {
+      addGroupSlots(slots, child as Group, (inner) => wrap({ position: i, groupChange: inner }));
+      return;
+    }
+    if ((child.__typename !== "CheckBoxFilter" && child.__typename !== "TriStateFilter") || !child.name) return;
+    const key = canonKey(child.name);
+    if (!key || slots.has(key)) return;
+    const on = child.__typename === "CheckBoxFilter" ? { checkBoxState: true } : { triState: "INCLUDE" as const };
+    slots.set(key, { name: child.name, change: () => wrap({ position: i, ...on }) });
+  });
+}
+
 /** Finds where in a source's filters each genre can be switched on, keyed by canonical genre. */
 export function genreSlots(filters: EngineFilter[]): Map<string, GenreSlot> {
   const slots = new Map<string, GenreSlot>();
   filters.forEach((f, position) => {
     // Any group of tick boxes counts (sources name them all sorts of things), except obvious non-topics.
     if (f.__typename === "GroupFilter" && !/status|sort|order|year|language|rating/i.test(f.name ?? "")) {
-      (f as Extract<EngineFilter, { __typename: "GroupFilter" }>).filters.forEach((child, i) => {
-        if ((child.__typename !== "CheckBoxFilter" && child.__typename !== "TriStateFilter") || !child.name) return;
-        const key = canonKey(child.name);
-        if (slots.has(key)) return;
-        const on = child.__typename === "CheckBoxFilter" ? { checkBoxState: true } : { triState: "INCLUDE" as const };
-        slots.set(key, { name: child.name, change: () => ({ position, groupChange: { position: i, ...on } }) });
-      });
+      addGroupSlots(slots, f as Group, (inner) => ({ position, groupChange: inner }));
     } else if (f.__typename === "SelectFilter" && GENRE_NAME.test(f.name ?? "") && !CONDITION_NAME.test(f.name ?? "")) {
       (f as Extract<EngineFilter, { __typename: "SelectFilter" }>).values.forEach((v, i) => {
         const key = canonKey(v);
@@ -65,6 +78,12 @@ export function genreSlots(filters: EngineFilter[]): Map<string, GenreSlot> {
     }
   });
   return slots;
+}
+
+/** A free-text "Tags" box (e.g. NHentai-style sites' advanced search), which takes any tag by name. */
+export function tagTextFilter(filters: EngineFilter[]): number | null {
+  const i = filters.findIndex((f) => f.__typename === "TextFilter" && /^\s*(tags?|genres?|include(d)? tags?|tags? include)\s*$/i.test(f.name ?? ""));
+  return i >= 0 ? i : null;
 }
 
 /** Some sources have an "OR / AND" switch for their genre list; this finds the change that picks AND. */
@@ -90,6 +109,11 @@ export interface GenrePlan {
  * can't filter by. Returns null when the source can't filter by any of them.
  */
 export function planGenreFilters(filters: EngineFilter[], genres: string[]): GenrePlan | null {
+  // A tags text box takes every tag by name, including ones too rare to be in a tick-box list.
+  const text = tagTextFilter(filters);
+  if (text !== null) {
+    return { changes: [{ position: text, textState: genres.map((g) => g.trim().toLowerCase()).join(", ") }], missing: [] };
+  }
   const slots = genreSlots(filters);
   const changes: FilterChange[] = [];
   const missing: string[] = [];
@@ -129,12 +153,21 @@ const filtersQuery = (id: string) => `
         ... on CheckBoxFilter { name }
         ... on TriStateFilter { name }
         ... on SelectFilter { name values }
+        ... on TextFilter { name }
         ... on GroupFilter {
           name
           filters {
             __typename
             ... on CheckBoxFilter { name }
             ... on TriStateFilter { name }
+            ... on GroupFilter {
+              name
+              filters {
+                __typename
+                ... on CheckBoxFilter { name }
+                ... on TriStateFilter { name }
+              }
+            }
           }
         }
       }
@@ -209,7 +242,7 @@ export async function listGenres(
 export async function genreSupport(
   config: Config,
   opts: { fetchImpl?: FetchLike; scope?: Scope } = {},
-): Promise<{ id: string; name: string; genres: number; filters: string[]; error?: string }[]> {
+): Promise<{ id: string; name: string; genres: number; anyTag: boolean; filters: string[]; error?: string }[]> {
   const { fetchImpl, scope = "safe" } = opts;
   const sources = browsableSources(await listSources(config, fetchImpl), scope);
   return Promise.all(
@@ -220,10 +253,11 @@ export async function genreSupport(
           id: s.id,
           name: s.name,
           genres: genreSlots(filters).size,
+          anyTag: tagTextFilter(filters) !== null,
           filters: filters.filter((f) => f.name).map((f) => `${f.__typename.replace(/Filter$/, "")}: ${f.name}`),
         };
       } catch (err) {
-        return { id: s.id, name: s.name, genres: 0, filters: [], error: err instanceof Error ? err.message : "unknown error" };
+        return { id: s.id, name: s.name, genres: 0, anyTag: false, filters: [], error: err instanceof Error ? err.message : "unknown error" };
       }
     }),
   );
@@ -239,6 +273,8 @@ const BROWSE_MUTATION = `
 export interface BrowseResult extends SearchResult {
   /** Sources that couldn't be searched at all because they can't filter by any of the chosen genres. */
   skipped: string[];
+  /** True when nothing matched the genres, so these are plain text-search results instead. */
+  textFallback: boolean;
 }
 
 /** Runs `task` over `items`, a few at a time. */
@@ -300,7 +336,7 @@ export async function browseByGenres(
         );
         onResult?.(source, { ok: true, ms: Date.now() - started });
         let mangas = data.fetchSourceManga.mangas;
-        if (plan.missing.length > 0) {
+        if (plan.missing.length > 0 && !tagQuery) {
           // Check the rest against each series' own genres (a handful per page, to stay gentle on the site).
           const checked = await mapLimit(mangas.slice(0, 20), 5, async (m) => {
             try {
@@ -327,7 +363,32 @@ export async function browseByGenres(
       }
     }),
   );
-  const hits = results.flat();
+  let hits = results.flat();
+  // Last resort: nothing matched by genre anywhere, so search the genre names as plain text.
+  let textFallback = false;
+  if (hits.length === 0) {
+    const text = [query, ...genres.map((g) => canonLabel(g))].filter(Boolean).join(" ");
+    const loose = await Promise.all(
+      sources.map(async (source) => {
+        try {
+          const data = await engineQuery<{
+            fetchSourceManga: { mangas: { id: number; title: string; thumbnailUrl: string | null }[] };
+          }>(config, BROWSE_MUTATION, { input: { source: source.id, type: "SEARCH", page, query: text, filters: [] } }, { fetchImpl, timeoutMs });
+          return data.fetchSourceManga.mangas.map<SourceHit>((m) => ({
+            mangaId: m.id,
+            sourceId: source.id,
+            sourceName: source.name,
+            title: m.title,
+            thumbnailUrl: m.thumbnailUrl,
+          }));
+        } catch {
+          return [];
+        }
+      }),
+    );
+    hits = loose.flat();
+    textFallback = hits.length > 0;
+  }
   // The series the person clicked the genre on always belongs in the answer, as long as it really has them all.
   if (seed !== undefined && page === 1 && !hits.some((h) => h.mangaId === seed)) {
     try {
@@ -340,5 +401,5 @@ export async function browseByGenres(
       // The seed is a bonus; ignore failures.
     }
   }
-  return { groups: groupHits(hits), failed, searched, skipped };
+  return { groups: groupHits(hits), failed, searched, skipped, textFallback };
 }

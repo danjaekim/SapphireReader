@@ -191,3 +191,54 @@ describe("18+ sources without a tag filter", () => {
     expect(out.groups[0].title).toBe("Some Doujin");
   });
 });
+
+describe("NHentai-style tag filters", () => {
+  it("reaches tick boxes nested in A–Z subgroups", () => {
+    const filters: EngineFilter[] = [
+      { __typename: "SelectFilter", name: "Sort By", values: ["Popular", "Latest"] },
+      { __typename: "GroupFilter", name: "Tags", filters: [
+        { __typename: "GroupFilter", name: "A", filters: [{ __typename: "CheckBoxFilter", name: "ahegao" }] },
+        { __typename: "GroupFilter", name: "G", filters: [{ __typename: "CheckBoxFilter", name: "big breasts" }, { __typename: "CheckBoxFilter", name: "glasses" }] },
+      ] } as EngineFilter,
+    ];
+    expect(planGenreFilters(filters, ["glasses"])).toEqual({
+      changes: [{ position: 1, groupChange: { position: 1, groupChange: { position: 1, checkBoxState: true } } }],
+      missing: [],
+    });
+  });
+
+  it("prefers a Tags text box, which takes any tag by name", () => {
+    const filters: EngineFilter[] = [
+      { __typename: "GroupFilter", name: "Tags", filters: [{ __typename: "CheckBoxFilter", name: "ahegao" }] },
+      { __typename: "TextFilter", name: "Tags" },
+      { __typename: "TextFilter", name: "Artists" },
+    ];
+    expect(planGenreFilters(filters, ["Glasses", "Big Breasts"])).toEqual({
+      changes: [{ position: 1, textState: "glasses, big breasts" }],
+      missing: [],
+    });
+  });
+
+  it("falls back to a plain text search when no genre search finds anything", async () => {
+    const sent: { type: string; query: string | null; filters: unknown[] }[] = [];
+    const fake = (async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      const q: string = body.query;
+      const json = (data: unknown) => new Response(JSON.stringify({ data }));
+      if (q.includes("sources {")) return json({ sources: { nodes: [{ id: "1", name: "Asura Scans", lang: "en", isNsfw: false }] } });
+      if (q.includes("source(id")) return json({ source: { filters: groupSource } });
+      if (q.includes("fetchSourceManga")) {
+        const input = body.variables.input;
+        sent.push(input);
+        const loose = input.type === "SEARCH" && input.filters.length === 0;
+        return json({ fetchSourceManga: { mangas: loose ? [{ id: 3, title: "Glasses Girl", thumbnailUrl: null }] : [] } });
+      }
+      return new Response("?", { status: 500 });
+    }) as unknown as typeof fetch;
+    clearFilterCache();
+    const out = await browseByGenres(config, ["Action"], { fetchImpl: fake });
+    expect(out.textFallback).toBe(true);
+    expect(out.groups[0].title).toBe("Glasses Girl");
+    expect(sent.at(-1)).toMatchObject({ type: "SEARCH", query: "Action", filters: [] });
+  });
+});

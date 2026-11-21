@@ -30,7 +30,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       if (p === 1) setEmpty(undefined);
       if (genres.length > 0) {
         const b = await browse(genres, "", p, adult ? "adult" : "safe", seed);
-        return { ...b, note: b.skipped.length ? `${b.skipped.join(", ")} can't filter by these genres, so ${b.skipped.length === 1 ? "it was" : "they were"} not searched.` : undefined };
+        return { ...b, note: b.textFallback ? "No series matched those genres exactly, so these are plain text-search results for them." : undefined };
       }
       if (mode === "for-you") {
         // Recommendations come as one list, not pages.

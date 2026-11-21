@@ -85,12 +85,12 @@ function GenreSupportPanel() {
           {rows.map((r) => (
             <li key={r.id} className="extRow">
               <div className="info">
-                <span className={`dot ${r.error ? "bad" : r.genres > 0 ? "good" : ""}`} /> <strong>{r.name}</strong>
+                <span className={`dot ${r.error ? "bad" : r.genres > 0 || r.anyTag ? "good" : ""}`} /> <strong>{r.name}</strong>
                 <span className="muted">
                   {" "}
-                  {r.error ? `couldn't read filters: ${r.error}` : r.genres > 0 ? `${r.genres} genres` : "no genre filter found"}
+                  {r.error ? `couldn't read filters: ${r.error}` : r.anyTag ? `any tag by name${r.genres > 0 ? `, ${r.genres} listed` : ""}` : r.genres > 0 ? `${r.genres} genres` : "no genre filter found, checked by each series' tags"}
                 </span>
-                {r.genres === 0 && !r.error && r.filters.length > 0 && (
+                {r.genres === 0 && !r.anyTag && !r.error && r.filters.length > 0 && (
                   <div className="muted small">Its filters: {r.filters.slice(0, 8).join(" · ")}</div>
                 )}
               </div>

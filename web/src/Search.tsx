@@ -29,7 +29,7 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
     if (next.length >= 2 || genres.length > 0) navigate(pageHref("search", { q: next, genre: genres, seed }));
   }
 
-  const skipped = (result as { skipped?: string[] } | null)?.skipped ?? [];
+  const textFallback = (result as { textFallback?: boolean } | null)?.textFallback === true;
   return (
     <section>
       <form className="searchbar" onSubmit={onSubmit} role="search">
@@ -53,7 +53,7 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
           hasMore={more}
           onMore={loadMore}
           empty={genres.length > 0 ? "No series on your sources have all of those genres. Try removing one." : "Nothing found."}
-          note={skipped.length > 0 ? `${skipped.join(", ")} can't filter by these genres, so ${skipped.length === 1 ? "it was" : "they were"} not searched.` : undefined}
+          note={textFallback ? "No series matched those genres exactly, so these are plain text-search results for them." : undefined}
         />
       )}
     </section>

@@ -117,6 +117,7 @@ export const chapterPages = (chapterId: number) =>
 
 export interface BrowseResult extends SearchResult {
   skipped: string[];
+  textFallback?: boolean;
 }
 export type GenreScope = "safe" | "adult";
 const scopeQs = (scope?: GenreScope) => (scope ? `&scope=${scope}` : "");
@@ -301,6 +302,7 @@ export interface GenreSupport {
   id: string;
   name: string;
   genres: number;
+  anyTag?: boolean;
   filters: string[];
   error?: string;
 }
