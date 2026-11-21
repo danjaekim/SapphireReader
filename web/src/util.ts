@@ -12,6 +12,13 @@ export function chapterText(n: number): string {
 }
 
 /** "today", "3 days ago", "2 weeks ago" within a month; a short date after that. */
+/** "ON_HIATUS" / "On_hiatus" -> "On hiatus"; "PUBLISHING_FINISHED" -> "Publishing finished". */
+export function statusLabel(raw: string): string {
+  const s = raw.replace(/[_\s]+/g, " ").trim().toLowerCase();
+  if (!s || s === "unknown") return "Unknown";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export function chapterDate(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);

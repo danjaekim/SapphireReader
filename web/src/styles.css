@@ -663,3 +663,4 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .genreSub { grid-column: 2 / -1; }
 @media (max-width: 520px) { .extRow.genreRow { grid-template-columns: 12px 1fr; } .genreRow > .muted:not(.genreSub) { grid-column: 2; } }
 .genreRow .dot { margin: 0; }
+.personLink { color: inherit; text-decoration-color: var(--line); text-underline-offset: 3px; } .personLink:hover { color: var(--accent); }

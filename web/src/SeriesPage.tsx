@@ -1,14 +1,29 @@
 import { Loading } from "./Loading";
 import { useEffect, useRef, useState } from "react";
 import { addToLibrary, alternatives, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
-import { genreHref, goBack, readHref } from "./route";
+import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
 import { useRating } from "./shared";
-import { chapterDate } from "./util";
+import { chapterDate, statusLabel } from "./util";
 
 function chapterLabel(c: { name: string; chapterNumber: number }): string {
   return c.chapterNumber >= 0 ? `Ch. ${Number.isInteger(c.chapterNumber) ? c.chapterNumber : c.chapterNumber.toFixed(1)}` : c.name;
+}
+
+/** Authors and artists come as one string ("A, B/ C"); each name links to a search for it. */
+function People({ names }: { names: string }) {
+  const parts = names.split(/\s*[,/;&]\s*/).map((n) => n.trim()).filter(Boolean);
+  return (
+    <>
+      {parts.map((n, i) => (
+        <span key={`${n}${i}`}>
+          {i > 0 && ", "}
+          <a className="personLink" href={searchHref(n)} title={`Search for ${n}`}>{n}</a>
+        </span>
+      ))}
+    </>
+  );
 }
 
 export function DownloadButton({ state, onDownload }: { state?: { status: string; error: string | null }; onDownload: () => void }) {
@@ -296,10 +311,10 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   ))}
                 </ul>
                 <dl className="infoList">
-                  <div><dt>Status</dt><dd className="cap">{data.manga.status.toLowerCase()}</dd></div>
+                  <div><dt>Status</dt><dd>{statusLabel(data.manga.status)}</dd></div>
                   {data.manga.sourceName && <div><dt>Source</dt><dd>{data.manga.sourceName}</dd></div>}
-                  {data.manga.author && <div><dt>Author</dt><dd>{data.manga.author}</dd></div>}
-                  {data.manga.artist && data.manga.artist !== data.manga.author && <div><dt>Artist</dt><dd>{data.manga.artist}</dd></div>}
+                  {data.manga.author && <div><dt>Author</dt><dd><People names={data.manga.author} /></dd></div>}
+                  {data.manga.artist && data.manga.artist !== data.manga.author && <div><dt>Artist</dt><dd><People names={data.manga.artist} /></dd></div>}
                   {data.latest.latestNumber !== null && (
                     <div><dt>Latest</dt><dd>{chapterLabel({ name: "", chapterNumber: data.latest.latestNumber })}</dd></div>
                   )}

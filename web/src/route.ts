@@ -48,6 +48,9 @@ export function pageHref(page: PageName, params: Record<string, ParamValue> = {}
 export const genreHref = (genre: string, seed?: number, adult = false) =>
   pageHref(adult ? "discover-18" : "search", { genre: [genre], seed: seed ? String(seed) : undefined });
 
+/** Opens Search for a name (an author or artist). */
+export const searchHref = (q: string) => pageHref("search", { q });
+
 export const seriesHref = (mangaId: number) => `#/series/${mangaId}`;
 export const readHref = (mangaId: number, chapterId: number) => `#/read/${mangaId}/${chapterId}`;
 
