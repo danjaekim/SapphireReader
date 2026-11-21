@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { useEffect, useState, type FormEvent } from "react";
 import { forYou, homeData, thumbnailUrl, type HomeData, type SeriesGroup, type UpdateRow } from "./api";
 import { navigate, pageHref, readHref, seriesHref } from "./route";
@@ -106,7 +107,7 @@ export function Home() {
           </ul>
         </>
       )}
-      {!recs && <p className="muted">Finding recommendations…</p>}
+      {!recs && <Loading label="Finding recommendations…" size="sm" />}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
 import { addToLibrary, alternatives, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, readHref } from "./route";
@@ -77,7 +78,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     <section>
       <a className="back" href="#/">← Back</a>
       {error && <p className="bad">{error}</p>}
-      {!data && !error && <p className="muted">Loading from the source. This can take several seconds.</p>}
+      {!data && !error && <Loading label="Loading from the source. This can take several seconds." size="lg" />}
       {data && (
         <>
           <div className="seriesHead">
@@ -130,7 +131,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
             </div>
           )}
           <TrackerLinkCard mangaId={mangaId} title={data.manga.title} />
-          {similarGroups === null && <p className="muted">Finding similar series…</p>}
+          {similarGroups === null && <Loading label="Finding similar series…" size="sm" />}
           {similarGroups && similarGroups.length > 0 && (
             <div className="card">
               <h3>Similar series</h3>

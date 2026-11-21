@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
 import { AdultLock } from "./AdultLock";
 import { adultState, type AdultState } from "./api";
@@ -100,7 +101,7 @@ function StatusCard() {
     <section className="card">
       <h3>System status</h3>
       {failed && <p className="bad">Can't reach the Sapphire server.</p>}
-      {!status && !failed && <p className="muted">Checking…</p>}
+      {!status && !failed && <Loading label="Checking…" size="sm" />}
       {status && (
         <ul>
           <li>

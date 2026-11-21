@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
 import { genreList, type GenreScope } from "./api";
 import { canonKey, canonLabel } from "./genres";
@@ -37,7 +38,7 @@ export function GenrePicker({ selected, onChange, scope }: { selected: string[];
       {open && (
         <div className="genreList">
           <input type="search" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a genre" aria-label="Find a genre" />
-          {!all && <p className="muted">Loading genres from your sources…</p>}
+          {!all && <Loading label="Loading genres from your sources…" size="sm" block={false} />}
           {all && all.length === 0 && <p className="muted">None of your sources reported genre filters yet. Try again in a moment.</p>}
           {all && all.length > 0 && choices.length === 0 && <p className="muted">No matching genres.</p>}
           <div className="chips">

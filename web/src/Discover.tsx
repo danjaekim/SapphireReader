@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { browse, discoverList, forYou, type SearchResult } from "./api";
 import { GenrePicker } from "./GenrePicker";
 import { Results } from "./Results";
@@ -66,7 +67,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       </div>
       <GenrePicker selected={genres} scope={adult ? "adult" : "safe"} onChange={(g) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: g }))} />
       {error && <p className="bad">{error}</p>}
-      {busy && <p className="muted">Asking your sources. This can take several seconds.</p>}
+      {busy && <Loading label="Asking your sources. This can take several seconds." />}
       {result && <Results result={result} empty={empty ?? (genres.length ? "No series have all of those genres. Try removing one." : undefined)} lookups={false} hasMore={more} onMore={loadMore} />}
     </section>
   );

@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { useEffect, useMemo, useState } from "react";
 import { changeExtension, checkSources, extensions, genreSupport, refreshExtensionList, sources, type ExtensionInfo, type GenreSupport, type SourceRow } from "./api";
 
@@ -193,7 +194,7 @@ export function Sources() {
         <input type="checkbox" checked={englishOnly} onChange={(e) => setEnglishOnly(e.target.checked)} /> English and multi-language only
       </label>
       {error && <p className="bad">{error}</p>}
-      {!list && !error && <p className="muted">Loading the extension list. The first time can take a moment.</p>}
+      {!list && !error && <Loading label="Loading the extension list. The first time can take a moment." />}
       {list && (
         <>
           <h3>Installed ({installed.length})</h3>

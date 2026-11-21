@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { useEffect, useState, type FormEvent } from "react";
 import { browse, search } from "./api";
 import { GenrePicker } from "./GenrePicker";
@@ -44,7 +45,7 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
       </form>
       <GenrePicker selected={genres} onChange={(g) => navigate(pageHref("search", { q, genre: g }))} />
       {error && <p className="bad">{error}</p>}
-      {busy && <p className="muted">Searching every source. This can take several seconds.</p>}
+      {busy && <Loading label="Searching every source. This can take several seconds." />}
       {result && (
         <Results
           result={result}

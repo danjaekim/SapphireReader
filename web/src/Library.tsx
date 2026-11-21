@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
 import { library, refreshLibrary, thumbnailUrl, type LibraryItem } from "./api";
 import { readHref, seriesHref } from "./route";
@@ -43,7 +44,7 @@ export function Library() {
   }
 
   if (error) return <p className="bad">{error}</p>;
-  if (!items) return <p className="muted">Loading…</p>;
+  if (!items) return <Loading label="Loading your library…" />;
   if (items.length === 0) return <p className="muted">Nothing here yet. Open a series from Search and tap Add to library.</p>;
 
   const reading = items.filter((i) => i.progress && (i.unread ?? 1) > 0);

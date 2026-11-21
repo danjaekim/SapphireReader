@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { chapterPages, saveProgress, series, type SeriesData } from "./api";
 import { DownloadButton } from "./SeriesPage";
@@ -143,7 +144,7 @@ export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; 
           {error} <a href={readHref(mangaId, chapterId)} onClick={() => window.location.reload()}>Try again</a>
         </p>
       )}
-      {!pages && !error && <p className="muted">Loading pages from the source…</p>}
+      {!pages && !error && <Loading label="Loading pages from the source…" size="lg" />}
       {pages && (
         <div className="strip" ref={stripRef}>
           {pages.map((src, i) => (

@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { seriesHref } from "./route";
 import { createQueue, latest, thumbnailUrl, type LatestChapter, type SearchResult, type SeriesGroup } from "./api";
@@ -121,7 +122,9 @@ export function Results({
           <Card key={group.key} group={group} queue={queue} lookups={lookups} />
         ))}
       </ul>
-      <div ref={end} className="gridEnd muted">{hasMore ? "Loading more…" : result.groups.length > 0 ? "That's everything." : ""}</div>
+      <div ref={end} className="gridEnd muted">
+        {hasMore ? <Loading label="Loading more…" size="sm" /> : result.groups.length > 0 ? "That's everything." : ""}
+      </div>
     </>
   );
 }

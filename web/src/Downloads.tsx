@@ -1,3 +1,4 @@
+import { Loading } from "./Loading";
 import { useEffect, useMemo, useState } from "react";
 import { downloads, removeDownload, removeSeriesDownloads, thumbnailUrl, type DownloadRow } from "./api";
 import { readHref, seriesHref } from "./route";
@@ -55,7 +56,7 @@ export function Downloads() {
   }
 
   if (error && !items) return <p className="bad">{error}</p>;
-  if (!items) return <p className="muted">Loading…</p>;
+  if (!items) return <Loading label="Loading downloads…" />;
   if (items.length === 0) return <p className="muted">Nothing downloaded yet. Use the ⬇ button on a chapter, in the chapter list or while reading.</p>;
 
   return (
