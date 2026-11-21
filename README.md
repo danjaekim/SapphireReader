@@ -16,8 +16,20 @@ Plan: [Manhwa Reader: desktop app plan](https://claude.ai/artifact/C1osCfwyKq3pF
 
 ## Status
 
-**Phase 0: engine stack on the NAS.** Not yet a reader. This phase runs the source engine,
-a Cloudflare solver and ntfy on the NAS, and tests which sites work.
+**Phase 1: Sapphire app skeleton.** A Node server and installable web app (PWA) with the
+cat branding and a status page that checks the source engine. Search, reading and library
+come next.
+
+- `server/`: Fastify + TypeScript API, serves the built web app.
+- `web/`: React + Vite web app.
+- `Dockerfile`: builds both into one image; GitHub Actions publishes it to
+  `ghcr.io/danjaekim/sapphire` on every push to `main`.
+
+Run locally: `cd server && npm ci && npm run dev` and, in another terminal,
+`cd web && npm ci && npm run dev`, then open the address Vite prints.
+
+**Phase 0 (done): engine stack on the NAS.** Runs the source engine, a Cloudflare solver
+and ntfy, and tests which sites work.
 
 - Stack: [`deploy/docker-compose.yml`](deploy/docker-compose.yml)
 - Setup on the UGREEN DXP2800: [`docs/phase-0-setup.md`](docs/phase-0-setup.md)
