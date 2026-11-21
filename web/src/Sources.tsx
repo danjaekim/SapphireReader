@@ -63,17 +63,15 @@ function GenreSupportPanel() {
       {rows && (
         <ul className="extList">
           {rows.map((r) => (
-            <li key={r.id} className="extRow">
-              <div className="info">
-                <span className={`dot ${r.error ? "bad" : r.genres > 0 || r.anyTag ? "good" : ""}`} /> <strong>{r.name}</strong>
-                <span className="muted">
-                  {" "}
-                  {r.error ? `couldn't read filters: ${r.error}` : r.anyTag ? `any tag by name${r.genres > 0 ? `, ${r.genres} listed` : ""}` : r.genres > 0 ? `${r.genres} genres` : "no genre filter found, checked by each series' tags"}
-                </span>
-                {r.genres === 0 && !r.anyTag && !r.error && r.filters.length > 0 && (
-                  <div className="muted small">Its filters: {r.filters.slice(0, 8).join(" · ")}</div>
-                )}
-              </div>
+            <li key={r.id} className="extRow genreRow">
+              <span className={`dot ${r.error ? "bad" : r.genres > 0 || r.anyTag ? "good" : ""}`} />
+              <strong className="genreName">{r.name}</strong>
+              <span className="muted">
+                {r.error ? `couldn't read filters: ${r.error}` : r.anyTag ? `any tag by name${r.genres > 0 ? `, ${r.genres} listed` : ""}` : r.genres > 0 ? `${r.genres} genres` : "no genre filter found, checked by each series' tags"}
+              </span>
+              {r.genres === 0 && !r.anyTag && !r.error && r.filters.length > 0 && (
+                <div className="muted small genreSub">Its filters: {r.filters.slice(0, 8).join(" · ")}</div>
+              )}
             </li>
           ))}
         </ul>
