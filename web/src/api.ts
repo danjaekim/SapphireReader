@@ -375,5 +375,7 @@ export const dismissSwitch = (mangaId: number) => send("POST", `/api/switch-offe
 export interface Rating {
   score: number | null;
   popularity: number | null;
+  /** AniList's wide banner art, when it has one. */
+  banner?: string | null;
 }
 export const ratingsFor = (titles: string[]) => send("POST", "/api/ratings", { titles }) as Promise<{ ratings: Record<string, Rating> }>;

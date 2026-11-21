@@ -23,6 +23,12 @@ function flush() {
 
 /** The AniList score (0-100) for a title: undefined while loading, null when AniList doesn't know it. */
 export function useScore(title: string | null, enabled = true): number | null | undefined {
+  const r = useRating(title, enabled);
+  return r === undefined ? undefined : (r?.score ?? null);
+}
+
+/** Everything AniList told us about a title (score, banner): undefined while loading, null when unknown. */
+export function useRating(title: string | null, enabled = true): Rating | null | undefined {
   const [, bump] = useState(0);
   useEffect(() => {
     if (!title || !enabled || ratingCache.has(title)) return;
@@ -34,7 +40,7 @@ export function useScore(title: string | null, enabled = true): number | null | 
     return () => void set.delete(cb);
   }, [title, enabled]);
   if (!title) return null;
-  return ratingCache.has(title) ? (ratingCache.get(title)?.score ?? null) : undefined;
+  return ratingCache.has(title) ? (ratingCache.get(title) ?? null) : undefined;
 }
 
 /** Which series are in the library, shared so every card agrees and updates at once. */

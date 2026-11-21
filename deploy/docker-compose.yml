@@ -69,10 +69,13 @@ services:
       - NTFY_PASSWORD=CHANGE_ME
       # Tapping an alert opens this address, so use the one your phone reaches Sapphire at.
       - PUBLIC_URL=http://CHANGE_ME_NAS_IP:8080
-      # Lets the Status page's "Update now" button ask Watchtower (below) to update Sapphire.
+      # Lets the Settings page's "Update now" button ask Watchtower (below) to update Sapphire.
       - UPDATE_URL=http://watchtower:8080
       # Any long random string; must match WATCHTOWER_HTTP_API_TOKEN below.
       - UPDATE_TOKEN=CHANGE_ME_UPDATE_TOKEN
+      # The repo is private, so checking for a newer version needs a read-only GitHub token
+      # (README, "Updating"). Leave it out and Settings just can't tell you when one is out.
+      # - UPDATE_GITHUB_TOKEN=github_pat_CHANGE_ME
     volumes:
       # Library and reading progress live here. Back up this folder.
       - ./data/app:/data

@@ -26,7 +26,7 @@ export async function ratingsFor(store: Store, titles: string[], fetchImpl?: Fet
   for (let i = 0; i < stale.length; i += BATCH) {
     const batch = stale.slice(i, i + BATCH);
     const query = `query (${batch.map((_, j) => `$t${j}: String`).join(", ")}) {
-      ${batch.map((_, j) => `m${j}: Media(search: $t${j}, type: MANGA) { id averageScore meanScore popularity }`).join("\n")}
+      ${batch.map((_, j) => `m${j}: Media(search: $t${j}, type: MANGA) { id averageScore meanScore popularity bannerImage }`).join("\n")}
     }`;
     const variables = Object.fromEntries(batch.map((k, j) => [`t${j}`, titleFor.get(k) ?? k]));
     try {
@@ -35,8 +35,8 @@ export async function ratingsFor(store: Store, titles: string[], fetchImpl?: Fet
       batch.forEach((k, j) => {
         const m = data[`m${j}`];
         const meta: AnilistMeta = m
-          ? { anilistId: m.id, score: m.averageScore ?? m.meanScore ?? null, popularity: m.popularity ?? null }
-          : { anilistId: null, score: null, popularity: null };
+          ? { anilistId: m.id, score: m.averageScore ?? m.meanScore ?? null, popularity: m.popularity ?? null, banner: m.bannerImage ?? null }
+          : { anilistId: null, score: null, popularity: null, banner: null };
         store.putAnilistMeta(k, meta);
         known.set(k, { ...meta, fetchedAt: new Date().toISOString() });
       });
@@ -44,10 +44,10 @@ export async function ratingsFor(store: Store, titles: string[], fetchImpl?: Fet
       break; // AniList is busy or down; use what we have.
     }
   }
-  return new Map([...known].map(([k, v]) => [k, { anilistId: v.anilistId, score: v.score, popularity: v.popularity }]));
+  return new Map([...known].map(([k, v]) => [k, { anilistId: v.anilistId, score: v.score, popularity: v.popularity, banner: v.banner ?? null }]));
 }
 
-type MediaHit = { id: number; averageScore: number | null; meanScore: number | null; popularity: number | null } | null;
+type MediaHit = { id: number; averageScore: number | null; meanScore: number | null; popularity: number | null; bannerImage?: string | null } | null;
 
 async function anilistLoose(query: string, variables: Record<string, unknown>, fetchImpl: FetchLike = fetch): Promise<Record<string, MediaHit>> {
   const res = await fetchImpl("https://graphql.anilist.co", {

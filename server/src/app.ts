@@ -139,10 +139,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const titles = Array.isArray(req.body?.titles) ? (req.body!.titles as unknown[]).filter((t): t is string => typeof t === "string" && t.length > 0).slice(0, 60) : [];
     if (titles.length === 0) return reply.code(400).send({ error: "No titles." });
     const meta = await ratingsFor(store, titles, fetchImpl).catch(() => new Map());
-    const out: Record<string, { score: number | null; popularity: number | null }> = {};
+    const out: Record<string, { score: number | null; popularity: number | null; banner: string | null }> = {};
     for (const t of titles) {
       const m = meta.get(normalizeTitle(t));
-      out[t] = { score: m?.score ?? null, popularity: m?.popularity ?? null };
+      // Only AniList's own image host, so a page never loads art from somewhere unexpected.
+      const banner = m?.banner && /^https:\/\/s\d*\.anilist\.co\//.test(m.banner) ? m.banner : null;
+      out[t] = { score: m?.score ?? null, popularity: m?.popularity ?? null, banner };
     }
     return { ratings: out };
   });

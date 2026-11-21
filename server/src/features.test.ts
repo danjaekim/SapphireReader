@@ -98,12 +98,12 @@ describe("/api/ratings", () => {
     const fake = (async (u: string, init?: RequestInit) => {
       if (!String(u).includes("anilist")) return new Response("x", { status: 500 });
       const vars = JSON.parse(String(init?.body)).variables as Record<string, string>;
-      const data = Object.fromEntries(Object.keys(vars).map((k) => [`m${k.slice(1)}`, { id: 1, averageScore: 84, meanScore: null, popularity: 5 }]));
+      const data = Object.fromEntries(Object.keys(vars).map((k) => [`m${k.slice(1)}`, { id: 1, averageScore: 84, meanScore: null, popularity: 5, bannerImage: "https://s4.anilist.co/file/anilistcdn/media/manga/banner/1.jpg" }]));
       return new Response(JSON.stringify({ data }));
     }) as unknown as typeof fetch;
     const app = await buildApp(config, { fetchImpl: fake, store: new Store(":memory:") });
     const res = await app.inject({ method: "POST", url: "/api/ratings", payload: { titles: ["Solo Leveling"] } });
-    expect(res.json()).toEqual({ ratings: { "Solo Leveling": { score: 84, popularity: 5 } } });
+    expect(res.json()).toEqual({ ratings: { "Solo Leveling": { score: 84, popularity: 5, banner: "https://s4.anilist.co/file/anilistcdn/media/manga/banner/1.jpg" } } });
     expect((await app.inject({ method: "POST", url: "/api/ratings", payload: { titles: [] } })).statusCode).toBe(400);
   });
 });

@@ -549,3 +549,7 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
   .selActions .button { flex: 1; }
   .chapters .chName { display: none; }
 }
+/* AniList banner art: sharp, faded into the page instead of blurred. */
+.seriesBackdrop.banner { filter: none; opacity: 0.5; height: 380px; background-position: center 30%; transition: opacity 0.3s; }
+:root[data-theme="light"] .seriesBackdrop.banner { opacity: 0.35; }
+@media (max-width: 900px) { .seriesBackdrop.banner { height: 260px; } }

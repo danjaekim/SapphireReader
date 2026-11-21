@@ -9,7 +9,7 @@ beforeEach(clearUpdateCache);
 describe("updater", () => {
   it("says an update is available when main moved on", async () => {
     const f = (async () => new Response(JSON.stringify({ sha: "abcdef1234567" }))) as unknown as typeof fetch;
-    expect(await updateInfo(config, "1111111", f)).toEqual({ enabled: true, available: true, latest: "abcdef1" });
+    expect(await updateInfo(config, "1111111", f)).toEqual({ enabled: true, available: true, latest: "abcdef1", problem: null });
     clearUpdateCache();
     expect((await updateInfo(config, "abcdef1", f)).available).toBe(false);
   });
@@ -20,6 +20,18 @@ describe("updater", () => {
     clearUpdateCache();
     const f = (async () => new Response(JSON.stringify({ sha: "abcdef1234567" }))) as unknown as typeof fetch;
     expect((await updateInfo(config, "dev", f)).available).toBeNull();
+  });
+
+  it("explains a private repo and sends the token when one is set", async () => {
+    let auth: string | undefined;
+    const f = (async (_u: string, init?: RequestInit) => {
+      auth = (init?.headers as Record<string, string>).authorization;
+      return auth ? new Response(JSON.stringify({ sha: "abcdef1234567" })) : new Response("{}", { status: 404 });
+    }) as unknown as typeof fetch;
+    expect(await updateInfo(config, "1111111", f)).toMatchObject({ available: null, problem: "private" });
+    clearUpdateCache();
+    expect(await updateInfo({ ...config, updateGithubToken: "gh" }, "1111111", f)).toMatchObject({ available: true, problem: null });
+    expect(auth).toBe("Bearer gh");
   });
 
   it("posts to Watchtower with the token and fails when it's unreachable", async () => {

@@ -19,6 +19,8 @@ export interface Config {
   updateToken: string;
   /** GitHub repo checked for newer versions. */
   updateRepo: string;
+  /** Read-only GitHub token, needed to see a private repo's latest commit. */
+  updateGithubToken: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -39,5 +41,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     updateUrl: (env.UPDATE_URL ?? "").replace(/\/+$/, ""),
     updateToken: env.UPDATE_TOKEN ?? "",
     updateRepo: env.UPDATE_REPO ?? "danjaekim/SapphireReader",
+    updateGithubToken: env.UPDATE_GITHUB_TOKEN ?? "",
   };
 }

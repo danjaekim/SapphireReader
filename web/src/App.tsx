@@ -28,6 +28,7 @@ interface UpdateInfo {
   enabled: boolean;
   available: boolean | null;
   latest: string | null;
+  problem?: "private" | "token" | "github" | "offline" | "version" | null;
 }
 
 const NAV: { page: PageName; label: string; icon: string; adultOnly?: boolean }[] = [
@@ -284,7 +285,13 @@ function StatusCard() {
             <li>
               <span className={`dot ${update.available ? "bad" : "good"}`} />{" "}
               {update.available === null
-                ? "Couldn't check for a newer version. "
+                ? {
+                    private: "Can't check for a newer version: the GitHub repo is private. Set UPDATE_GITHUB_TOKEN in the compose file (see README, Updating). ",
+                    token: "Can't check for a newer version: GitHub refused UPDATE_GITHUB_TOKEN. It may have expired. ",
+                    github: "Couldn't check for a newer version: GitHub had a problem. ",
+                    offline: "Couldn't check for a newer version: GitHub can't be reached from the NAS. ",
+                    version: "This copy wasn't built by GitHub, so there's no version to compare. ",
+                  }[update.problem ?? "github"] ?? "Couldn't check for a newer version. "
                 : update.available
                   ? `A newer version is available (${update.latest}). `
                   : "You're on the latest version. "}

@@ -71,6 +71,8 @@ export interface AnilistMeta {
   anilistId: number | null;
   score: number | null;
   popularity: number | null;
+  /** Wide banner art, when AniList has one. */
+  banner?: string | null;
 }
 
 export interface UpdateRow {
@@ -229,6 +231,13 @@ export class Store {
       );
       CREATE TABLE IF NOT EXISTS anilist_meta (title_key TEXT PRIMARY KEY, anilist_id INTEGER, score INTEGER, popularity INTEGER, fetched_at TEXT NOT NULL);
     `);
+    // Banner art came later: add the column and ask AniList again so existing entries get theirs.
+    try {
+      this.db.exec("ALTER TABLE anilist_meta ADD COLUMN banner TEXT");
+      this.db.exec("UPDATE anilist_meta SET fetched_at = '1970-01-01T00:00:00.000Z'");
+    } catch {
+      /* column already exists */
+    }
     // Tags of every series Sapphire has looked at, so it can tell common tags from telling ones.
     this.db.exec("CREATE TABLE IF NOT EXISTS series_tags (manga_id INTEGER PRIMARY KEY, tags TEXT NOT NULL, seen_at TEXT NOT NULL)");
   }
@@ -308,7 +317,7 @@ export class Store {
     const out = new Map<string, AnilistMeta & { fetchedAt: string }>();
     for (const k of keys) {
       const r = get.get(k) as Record<string, unknown> | undefined;
-      if (r) out.set(k, { anilistId: (r.anilist_id as number | null) ?? null, score: (r.score as number | null) ?? null, popularity: (r.popularity as number | null) ?? null, fetchedAt: r.fetched_at as string });
+      if (r) out.set(k, { anilistId: (r.anilist_id as number | null) ?? null, score: (r.score as number | null) ?? null, popularity: (r.popularity as number | null) ?? null, banner: (r.banner as string | null) ?? null, fetchedAt: r.fetched_at as string });
     }
     return out;
   }
@@ -316,10 +325,11 @@ export class Store {
   putAnilistMeta(key: string, m: AnilistMeta): void {
     this.db
       .prepare(
-        `INSERT INTO anilist_meta (title_key, anilist_id, score, popularity, fetched_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(title_key) DO UPDATE SET anilist_id = excluded.anilist_id, score = excluded.score, popularity = excluded.popularity, fetched_at = excluded.fetched_at`,
+        `INSERT INTO anilist_meta (title_key, anilist_id, score, popularity, banner, fetched_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(title_key) DO UPDATE SET anilist_id = excluded.anilist_id, score = excluded.score, popularity = excluded.popularity,
+           banner = excluded.banner, fetched_at = excluded.fetched_at`,
       )
-      .run(key, m.anilistId, m.score, m.popularity, new Date().toISOString());
+      .run(key, m.anilistId, m.score, m.popularity, m.banner ?? null, new Date().toISOString());
   }
 
   /**

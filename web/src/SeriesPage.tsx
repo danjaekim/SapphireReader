@@ -4,7 +4,7 @@ import { addToLibrary, alternatives, categories as loadCategories, markChapters,
 import { genreHref, readHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
-import { useScore } from "./shared";
+import { useRating } from "./shared";
 import { chapterDate } from "./util";
 
 function chapterLabel(c: { name: string; chapterNumber: number }): string {
@@ -29,7 +29,9 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [newestFirst, setNewestFirst] = useState(true);
   const [fullDesc, setFullDesc] = useState(false);
   const [jump, setJump] = useState("");
-  const score = useScore(data?.manga.title ?? null);
+  const rating = useRating(data?.manga.title ?? null);
+  const score = rating?.score ?? null;
+  const banner = rating?.banner ?? null;
   const [fullAlt, setFullAlt] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [anchor, setAnchor] = useState<number | null>(null);
@@ -164,7 +166,13 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
 
   return (
     <section className="seriesPage">
-      {data && <div className="seriesBackdrop" aria-hidden="true" style={{ backgroundImage: `url(${thumbnailUrl(mangaId)})` }} />}
+      {data && (
+        <div
+          className={`seriesBackdrop ${banner ? "banner" : ""}`}
+          aria-hidden="true"
+          style={{ backgroundImage: `url(${banner ? JSON.stringify(banner) : thumbnailUrl(mangaId)})` }}
+        />
+      )}
       <a className="back" href="#/">← Back</a>
       {error && <p className="bad">{error}</p>}
       {!data && !error && <Loading label="Loading from the source. This can take several seconds." size="lg" />}
