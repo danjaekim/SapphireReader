@@ -89,10 +89,12 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
             ? adult
               ? "Add a few 18+ series to your library and this page will start recommending similar ones. It never mixes with your regular recommendations."
               : "Add a few series to your library and Sapphire will start recommending similar ones here."
-            : undefined,
+            : f.groups.length === 0
+              ? "Your sources didn't answer with anything matching your taste just now. Try again in a bit, or browse Popular."
+              : undefined,
         );
         const shelves = f.shelves ?? [];
-        return { groups: f.groups, failed: [], searched: 0, shelves, note: f.because.length ? `Because you like ${f.because.join(", ")}.` : undefined } as SearchResult & { shelves: Shelf[] };
+        return { groups: f.groups, failed: [], searched: 0, shelves, note: f.because.length && f.groups.length ? `Because you like ${f.because.join(", ")}.` : undefined } as SearchResult & { shelves: Shelf[] };
       }
       const list = await discoverList(mode, adult, p);
       return { ...list, note: unsortedNote(list.unsorted) };

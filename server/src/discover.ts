@@ -236,7 +236,12 @@ export function tasteWeights(liked: LikedSeries[], weight: (tag: string) => numb
  * from one series and "Romance + Villainess" from another become separate rows instead of one
  * blend. Rows that would repeat a tag too often are skipped, so the page covers more of your taste.
  */
-export function planShelves(liked: LikedSeries[], weight: (tag: string) => number, hidden: Set<string> = new Set()): { tags: string[]; from: string }[] {
+export function planShelves(
+  liked: LikedSeries[],
+  weight: (tag: string) => number,
+  hidden: Set<string> = new Set(),
+  { limit = SHELVES, perTag = 2 }: { limit?: number; perTag?: number } = {},
+): { tags: string[]; from: string }[] {
   const taste = tasteWeights(liked, weight, hidden);
   const combos = new Map<string, { tags: string[]; score: number; from: { title: string; w: number } }>();
   for (const s of liked) {
@@ -246,11 +251,15 @@ export function planShelves(liked: LikedSeries[], weight: (tag: string) => numbe
       .map((k) => ({ k, tag: taste.get(k)!.tag, w: weight(taste.get(k)!.tag) * Math.sqrt(taste.get(k)!.w) }))
       .sort((a, b) => b.w - a.w);
     if (own.length === 0) continue;
-    // The series' best pair, and its next-best, so a series with several sides can seed more than one row.
-    const picks = own.length === 1 ? [[own[0]]] : [[own[0], own[1]], ...(own.length > 2 ? [[own[0], own[2]]] : [])];
+    // Every pair of the series' four best tags, the best pair counting most: a series with several
+    // sides can seed more than one row, and there are spare pairs to try when one finds nothing.
+    const top = own.slice(0, 4);
+    const picks: (typeof own)[] = [];
+    for (let a = 0; a < top.length; a++) for (let b = a + 1; b < top.length; b++) picks.push([top[a], top[b]]);
+    if (picks.length === 0) picks.push([own[0]]);
     picks.forEach((pick, i) => {
       const key = pick.map((p) => p.k).sort().join("+");
-      const vote = s.weight * (i === 0 ? 1 : 0.6) * pick.reduce((n, p) => n + p.w, 0);
+      const vote = s.weight * (i === 0 ? 1 : 0.6 / i) * pick.reduce((n, p) => n + p.w, 0);
       const c = combos.get(key) ?? { tags: pick.map((p) => p.tag), score: 0, from: { title: s.title, w: 0 } };
       c.score += vote;
       if (vote > c.from.w) c.from = { title: s.title, w: vote };
@@ -261,14 +270,21 @@ export function planShelves(liked: LikedSeries[], weight: (tag: string) => numbe
   const used = new Map<string, number>();
   const chosen: { tags: string[]; from: string }[] = [];
   for (const c of ranked) {
-    if (chosen.length >= SHELVES) break;
+    if (chosen.length >= limit) break;
     const keys = c.tags.map(canonKey);
-    if (keys.some((k) => (used.get(k) ?? 0) >= 2)) continue;
+    if (keys.some((k) => (used.get(k) ?? 0) >= perTag)) continue;
     if (chosen.some((x) => x.tags.map(canonKey).sort().join("+") === keys.slice().sort().join("+"))) continue;
     keys.forEach((k) => used.set(k, (used.get(k) ?? 0) + 1));
     chosen.push({ tags: c.tags, from: c.from.title });
   }
   return chosen;
+}
+
+/** The series of yours that does the most for this tag, to name a single-tag row after. */
+function bestFor(liked: LikedSeries[], key: string): string {
+  let best = { title: "", w: -Infinity };
+  for (const s of liked) if (s.weight > best.w && s.tags.some((t) => canonKey(t) === key)) best = { title: s.title, w: s.weight };
+  return best.title;
 }
 
 /**
@@ -290,22 +306,69 @@ export async function recommendShelves(
     disliked?: { mangaId: number; titleKey: string; tags: string[] }[];
     /** AniList scores (0-100) by normalized title, for a gentle nudge toward well-rated series. */
     scores?: (titles: string[]) => Promise<Map<string, number | null>>;
+    /** How to look up series with these tags (default: your sources in `scope`); the 18+ page adds mixed sources. */
+    browse?: (tags: string[], strict: boolean) => Promise<SearchResult | null>;
   } = {},
 ): Promise<{ shelves: Shelf[]; groups: SeriesGroup[]; because: string[] }> {
-  const { knowledge = plainKnowledge, hidden = new Set<string>(), disliked = [], scores, ...browseOpts } = opts;
+  const { knowledge = plainKnowledge, hidden = new Set<string>(), disliked = [], scores, browse, ...browseOpts } = opts;
   // Each "not interested" counts against its tags about as much as an unread library series counts for them.
   const signals = [...liked, ...disliked.map((d) => ({ mangaId: d.mangaId, title: "", tags: d.tags, weight: -0.8 }))];
   const taste = tasteWeights(signals, knowledge.weight, hidden);
-  const plan = planShelves(signals, knowledge.weight, hidden);
   const because = [...taste.values()].filter((t) => t.w > 0).sort((a, b) => b.w - a.w).slice(0, 3).map((t) => t.tag);
   const notKeys = new Set(disliked.map((d) => d.titleKey));
   const notIds = new Set(disliked.map((d) => d.mangaId));
-  if (plan.length === 0) return { shelves: [], groups: [], because: [] };
+  // Everything worth trying, best first: the planned pairs, spare pairs, then single tags.
+  const pairs = planShelves(signals, knowledge.weight, hidden, { limit: 24, perTag: Infinity });
+  const singles = [...taste.entries()]
+    .filter(([, t]) => t.w > 0)
+    .sort((a, b) => b[1].w - a[1].w)
+    .slice(0, 6)
+    .map(([k, t]) => ({ tags: [t.tag], from: bestFor(liked, k) }));
+  if (pairs.length === 0 && singles.length === 0) return { shelves: [], groups: [], because: [] };
   const own = new Set(ownTitles.map(normalizeTitle));
   const ownIds = new Set(liked.map((l) => l.mangaId));
-  const results = await Promise.all(plan.map((p) => browseByGenres(config, p.tags, { ...browseOpts, strict: true, timeoutMs: 9000 }).catch(() => null)));
+  const run = browse ?? ((tags: string[], strict: boolean) => browseByGenres(config, tags, { ...browseOpts, strict, timeoutMs: 9000 }));
+  const usable = (r: SearchResult | null) =>
+    (r?.groups ?? []).filter((g) => !own.has(g.key) && !notKeys.has(g.key) && !g.hits.some((h) => ownIds.has(h.mangaId) || notIds.has(h.mangaId)));
 
-  const all = results.flatMap((r) => r?.groups ?? []);
+  // Try mixes in waves: a mix that finds nothing (sites can't filter by it, or nothing has both tags)
+  // is replaced by the next one, down to single tags, until the rows are full or nothing's left.
+  const plan: { tags: string[]; from: string }[] = [];
+  const found: SeriesGroup[][] = [];
+  const used = new Map<string, number>();
+  const overused = (tags: string[]) => tags.some((t) => (used.get(canonKey(t)) ?? 0) >= 2);
+  const queue = [...pairs, ...singles];
+  for (let wave = 0; wave < 4 && plan.length < SHELVES && queue.length > 0; wave++) {
+    const batch: typeof queue = [];
+    while (batch.length < SHELVES - plan.length && queue.length > 0) {
+      const next = queue.shift()!;
+      if (!overused(next.tags)) batch.push(next);
+    }
+    if (batch.length === 0) break;
+    const results = await Promise.all(batch.map((b) => run(b.tags, true).catch(() => null)));
+    batch.forEach((b, i) => {
+      const groups = usable(results[i]);
+      if (groups.length === 0 || overused(b.tags) || plan.length >= SHELVES) return;
+      plan.push(b);
+      found.push(groups);
+      b.tags.forEach((t) => used.set(canonKey(t), (used.get(canonKey(t)) ?? 0) + 1));
+    });
+  }
+  // Still nothing: let sites that can't filter by these tags be checked series by series.
+  if (plan.length === 0) {
+    const last = singles.slice(0, 3);
+    const results = await Promise.all(last.map((b) => run(b.tags, false).catch(() => null)));
+    last.forEach((b, i) => {
+      const groups = usable(results[i]);
+      if (groups.length > 0) {
+        plan.push(b);
+        found.push(groups);
+      }
+    });
+  }
+  if (plan.length === 0) return { shelves: [], groups: [], because };
+
+  const all = found.flat();
   const rated = scores ? await scores([...new Set(all.map((g) => g.title))].slice(0, 200)).catch(() => new Map<string, number | null>()) : new Map<string, number | null>();
   const fit = (g: SeriesGroup, fallback: string[]) => {
     const known = g.hits.map((h) => knowledge.tagsOf(h.mangaId)).find((t) => t !== null);
@@ -320,9 +383,8 @@ export async function recommendShelves(
   const taken = new Set<string>();
   const shelves: Shelf[] = [];
   // Rows take turns picking, so the first row doesn't claim every series that fits several.
-  const pools = results.map((r, i) =>
-    (r?.groups ?? [])
-      .filter((g) => !own.has(g.key) && !notKeys.has(g.key) && !g.hits.some((h) => ownIds.has(h.mangaId) || notIds.has(h.mangaId)))
+  const pools = found.map((groups, i) =>
+    groups
       .map((g, rank) => ({ g, s: fit(g, plan[i].tags), rank }))
       .filter((x): x is { g: SeriesGroup; s: number; rank: number } => x.s !== null)
       // Fit first, then the site's own order (its popularity) as the tie-break.

@@ -688,6 +688,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         scope: adult ? "adult" : "safe",
         hidden,
         disliked,
+        // The 18+ page also looks on mixed sources, keeping only the series found to be adult.
+        browse: adult
+          ? (tags, strict) => adultWithMixed((scope, only) => browseByGenres(config, tags, { fetchImpl, onResult: report, scope, only, strict, timeoutMs: 9000 }))
+          : undefined,
         knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
         scores: async (list) => {
           const meta = await ratingsFor(store, list, fetchImpl, {}, false);
@@ -719,7 +723,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const rows = await alsoLiked(config, store, liked, {
         fetchImpl,
         onResult: report,
-        scope: adult ? "adult" : "safe",
+        // On the 18+ page an AniList pick may be on any of your sources, mixed ones included.
+        scope: adult ? "all" : "safe",
         skip: (g) => own.has(g.key) || notKeys.has(g.key) || g.hits.some((h) => store.inLibrary(h.mangaId)),
       });
       const value = { rows: await Promise.all(rows.map(async (r) => ({ ...r, groups: await withoutHidden(r.groups) }))) };

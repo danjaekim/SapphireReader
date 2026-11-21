@@ -134,6 +134,24 @@ describe("for you rows", () => {
     expect(await titles()).toContain("Nano Machine");
   });
 
+  it("tries other mixes, then single tags, when a mix finds nothing", async () => {
+    const { recommendShelves } = await import("./discover.js");
+    const tried: string[] = [];
+    const hit = (title: string) => ({ key: title.toLowerCase(), title, hits: [{ mangaId: title.length, sourceId: "3", sourceName: "Site", title, thumbnailUrl: null }] });
+    const out = await recommendShelves(config, [{ mangaId: 1, title: "Mine", tags: ["Sports", "Romance", "Harem"], weight: 2 }], ["Mine"], {
+      knowledge: { weight: () => 1, tagsOf: () => null },
+      // The site only knows Romance: every pair comes back empty.
+      browse: async (tags) => {
+        tried.push(tags.join("+"));
+        return { groups: tags.length === 1 && tags[0] === "Romance" ? [hit("Love Story")] : [], failed: [], searched: 1 };
+      },
+    });
+    expect(tried.some((t) => t.includes("+"))).toBe(true);
+    expect(out.shelves.map((s) => s.tags)).toEqual([["Romance"]]);
+    expect(out.shelves[0].from).toBe("Mine");
+    expect(out.groups.map((g) => g.title)).toEqual(["Love Story"]);
+  });
+
   it("leaves hidden tags out of the plan", async () => {
     const { planShelves } = await import("./discover.js");
     const plan = planShelves([{ mangaId: 1, title: "X", tags: ["Boys' Love", "Romance", "Drama"], weight: 2 }], () => 1, new Set(["boys love"]));
