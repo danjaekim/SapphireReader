@@ -166,12 +166,15 @@ export function Sources() {
     const statuses = mine.map(sourceStatus);
     const worst = statuses.some((x) => x.state === "bad") ? "bad" : statuses.some((x) => x.state === "good") ? "good" : "idle";
     const first = statuses.find((x) => x.state === worst) ?? statuses[0];
-    const expandable = e.isInstalled && mine.length > 0;
+    const locked = mine.length > 0 && mine.every((r) => r.hidden);
+    const expandable = e.isInstalled && mine.length > 0 && !locked;
     const isOpen = open.has(e.pkgName);
     return (
       <li key={e.pkgName} className={`extItem ${isOpen ? "open" : ""}`}>
         <div className="extRow">
-          {expandable ? (
+          {locked ? (
+            <span className="extToggle static" title="18+ source"><span aria-hidden="true">🔒</span></span>
+          ) : expandable ? (
             <button type="button" className="extToggle" onClick={() => toggle(e.pkgName)} aria-expanded={isOpen} aria-label={`Details for ${displayName(e)}`}>
               <span className={`dot ${worst === "idle" ? "" : worst}`} />
               <span className="chev" aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
@@ -183,8 +186,10 @@ export function Sources() {
             <strong>{displayName(e)}</strong>
             <span className="muted"> {LANGS[e.lang] ?? e.lang} · v{e.versionName}</span>
             {e.hasUpdate && <span className="tag"> update available</span>}
-            {e.isInstalled && first && mine.length === 1 && <div className={`small ${worst === "bad" ? "bad" : "muted"}`}>{first.text}</div>}
-            {e.isInstalled && mine.length > 1 && (
+            {e.isInstalled && locked && <div className="small muted">18+ source. Turn on 18+ mode to see its status.</div>}
+            {e.isInstalled && mine.length === 0 && <div className="small muted">No status yet. Press “Check all now”.</div>}
+            {e.isInstalled && !locked && first && mine.length === 1 && <div className={`small ${worst === "bad" ? "bad" : "muted"}`}>{first.text}</div>}
+            {e.isInstalled && !locked && mine.length > 1 && (
               <div className={`small ${worst === "bad" ? "bad" : "muted"}`}>
                 {mine.length} sources{worst === "bad" ? `, ${statuses.filter((x) => x.state === "bad").length} failing` : ""}
               </div>
@@ -243,7 +248,7 @@ export function Sources() {
 
   // Sources the engine reports that no extension row above claimed (rare).
   const claimed = new Set(installed.flatMap((e) => sourcesFor(e, sourceRows).map((r) => r.id)));
-  const orphans = sourceRows.filter((r) => !claimed.has(r.id));
+  const orphans = sourceRows.filter((r) => !claimed.has(r.id) && !r.hidden);
 
   return (
     <section>

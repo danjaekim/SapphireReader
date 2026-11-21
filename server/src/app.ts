@@ -406,8 +406,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const seen = new Set<string>();
       const sources = (await listSources(config, fetchImpl))
         .filter((s) => (s.lang === "en" || s.lang === "all") && s.name !== "Local source")
-        .filter((s) => (open || !s.isNsfw) && !seen.has(s.id) && !!seen.add(s.id))
-        .map((s) => ({ ...s, adultOverride: adultOverrideFor(s.id), health: health.get(s.id) ?? null }));
+        .filter((s) => !seen.has(s.id) && !!seen.add(s.id))
+        // 18+ sources are listed (the extension list already names them) but their health stays hidden until 18+ mode is on.
+        .map((s) => (!open && s.isNsfw ? { ...s, adultOverride: adultOverrideFor(s.id), health: null, hidden: true } : { ...s, adultOverride: adultOverrideFor(s.id), health: health.get(s.id) ?? null, hidden: false }));
       return { sources };
     } catch (err) {
       req.log.error(err);

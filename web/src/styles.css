@@ -590,7 +590,7 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .extItem + .extItem { border-top: 1px solid var(--line); }
 .extItem .extRow + .extRow { border-top: 0; }
 .extItem .extRow { align-items: flex-start; }
-.extToggle { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; border-radius: 8px; }
+.extToggle { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 2px; width: 40px; height: 28px; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; border-radius: 8px; }
 .extToggle.static { cursor: default; }
 .extToggle:hover:not(.static) { background: color-mix(in srgb, var(--fg) 10%, transparent); }
 .extToggle .dot { margin-right: 2px; }

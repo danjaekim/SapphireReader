@@ -255,6 +255,8 @@ export interface SourceRow {
   /** What the extension says, and any manual choice (true/false) that overrides it. */
   flaggedNsfw?: boolean;
   adultOverride?: boolean | null;
+  /** An 18+ source while 18+ mode is off: listed, but its health isn't shown. */
+  hidden?: boolean;
   health: SourceHealth | null;
 }
 export const sources = () => getJson<{ sources: SourceRow[] }>("/api/sources");
