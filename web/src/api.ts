@@ -203,3 +203,28 @@ export interface Alternative {
   latestNumber: number | null;
 }
 export const alternatives = (mangaId: number) => getJson<{ alternatives: Alternative[] }>(`/api/manga/${mangaId}/alternatives`);
+
+export interface TrackerLink {
+  mediaId: number;
+  title: string;
+  syncedProgress: number;
+}
+export interface TrackerMatch {
+  mediaId: number;
+  title: string;
+  chapters: number | null;
+  status: string | null;
+  cover: string | null;
+}
+export interface TrackerState {
+  anilist: { connected: boolean; user: string | null };
+}
+export const trackers = () => getJson<TrackerState>("/api/trackers");
+export const connectAnilist = (token: string) => send("PUT", "/api/trackers/anilist", { token }) as Promise<TrackerState>;
+export const disconnectAnilist = () => send("DELETE", "/api/trackers/anilist") as Promise<TrackerState>;
+export const anilistMatches = (q: string) =>
+  getJson<{ matches: TrackerMatch[] }>(`/api/trackers/anilist/search?q=${encodeURIComponent(q)}`);
+export const tracking = (mangaId: number) => getJson<{ anilist: TrackerLink | null }>(`/api/manga/${mangaId}/tracking`);
+export const linkAnilist = (mangaId: number, mediaId: number, title: string) =>
+  send("PUT", `/api/manga/${mangaId}/tracking`, { mediaId, title }) as Promise<{ anilist: TrackerLink | null }>;
+export const unlinkAnilist = (mangaId: number) => send("DELETE", `/api/manga/${mangaId}/tracking`);

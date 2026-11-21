@@ -1,4 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
@@ -8,6 +10,8 @@ import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
 import { browseByGenres, listGenres } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { discover, recommendFor, similarTo, type DiscoverSort } from "./discover.js";
+import { backupName, snapshot } from "./backup.js";
+import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
 import { checkLibrary } from "./checker.js";
 import { createNotifier } from "./notify.js";
 import { Store, type ProgressInput } from "./store.js";
@@ -109,6 +113,89 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     gate.close(req.headers.cookie);
     return reply.header("set-cookie", clearedCookie).send({ pinSet: gate.pinSet(), unlocked: false });
   });
+
+  // A copy of the whole library, progress and settings, for safekeeping. Includes the 18+ PIN
+  // hash and the 18+ library, so it needs the lock open.
+  app.get("/api/backup", async (req, reply) => {
+    if (!gate.unlocked(req.headers.cookie) && gate.pinSet()) {
+      return reply.code(403).send({ error: "Turn on 18+ mode (PIN) first: backups include your 18+ library." });
+    }
+    const file = join(tmpdir(), `sapphire-export-${Date.now()}.db`);
+    try {
+      store.backupTo(file);
+      const bytes = readFileSync(file);
+      return reply
+        .header("content-type", "application/octet-stream")
+        .header("content-disposition", `attachment; filename="${backupName()}"`)
+        .send(bytes);
+    } finally {
+      rmSync(file, { force: true });
+    }
+  });
+
+  // ---- Trackers (AniList) ----
+  app.get("/api/trackers", async () => ({
+    anilist: { connected: store.getSetting("anilist_token") !== null, user: store.getSetting("anilist_user") },
+  }));
+
+  app.put<{ Body: { token?: unknown } }>("/api/trackers/anilist", async (req, reply) => {
+    const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+    if (!/^[\w.-]{20,}$/.test(token)) return reply.code(400).send({ error: "That doesn't look like an AniList token." });
+    try {
+      const user = await anilistViewer(token, fetchImpl);
+      store.setSetting("anilist_token", token);
+      store.setSetting("anilist_user", user);
+      return { anilist: { connected: true, user } };
+    } catch (err) {
+      return reply.code(400).send({ error: `AniList didn't accept that token: ${err instanceof Error ? err.message : "unknown error"}` });
+    }
+  });
+
+  app.delete("/api/trackers/anilist", async () => {
+    store.deleteSetting("anilist_token");
+    store.deleteSetting("anilist_user");
+    return { anilist: { connected: false, user: null } };
+  });
+
+  app.get<{ Querystring: { q?: string } }>("/api/trackers/anilist/search", async (req, reply) => {
+    const q = (req.query.q ?? "").trim();
+    if (q.length < 2) return reply.code(400).send({ error: "Type at least 2 characters." });
+    try {
+      return { matches: await anilistSearch(q, fetchImpl) };
+    } catch (err) {
+      return reply.code(502).send({ error: `AniList search failed: ${err instanceof Error ? err.message : "unknown error"}` });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>("/api/manga/:id/tracking", async (req) => ({
+    anilist: store.getTrackerLink(Number(req.params.id), "anilist"),
+  }));
+
+  app.put<{ Params: { id: string }; Body: { mediaId?: unknown; title?: unknown } }>("/api/manga/:id/tracking", async (req, reply) => {
+    const id = Number(req.params.id);
+    const { mediaId, title } = req.body ?? {};
+    if (!Number.isInteger(id) || !Number.isInteger(mediaId) || typeof title !== "string") return reply.code(400).send({ error: "Bad request." });
+    store.setTrackerLink(id, "anilist", mediaId as number, title);
+    return { anilist: store.getTrackerLink(id, "anilist") };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/manga/:id/tracking", async (req) => {
+    store.removeTrackerLink(Number(req.params.id), "anilist");
+    return { anilist: null };
+  });
+
+  // Pushes a finished chapter to AniList. Fire and forget: reading never waits on, or fails because of, a tracker.
+  async function syncTrackers(mangaId: number, chapterNumber: number): Promise<void> {
+    const token = store.getSetting("anilist_token");
+    const link = store.getTrackerLink(mangaId, "anilist");
+    if (!token || !link || chapterNumber < 1 || Math.floor(chapterNumber) <= link.syncedProgress) return;
+    try {
+      await anilistSetProgress(token, link.mediaId, chapterNumber, fetchImpl);
+      store.markTrackerSynced(mangaId, "anilist", Math.floor(chapterNumber));
+    } catch (err) {
+      app.log.warn(err, "couldn't update AniList");
+    }
+  }
 
   app.get("/api/genres", async (req, reply) => {
     try {
@@ -438,6 +525,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       pageOffset: Math.min(1, Math.max(0, b.pageOffset!)),
       finished: b.finished === true,
     });
+    if (b.finished === true) void syncTrackers(id, b.chapterNumber!);
     return { ok: true };
   });
 

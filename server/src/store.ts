@@ -41,6 +41,13 @@ export interface LibraryItem extends LibraryEntry {
   unread: number | null;
 }
 
+export interface TrackerLink {
+  mediaId: number;
+  title: string;
+  /** Highest chapter already pushed to the tracker, so it only ever moves forward. */
+  syncedProgress: number;
+}
+
 export interface SourceHealth {
   sourceId: string;
   name: string;
@@ -79,6 +86,14 @@ export class Store {
         page_offset REAL NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS tracker_links (
+        manga_id INTEGER NOT NULL,
+        service TEXT NOT NULL,
+        media_id INTEGER NOT NULL,
+        media_title TEXT NOT NULL,
+        synced_progress INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (manga_id, service)
+      );
       CREATE TABLE IF NOT EXISTS source_health (
         source_id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -109,6 +124,40 @@ export class Store {
 
   close(): void {
     this.db.close();
+  }
+
+  /** Writes a consistent copy of the whole database to `path` (safe while the app is running). */
+  backupTo(path: string): void {
+    mkdirSync(dirname(path), { recursive: true });
+    this.db.exec(`VACUUM INTO '${path.replace(/'/g, "''")}'`);
+  }
+
+  deleteSetting(key: string): void {
+    this.db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+  }
+
+  getTrackerLink(mangaId: number, service: string): TrackerLink | null {
+    const r = this.db.prepare("SELECT * FROM tracker_links WHERE manga_id = ? AND service = ?").get(mangaId, service) as
+      | Record<string, unknown>
+      | undefined;
+    return r ? { mediaId: r.media_id as number, title: r.media_title as string, syncedProgress: r.synced_progress as number } : null;
+  }
+
+  setTrackerLink(mangaId: number, service: string, mediaId: number, title: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO tracker_links (manga_id, service, media_id, media_title) VALUES (?, ?, ?, ?)
+         ON CONFLICT(manga_id, service) DO UPDATE SET media_id = excluded.media_id, media_title = excluded.media_title, synced_progress = 0`,
+      )
+      .run(mangaId, service, mediaId, title);
+  }
+
+  markTrackerSynced(mangaId: number, service: string, progress: number): void {
+    this.db.prepare("UPDATE tracker_links SET synced_progress = ? WHERE manga_id = ? AND service = ?").run(progress, mangaId, service);
+  }
+
+  removeTrackerLink(mangaId: number, service: string): void {
+    this.db.prepare("DELETE FROM tracker_links WHERE manga_id = ? AND service = ?").run(mangaId, service);
   }
 
   getSetting(key: string): string | null {

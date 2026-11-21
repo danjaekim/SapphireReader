@@ -6,6 +6,7 @@ import { Library } from "./Library";
 import { Reader } from "./Reader";
 import { Search } from "./Search";
 import { Sources } from "./Sources";
+import { TrackerSettings } from "./Trackers";
 import { SeriesPage } from "./SeriesPage";
 import { useRoute } from "./route";
 
@@ -118,7 +119,20 @@ export function App() {
             {tab === "Discover" && <Discover key={String(adult.unlocked)} />}
             {tab === "Discover (18+)" && <Discover adult />}
             {tab === "Sources" && <Sources />}
-            {tab === "Status" && <StatusCard />}
+            {tab === "Status" && (
+              <>
+                <StatusCard />
+                <TrackerSettings />
+                <section className="card">
+                  <h3>Backup</h3>
+                  <p className="muted">
+                    Sapphire saves a copy of your library and progress every day on the NAS (data/app/backups, last 7 days).
+                    You can also download one now.
+                  </p>
+                  <a className="button small" href="/api/backup" download>Download backup</a>
+                </section>
+              </>
+            )}
             {tab === "Library" && <Library key={String(adult.unlocked)} />}
             {tab === "Updates" && <p className="muted">Coming soon.</p>}
           </>
