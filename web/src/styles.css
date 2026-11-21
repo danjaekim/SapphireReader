@@ -668,3 +668,13 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .personLink { color: inherit; text-decoration-color: var(--line); text-underline-offset: 3px; } .personLink:hover { color: var(--accent); }
 .simTitle { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; line-height: 1.35; min-height: calc(2 * 1.35em); }
 .similarCard .similar { align-items: start; }
+
+.oneChapter { padding: 16px; }
+.oneChapter .chapterTools { display: flex; align-items: center; gap: 4px; }
+.pageThumbs { list-style: none; margin: 12px 0 8px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+.pageThumbs a { position: relative; display: block; border-radius: 8px; overflow: hidden; background: var(--bg); aspect-ratio: 2 / 3; }
+.pageThumbs img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; transition: transform .15s ease; }
+.pageThumbs a:hover img { transform: scale(1.03); }
+.pageThumbs span { position: absolute; right: 6px; bottom: 6px; padding: 1px 6px; border-radius: 6px; font-size: 11px; background: rgba(0,0,0,.65); color: #fff; }
+.moreTag { border: 0; cursor: pointer; font: inherit; font-size: 12px; color: var(--accent); }
+.oneChapter .chapterHead { margin: 0; } .oneChapter > .linkish { padding-left: 0; }

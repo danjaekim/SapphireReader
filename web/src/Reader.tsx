@@ -13,7 +13,7 @@ const chapterText = (c: { chapterNumber: number; name: string }) =>
  * The reader. Webtoons scroll; manga can be read a page at a time (left-to-right or right-to-left),
  * chosen per series. The bars stay hidden while reading; tap the middle of the page to show them.
  */
-export function Reader({ mangaId, chapterId, onMenu }: { mangaId: number; chapterId: number; onMenu: () => void }) {
+export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: number; chapterId: number; startPage?: number; onMenu: () => void }) {
   const [chrome, setChrome] = useState(false);
   const [data, setData] = useState<SeriesData | null>(null);
   const [pages, setPages] = useState<string[] | null>(null);
@@ -60,9 +60,12 @@ export function Reader({ mangaId, chapterId, onMenu }: { mangaId: number; chapte
   useEffect(() => {
     restored.current = false;
     const p = data?.progress;
-    target.current = p && p.chapterId === chapterId && (p.pageIndex > 0 || p.pageOffset > 0) ? { index: p.pageIndex, offset: p.pageOffset } : null;
+    // A page picked from the series page wins over where you left off.
+    target.current = startPage
+      ? { index: startPage, offset: 0 }
+      : p && p.chapterId === chapterId && (p.pageIndex > 0 || p.pageOffset > 0) ? { index: p.pageIndex, offset: p.pageOffset } : null;
     if (!target.current) restored.current = true;
-  }, [chapterId, data?.progress?.chapterId]);
+  }, [chapterId, startPage, data?.progress?.chapterId]);
 
   // Paged mode jumps straight to the saved page.
   useEffect(() => {

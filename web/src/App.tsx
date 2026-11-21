@@ -370,7 +370,7 @@ export function App() {
     return (
       <div className="reading">
         <div className="readerMenu">{nav}</div>
-        <Reader mangaId={route.mangaId} chapterId={route.chapterId} onMenu={() => setMenuOpen(true)} />
+        <Reader mangaId={route.mangaId} chapterId={route.chapterId} startPage={route.page} onMenu={() => setMenuOpen(true)} />
       </div>
     );
   }

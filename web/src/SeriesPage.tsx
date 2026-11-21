@@ -1,6 +1,6 @@
 import { Loading } from "./Loading";
 import { useEffect, useRef, useState } from "react";
-import { addToLibrary, alternatives, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, alternatives, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -25,6 +25,67 @@ function People({ names }: { names: string }) {
     </>
   );
 }
+
+/** Long tag lists (some sites give 40+) show this many until you ask for the rest. */
+const TAG_CAP = 12;
+
+/**
+ * A series with a single chapter (one-shots, galleries) doesn't need a chapter list: show its
+ * pages instead, with read and download controls. Tapping a page opens the reader there.
+ */
+function OneChapter({ mangaId, chapter, read, state, onMark, onDownload }: {
+  mangaId: number;
+  chapter: ChapterInfo;
+  read: boolean;
+  state?: { status: string; error: string | null };
+  onMark: (read: boolean) => void;
+  onDownload: () => void;
+}) {
+  const [pages, setPages] = useState<string[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [all, setAll] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setPages(null);
+    setFailed(false);
+    chapterPages(chapter.id).then((r) => !cancelled && setPages(r.pages), () => !cancelled && setFailed(true));
+    return () => void (cancelled = true);
+  }, [chapter.id]);
+  const shown = pages ? (all ? pages : pages.slice(0, PREVIEW_PAGES)) : [];
+  return (
+    <div className="card oneChapter">
+      <div className="chapterHead">
+        <h3>
+          Pages {pages && <span className="muted small">{pages.length}</span>}
+        </h3>
+        <div className="chapterTools">
+          <button type="button" className="linkish" onClick={() => onMark(!read)}>{read ? "Mark unread" : "Mark read"}</button>
+          <DownloadButton state={state} onDownload={onDownload} />
+        </div>
+      </div>
+      {failed && <p className="muted small">Couldn't load a preview of the pages. You can still open it to read.</p>}
+      {!pages && !failed && <Loading label="Loading pages…" size="sm" />}
+      {pages && (
+        <ul className="pageThumbs">
+          {shown.map((src, i) => (
+            <li key={src}>
+              <a href={readHref(mangaId, chapter.id, i)} aria-label={`Open page ${i + 1}`}>
+                <img src={src} alt="" loading="lazy" decoding="async" />
+                <span>{i + 1}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {pages && pages.length > PREVIEW_PAGES && (
+        <button type="button" className="linkish" onClick={() => setAll((v) => !v)}>
+          {all ? "Show fewer" : `Show all ${pages.length} pages`}
+        </button>
+      )}
+    </div>
+  );
+}
+const PREVIEW_PAGES = 12;
 
 export function DownloadButton({ state, onDownload }: { state?: { status: string; error: string | null }; onDownload: () => void }) {
   if (state?.status === "done") return <span className="dlState done" title="Saved on the NAS. Remove it from the Downloads page.">✓</span>;
@@ -90,6 +151,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [attempt, setAttempt] = useState(0);
   const [newestFirst, setNewestFirst] = useState(true);
   const [fullDesc, setFullDesc] = useState(false);
+  const [allTags, setAllTags] = useState(false);
   const [jump, setJump] = useState("");
   // Wait for the series (and its other names) before asking, so the lookup can use them.
   const rating = useRating(data?.manga.title ?? null, data !== null, data ? (data.about?.altTitles ?? []) : undefined);
@@ -217,7 +279,9 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   }
 
   const readIds = new Set(data?.readChapterIds ?? []);
-  const about = data?.about ?? { body: data?.manga.description ?? "", altTitles: [], stats: [] };
+  const rawAbout = data?.about ?? { body: data?.manga.description ?? "", altTitles: [], stats: [] };
+  // Some sites write their descriptions in Markdown; show **bold** and __bold__ as plain text.
+  const about = { ...rawAbout, body: rawAbout.body.replace(/(\*\*|__)(.+?)\1/g, "$2") };
   const unread = data ? data.chapters.filter((c) => !readIds.has(c.id) && states[c.id]?.status !== "done") : [];
   const notSaved = data ? data.chapters.filter((c) => !states[c.id] || states[c.id].status === "failed") : [];
   const working = Object.values(states).filter((d) => d.status === "queued" || d.status === "downloading").length;
@@ -321,9 +385,16 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                 </dl>
                 {data.manga.genre.length > 0 && (
                   <ul className="genres">
-                    {data.manga.genre.map((g) => (
+                    {(allTags ? data.manga.genre : data.manga.genre.slice(0, TAG_CAP)).map((g) => (
                       <li key={g}><a className="tag" href={genreHref(g, data.manga.id, data.adult)}>{g}</a></li>
                     ))}
+                    {data.manga.genre.length > TAG_CAP && (
+                      <li>
+                        <button type="button" className="tag moreTag" onClick={() => setAllTags((v) => !v)}>
+                          {allTags ? "Fewer" : `+${data.manga.genre.length - TAG_CAP} more`}
+                        </button>
+                      </li>
+                    )}
                   </ul>
                 )}
                 {others && others.length > 0 && (
@@ -411,6 +482,16 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                 )}
               </div>
 
+              {data.chapters.length === 1 ? (
+                <OneChapter
+                  mangaId={mangaId}
+                  chapter={data.chapters[0]}
+                  read={readIds.has(data.chapters[0].id)}
+                  state={states[data.chapters[0].id]}
+                  onMark={(r) => void mark([data.chapters[0].id], r)}
+                  onDownload={() => download(data.manga, [data.chapters[0]])}
+                />
+              ) : (
               <div className="seriesChapters">
                 <div className="chapterHead">
                   <h3>
@@ -533,6 +614,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   })}
                 </ul>
               </div>
+              )}
             </div>
           </div>
 

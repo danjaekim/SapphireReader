@@ -17,7 +17,7 @@ const PAGES: PageName[] = ["home", "search", "library", "discover", "discover-18
 export type Route =
   | { name: "page"; page: PageName; params: URLSearchParams }
   | { name: "series"; mangaId: number }
-  | { name: "read"; mangaId: number; chapterId: number };
+  | { name: "read"; mangaId: number; chapterId: number; page?: number };
 
 /**
  * The address bar is the app's state: pages and their search, filter and sort settings all live in
@@ -28,7 +28,10 @@ export function parseHash(hash: string): Route {
   const series = /^\/series\/(\d+)$/.exec(path);
   if (series) return { name: "series", mangaId: Number(series[1]) };
   const read = /^\/read\/(\d+)\/(\d+)$/.exec(path);
-  if (read) return { name: "read", mangaId: Number(read[1]), chapterId: Number(read[2]) };
+  if (read) {
+    const page = Number(new URLSearchParams(query).get("page"));
+    return { name: "read", mangaId: Number(read[1]), chapterId: Number(read[2]), ...(Number.isInteger(page) && page > 0 ? { page } : {}) };
+  }
   const page = path.replace(/^\//, "") as PageName;
   return { name: "page", page: PAGES.includes(page) ? page : "home", params: new URLSearchParams(query) };
 }
@@ -52,7 +55,8 @@ export const genreHref = (genre: string, seed?: number, adult = false) =>
 export const searchHref = (q: string) => pageHref("search", { q });
 
 export const seriesHref = (mangaId: number) => `#/series/${mangaId}`;
-export const readHref = (mangaId: number, chapterId: number) => `#/read/${mangaId}/${chapterId}`;
+/** Opens the reader; `page` (counted from 0) jumps straight to that page. */
+export const readHref = (mangaId: number, chapterId: number, page = 0) => `#/read/${mangaId}/${chapterId}${page > 0 ? `?page=${page}` : ""}`;
 
 // How many times the address has changed since the app opened. Zero means this page was opened directly
 // (a bookmark, an alert), so there's nowhere "back" to inside Sapphire.
