@@ -17,6 +17,7 @@ import { clearEngineUpdateCache, engineUpdateInfo, requestEngineUpdate } from ".
 import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { alsoLiked } from "./alsoliked.js";
+import { deepRecommendations } from "./deep.js";
 import { discover, recommendShelves, similarTo, tagWeights, type DiscoverSort } from "./discover.js";
 import { Downloader, mimeForFile } from "./downloader.js";
 import { backupName, snapshot } from "./backup.js";
@@ -736,6 +737,44 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  // The deeper rows: themes shared across everything you like, and a wide pool ranked by full tag lists.
+  // Slow (it reads tags for many candidates), so it's its own request and the page adds the rows when they come.
+  const deepCache = new Map<boolean, { at: number; key: string; value: unknown }>();
+  app.get<{ Querystring: { adult?: string } }>("/api/for-you/deep", async (req, reply) => {
+    const adult = req.query.adult === "1";
+    if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    const liked = store.likedSeries(adult);
+    const titles = store.libraryTitles(adult);
+    const hidden = new Set(hiddenTags().map(canonKey));
+    const disliked = store.notInterested(adult);
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]), titles.length, [...hidden], disliked.map((d) => d.mangaId)]);
+    const cached = deepCache.get(adult);
+    if (cached && cached.key === key && Date.now() - cached.at < 60 * 60 * 1000) return cached.value;
+    try {
+      const rows = await deepRecommendations(liked, titles, {
+        weight: tagWeights(store.tagStats(canonKey)),
+        tagsOf: (m) => store.seriesTags(m),
+        fetchTags: async (id) => {
+          const tags = (await detailsFor(id)).genre ?? [];
+          if (tags.length > 0) store.recordSeriesTags(id, tags);
+          return tags;
+        },
+        browse: (tags, strict) =>
+          adult
+            ? adultWithMixed((scope, only) => browseByGenres(config, tags, { fetchImpl, onResult: report, scope, only, strict, timeoutMs: 9000 }))
+            : browseByGenres(config, tags, { fetchImpl, onResult: report, scope: "safe", strict, timeoutMs: 9000 }),
+        hidden,
+        disliked,
+      });
+      const value = { rows: await Promise.all(rows.map(async (r) => ({ ...r, groups: await withoutHidden(r.groups) }))) };
+      deepCache.set(adult, { at: Date.now(), key, value });
+      return value;
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "The source engine isn't answering." });
+    }
+  });
+
   // ♥ a series: it counts toward "For you" whether or not it's in the library.
   app.put<{ Params: { id: string }; Body: { on?: unknown } }>("/api/manga/:id/like", async (req, reply) => {
     const id = Number(req.params.id);
@@ -754,6 +793,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
     forYouCache.clear();
     alsoLikedCache.clear();
+    deepCache.clear();
     return { liked: on };
   });
 
@@ -771,6 +811,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     store.markNotInterested(id, title, req.body?.adult === true, on);
     forYouCache.clear();
     alsoLikedCache.clear();
+    deepCache.clear();
     return { ok: true };
   });
 

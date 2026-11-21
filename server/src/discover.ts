@@ -71,7 +71,7 @@ export async function discover(
 }
 
 /** Tags that describe the format, status or language, not the story; they make poor "similar to" seeds. */
-const FORMAT_TAGS = new Set(
+export const FORMAT_TAGS = new Set(
   [
     "manhwa", "manhua", "manga", "webtoon", "webtoons", "comic", "full color", "long strip", "adult", "mature",
     "ongoing", "completed", "hiatus", "oneshot", "one shot", "doujinshi", "web comic", "translated", "english",

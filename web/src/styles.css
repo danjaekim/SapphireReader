@@ -811,6 +811,8 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .shelfMore { font-size: 14px; color: var(--muted); text-decoration: none; white-space: nowrap; }
 .shelfMore:hover { color: var(--accent); }
 @media (max-width: 720px) { .shelfHead h3 { font-size: 16px; } .shelfMore { min-height: 32px; display: inline-flex; align-items: center; } }
+.shelfSub { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: -6px 0 10px; font-size: 13px; }
+.shelfPending { min-height: 300px; }
 /* Each row scrolls sideways, so no row leaves a half-empty line. */
 .shelf .grid {
   grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 160px; overflow-x: auto; overscroll-behavior-x: contain;

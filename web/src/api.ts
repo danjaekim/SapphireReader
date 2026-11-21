@@ -222,6 +222,14 @@ export const discoverList = (sort: "popular" | "latest" | "rating" | "newest" | 
   getJson<BrowseResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}&page=${page}`);
 export const alsoLiked = (adult = false) =>
   getJson<{ rows: { from: string; groups: SeriesGroup[] }[] }>(`/api/for-you/also-liked${adult ? "?adult=1" : ""}`);
+export interface DeepRow {
+  kind: "best" | "theme";
+  tags: string[];
+  support?: number;
+  examples?: string[];
+  groups: SeriesGroup[];
+}
+export const deepForYou = (adult = false) => getJson<{ rows: DeepRow[] }>(`/api/for-you/deep${adult ? "?adult=1" : ""}`);
 export const setLiked = (mangaId: number, on: boolean) => send("PUT", `/api/manga/${mangaId}/like`, { on });
 export const setNotInterested = (mangaId: number, title: string, on: boolean, adult = false) =>
   send("PUT", `/api/manga/${mangaId}/not-interested`, { title, on, adult });

@@ -1,5 +1,5 @@
 import { Loading } from "./Loading";
-import { alsoLiked, browse, discoverList, forYou, setNotInterested, type SearchResult, type SeriesGroup, type Shelf } from "./api";
+import { alsoLiked, browse, deepForYou, discoverList, forYou, setNotInterested, type SearchResult, type DeepRow, type SeriesGroup, type Shelf } from "./api";
 import { canonLabel } from "./genres";
 import { FilterBar } from "./FilterBar";
 import { Results } from "./Results";
@@ -24,7 +24,70 @@ const MODES: { id: Mode; label: string }[] = [
  */
 /** AniList rows take a while (each series is looked for on your sources), so they load after the rest. */
 const alsoCache = new Map<boolean, { rows: { from: string; groups: SeriesGroup[] }[] }>();
-const forgetAlsoLiked = () => alsoCache.clear();
+const deepCache = new Map<boolean, DeepRow[]>();
+const forgetAlsoLiked = () => {
+  alsoCache.clear();
+  deepCache.clear();
+};
+
+/**
+ * The deeper rows: themes your series share, and the best fits from a wide pool judged on their full
+ * tag lists. They take a while, so they fill in after the rest; the space is held so nothing jumps.
+ */
+function DeepRows({ adult, scopeTag, page, onDismiss }: { adult: boolean; scopeTag: string; page: PageName; onDismiss: (g: SeriesGroup, on: boolean) => void }) {
+  const [rows, setRows] = useState(() => deepCache.get(adult) ?? null);
+  useEffect(() => {
+    if (deepCache.has(adult)) return;
+    let live = true;
+    deepForYou(adult).then(
+      (r) => {
+        deepCache.set(adult, r.rows);
+        if (live) setRows(r.rows);
+      },
+      () => live && setRows([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [adult, scopeTag]);
+  if (rows === null)
+    return (
+      <section className="shelf shelfPending">
+        <header className="shelfHead">
+          <h3>Best matches for your taste</h3>
+        </header>
+        <Loading label="Comparing everything you like and reading tags for a wide pool of series…" size="sm" />
+      </section>
+    );
+  return (
+    <>
+      {rows.map((r) => (
+        <section key={`deep-${r.kind}-${r.tags.join("+")}`} className="shelf">
+          <header className="shelfHead">
+            {r.kind === "best" ? (
+              <h3>Best matches for your taste</h3>
+            ) : (
+              <h3>
+                Your theme: <em>{r.tags.map(canonLabel).join(" · ")}</em>
+              </h3>
+            )}
+          </header>
+          {r.kind === "best" ? (
+            <p className="shelfSub muted">Judged on every tag, weighted toward what you like most</p>
+          ) : (
+            <p className="shelfSub muted">
+              <span>{r.examples?.length ? `In ${r.support} of yours, like ${r.examples.slice(0, 2).join(" and ")}` : ""}</span>
+              <a className="shelfMore" href={pageHref(page, { genre: r.tags })}>
+                More <span aria-hidden="true">→</span>
+              </a>
+            </p>
+          )}
+          <Results result={{ groups: r.groups, failed: [], searched: 0 }} lookups={false} compact onDismiss={onDismiss} />
+        </section>
+      ))}
+    </>
+  );
+}
 
 function AlsoLikedRows({ adult, scopeTag, onDismiss }: { adult: boolean; scopeTag: string; onDismiss: (g: SeriesGroup, on: boolean) => void }) {
   const [rows, setRows] = useState(() => alsoCache.get(adult)?.rows ?? null);
@@ -121,6 +184,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       {busy && <Loading label="Asking your sources. This can take several seconds." />}
       {result && shelvesOf(result) && (
         <div className="shelves">
+          <DeepRows adult={adult} scopeTag={scopeTag} page={page} onDismiss={dismiss} />
           {shelvesOf(result)!.map((s, i) => (
             <Fragment key={s.tags.join("+")}>
             {i === 1 && <AlsoLikedRows adult={adult} scopeTag={scopeTag} onDismiss={dismiss} />}
