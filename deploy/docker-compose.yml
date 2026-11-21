@@ -1,6 +1,7 @@
 # Sapphire — Phase 0 engine stack
 #
 # Runs the pieces Sapphire's own server will sit on top of:
+#   sapphire      the Sapphire app itself (web UI + server), opens at http://<NAS IP>:8080
 #   engine        Suwayomi-Server, used only as a headless runtime for Keiyoushi extensions
 #   flaresolverr  Cloudflare challenge solver the engine calls when a site blocks it
 #   ntfy          self-hosted push notifications for new chapters
@@ -9,7 +10,7 @@
 # extensions and test your sites by hand. From Phase 1 on, Sapphire's server talks to
 # the engine over the internal network and port 4567 is removed (see the PHASE 1 notes).
 #
-# Before starting: replace every CHANGE_ME value below.
+# Before starting: replace every CHANGE_ME value below (the engine password appears twice).
 # Setup guide: docs/phase-0-setup.md
 
 name: sapphire
@@ -38,6 +39,25 @@ services:
     ports:
       # PHASE 0 ONLY. Remove this in Phase 1 and set WEB_UI_ENABLED=false.
       - "4567:4567"
+    networks:
+      - sapphire
+
+  sapphire:
+    # Built by GitHub Actions on every push to main. If the package is private,
+    # run `sudo docker login ghcr.io` on the NAS once with a token that has read:packages.
+    image: ghcr.io/danjaekim/sapphire:latest
+    container_name: sapphire-app
+    restart: unless-stopped
+    depends_on:
+      - engine
+    environment:
+      - TZ=America/New_York
+      - ENGINE_URL=http://engine:4567
+      - ENGINE_USER=sapphire
+      # Same password as the engine's AUTH_PASSWORD above.
+      - ENGINE_PASSWORD=CHANGE_ME
+    ports:
+      - "8080:8080"
     networks:
       - sapphire
 
