@@ -1,6 +1,6 @@
 import { Loading } from "./Loading";
 import { useEffect, useRef, useState, type MouseEvent, type TouchEvent } from "react";
-import { chapterPages, saveProgress, series, setReaderPrefs, type ReaderPrefs, type SeriesData } from "./api";
+import { chapterPages, saveProgress, series, setReaderPrefs, type PrefsScope, type ReaderPrefs, type SeriesData } from "./api";
 import { DownloadButton } from "./SeriesPage";
 import { readHref, seriesHref } from "./route";
 import { useSeriesDownloads } from "./useDownloads";
@@ -233,11 +233,11 @@ export function Reader({ mangaId, chapterId, onMenu }: { mangaId: number; chapte
     if (paged && pages) pages.slice(current + 1, current + 3).forEach((src) => (new Image().src = src));
   }, [paged, pages, current]);
 
-  async function changePrefs(p: ReaderPrefs, everywhere = false) {
+  async function changePrefs(p: ReaderPrefs, scope: PrefsScope = "series") {
     setPrefs(p);
     setAtEnd(false);
     if (p.mode === "paged") setCurrent((c) => c);
-    await setReaderPrefs(mangaId, p, everywhere).catch(() => {});
+    await setReaderPrefs(mangaId, p, scope).catch(() => {});
   }
 
   const pageSrc = (src: string, i: number) => (failed[i] > 0 ? `${src}${src.includes("?") ? "&" : "?"}retry=${failed[i]}` : src);
@@ -379,7 +379,12 @@ export function Reader({ mangaId, chapterId, onMenu }: { mangaId: number; chapte
               {" "}This is saved for this series.
             </p>
             <div className="sheetActions">
-              <button type="button" className="button secondary" onClick={() => { void changePrefs(prefs, true); setSettingsOpen(false); }}>
+              {data?.manga.sourceName && (
+                <button type="button" className="button secondary" onClick={() => { void changePrefs(prefs, "source"); setSettingsOpen(false); }}>
+                  Use for all {data.manga.sourceName}
+                </button>
+              )}
+              <button type="button" className="button secondary" onClick={() => { void changePrefs(prefs, "all"); setSettingsOpen(false); }}>
                 Use for all series
               </button>
               <button type="button" className="button" onClick={() => setSettingsOpen(false)}>Done</button>

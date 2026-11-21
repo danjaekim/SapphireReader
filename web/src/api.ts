@@ -72,15 +72,16 @@ export interface ReaderPrefs {
   mode: "scroll" | "paged";
   direction: "ltr" | "rtl";
 }
-export const setReaderPrefs = (mangaId: number, p: ReaderPrefs, everywhere = false) =>
-  send("PUT", `/api/manga/${mangaId}/reader`, { ...p, everywhere }) as Promise<ReaderPrefs & { custom: boolean }>;
+export type PrefsScope = "series" | "source" | "all";
+export const setReaderPrefs = (mangaId: number, p: ReaderPrefs, scope: PrefsScope = "series") =>
+  send("PUT", `/api/manga/${mangaId}/reader`, { ...p, scope }) as Promise<ReaderPrefs & { custom: boolean; level?: PrefsScope | "default" }>;
 
 export interface SeriesData {
   manga: MangaDetails;
   /** The description split into story, other names and the site's own numbers. */
   about?: { body: string; altTitles: string[]; stats: { label: string; value: string }[] };
   adult?: boolean;
-  reader?: ReaderPrefs & { custom: boolean };
+  reader?: ReaderPrefs & { custom: boolean; level?: "series" | "source" | "default" };
   chapters: ChapterInfo[]; // oldest first
   latest: LatestChapter;
   inLibrary: boolean;

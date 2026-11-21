@@ -559,6 +559,11 @@ export class Store {
     this.db.prepare("DELETE FROM settings WHERE key = ?").run(key);
   }
 
+  /** Removes every setting whose key starts with this prefix. */
+  deleteSettingsLike(prefix: string): void {
+    this.db.prepare("DELETE FROM settings WHERE substr(key, 1, ?) = ?").run(prefix.length, prefix);
+  }
+
   getTrackerLink(mangaId: number, service: string): TrackerLink | null {
     const r = this.db.prepare("SELECT * FROM tracker_links WHERE manga_id = ? AND service = ?").get(mangaId, service) as
       | Record<string, unknown>

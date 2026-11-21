@@ -168,3 +168,16 @@ describe("source scoping", () => {
     setAdultOverrides({});
   });
 });
+
+describe("reading mode", () => {
+  it("falls back from the series to its source to the default", async () => {
+    const store = new Store(":memory:");
+    const app = await buildApp(config, { fetchImpl: fakeEngine(), store });
+    const put = (id: number, payload: object) => app.inject({ method: "PUT", url: `/api/manga/${id}/reader`, payload }).then((r) => r.json());
+    expect(await put(10, { mode: "paged", direction: "rtl", scope: "source" })).toMatchObject({ mode: "paged", direction: "rtl", level: "source" });
+    expect(await put(10, { mode: "scroll", direction: "ltr" })).toMatchObject({ mode: "scroll", level: "series" });
+    // Setting it for the source clears this series' own choice.
+    expect(await put(10, { mode: "paged", direction: "ltr", scope: "source" })).toMatchObject({ mode: "paged", direction: "ltr", level: "source" });
+    expect(await put(10, { mode: "scroll", direction: "ltr", everywhere: true })).toMatchObject({ mode: "scroll", level: "default" });
+  });
+});

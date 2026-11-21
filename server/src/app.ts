@@ -582,7 +582,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         manga,
         about: parseDescription(manga.description, manga.title),
         adult,
-        reader: readerPrefs(id),
+        reader: readerPrefs(id, manga.sourceId),
         chapters,
         latest: latestFromChapters(chapters),
         inLibrary: store.inLibrary(id),
@@ -1052,24 +1052,36 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const validPrefs = (v: unknown): v is ReaderPrefs =>
     typeof v === "object" && v !== null &&
     ["scroll", "paged"].includes((v as ReaderPrefs).mode) && ["ltr", "rtl"].includes((v as ReaderPrefs).direction);
-  function readerPrefs(mangaId: number): ReaderPrefs & { custom: boolean } {
-    for (const [key, custom] of [[`reader.${mangaId}`, true], ["reader.default", false]] as const) {
+  // Series first, then the series' source (one site is all manga, another all webtoons), then the default.
+  type PrefsLevel = "series" | "source" | "default";
+  function readerPrefs(mangaId: number, sourceId?: string | null): ReaderPrefs & { custom: boolean; level: PrefsLevel } {
+    const keys: [string, PrefsLevel][] = [[`reader.${mangaId}`, "series"]];
+    if (sourceId) keys.push([`reader.source.${sourceId}`, "source"]);
+    keys.push(["reader.default", "default"]);
+    for (const [key, level] of keys) {
       try {
         const v = JSON.parse(store.getSetting(key) ?? "null");
-        if (validPrefs(v)) return { mode: v.mode, direction: v.direction, custom };
+        if (validPrefs(v)) return { mode: v.mode, direction: v.direction, custom: level === "series", level };
       } catch {
         // Ignore a bad value.
       }
     }
-    return { mode: "scroll", direction: "ltr", custom: false };
+    return { mode: "scroll", direction: "ltr", custom: false, level: "default" };
   }
-  app.put<{ Params: { id: string }; Body: { mode?: unknown; direction?: unknown; everywhere?: unknown } }>("/api/manga/:id/reader", async (req, reply) => {
+  // `everywhere: true` (or scope "all") sets the default; scope "source" sets it for every series from this one's site.
+  app.put<{ Params: { id: string }; Body: { mode?: unknown; direction?: unknown; everywhere?: unknown; scope?: unknown } }>("/api/manga/:id/reader", async (req, reply) => {
     const id = Number(req.params.id);
     const prefs = { mode: req.body?.mode, direction: req.body?.direction };
     if (!Number.isInteger(id) || !validPrefs(prefs)) return reply.code(400).send({ error: "mode is scroll or paged; direction is ltr or rtl." });
-    store.setSetting(req.body?.everywhere === true ? "reader.default" : `reader.${id}`, JSON.stringify(prefs));
-    if (req.body?.everywhere === true) store.deleteSetting(`reader.${id}`);
-    return readerPrefs(id);
+    const scope = req.body?.everywhere === true ? "all" : req.body?.scope === "source" || req.body?.scope === "all" ? req.body.scope : "series";
+    const sourceId = await detailsFor(id).then((m) => m.sourceId, () => null);
+    if (scope === "source" && !sourceId) return reply.code(502).send({ error: "Couldn't tell which source this series is from." });
+    const key = scope === "all" ? "reader.default" : scope === "source" ? `reader.source.${sourceId}` : `reader.${id}`;
+    store.setSetting(key, JSON.stringify({ mode: prefs.mode, direction: prefs.direction }));
+    if (scope !== "series") store.deleteSetting(`reader.${id}`);
+    // "All series" means all of them, so it also replaces any per-source choices.
+    if (scope === "all") store.deleteSettingsLike("reader.source.");
+    return readerPrefs(id, sourceId);
   });
 
   // Mark chapters read or unread by hand (e.g. ones read elsewhere). Marking ahead of where you are
