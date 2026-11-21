@@ -113,7 +113,7 @@ function TopBar({ title, onMenu }: { title: string; onMenu: () => void }) {
 }
 
 const THEMES: { id: Theme; label: string; icon: string }[] = [
-  { id: "system", label: "Match device", icon: "🌗" },
+  { id: "system", label: "Auto", icon: "🌗" },
   { id: "dark", label: "Dark", icon: "🌙" },
   { id: "light", label: "Light", icon: "☀️" },
 ];
@@ -152,7 +152,7 @@ function AppearanceCard() {
           </button>
         ))}
       </div>
-      <p className="muted small">Saved on this device. The reader always stays dark.</p>
+      <p className="muted small">Auto follows your device's light or dark setting. Saved on this device; the reader always stays dark.</p>
     </section>
   );
 }

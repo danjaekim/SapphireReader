@@ -429,3 +429,4 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
   .seriesHead .info p { margin: 2px 0; font-size: 14px; }
   .seriesHead .actions .button { padding: 9px 12px; }
 }
+.navBadge { white-space: nowrap; }
