@@ -2,18 +2,42 @@ import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import type { Store } from "./store.js";
 
 export const COOKIE = "sapphire_18";
-const SESSION_MS = 12 * 60 * 60 * 1000;
+/** Unlocked stays unlocked while you keep using the app; this long with no requests locks it again. */
+const IDLE_MS = 2 * 60 * 60 * 1000;
+/** Writes of "last active" to disk are at most this often. */
+const SAVE_EVERY_MS = 60 * 1000;
 const MAX_TRIES = 5;
 const LOCKOUT_MS = 5 * 60 * 1000;
 
 const hash = (pin: string, salt: Buffer) => scryptSync(pin, salt, 32);
 
-/** The PIN behind 18+ mode, and who is currently unlocked. Unlocking is per browser, for 12 hours. */
+/**
+ * The PIN behind 18+ mode, and who is currently unlocked. Unlocking is per browser. It survives
+ * app updates and restarts (sessions are saved), lasts while the app is in use, ends after two
+ * hours with no activity, and the cookie itself goes when the browser is closed.
+ */
 export class AdultGate {
+  /** token -> when it was last used. */
   private sessions = new Map<string, number>();
   private failures: number[] = [];
+  private savedAt = 0;
 
-  constructor(private store: Store) {}
+  constructor(private store: Store) {
+    try {
+      const saved = JSON.parse(store.getSetting("adult_sessions") ?? "{}") as Record<string, unknown>;
+      const now = Date.now();
+      for (const [token, last] of Object.entries(saved)) if (typeof last === "number" && now - last < IDLE_MS) this.sessions.set(token, last);
+    } catch {
+      // Start with nobody unlocked.
+    }
+  }
+
+  private save(force = false) {
+    const now = Date.now();
+    if (!force && now - this.savedAt < SAVE_EVERY_MS) return;
+    this.savedAt = now;
+    this.store.setSetting("adult_sessions", JSON.stringify(Object.fromEntries(this.sessions)));
+  }
 
   pinSet(): boolean {
     return this.store.getSetting("adult_pin") !== null;
@@ -45,7 +69,8 @@ export class AdultGate {
 
   open(): string {
     const token = randomBytes(24).toString("hex");
-    this.sessions.set(token, Date.now() + SESSION_MS);
+    this.sessions.set(token, Date.now());
+    this.save(true);
     return token;
   }
 
@@ -56,26 +81,35 @@ export class AdultGate {
 
   unlocked(cookieHeader: string | undefined): boolean {
     const token = this.tokenFrom(cookieHeader);
-    const expires = token ? this.sessions.get(token) : undefined;
-    if (!token || !expires) return false;
-    if (expires < Date.now()) {
+    const last = token ? this.sessions.get(token) : undefined;
+    if (!token || last === undefined) return false;
+    const now = Date.now();
+    if (now - last > IDLE_MS) {
       this.sessions.delete(token);
+      this.save(true);
       return false;
     }
+    // Every request while unlocked counts as activity.
+    this.sessions.set(token, now);
+    this.save();
     return true;
   }
 
   close(cookieHeader: string | undefined): void {
     const token = this.tokenFrom(cookieHeader);
-    if (token) this.sessions.delete(token);
+    if (token) {
+      this.sessions.delete(token);
+      this.save(true);
+    }
   }
 
   /** Locking from one device locks every device. */
   closeAll(): void {
     this.sessions.clear();
+    this.save(true);
   }
 }
 
 export const sessionCookie = (token: string) =>
-  `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MS / 1000}`;
+  `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict`;
 export const clearedCookie = `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`;

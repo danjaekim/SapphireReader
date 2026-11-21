@@ -99,3 +99,34 @@ describe("18+ lock", () => {
     expect(store.tasteProfile(true).map((p) => p.genre)).toEqual(["Romance"]);
   });
 });
+
+describe("18+ session lifetime", () => {
+  it("survives a server restart, and ends after two hours without use", async () => {
+    const store = new Store(":memory:");
+    const first = await buildApp(config, { fetchImpl: fakeEngine(), store });
+    const cookie = cookieOf(await first.inject({ method: "POST", url: "/api/adult/pin", payload: { pin: "4321" } }));
+    // A new server process on the same database (an app update).
+    const second = await buildApp(config, { fetchImpl: fakeEngine(), store });
+    expect((await second.inject({ url: "/api/adult", headers: { cookie } })).json().unlocked).toBe(true);
+
+    const real = Date.now;
+    try {
+      Date.now = () => real() + 90 * 60 * 1000;
+      // Using it at 90 minutes keeps it open...
+      expect((await second.inject({ url: "/api/adult", headers: { cookie } })).json().unlocked).toBe(true);
+      Date.now = () => real() + 90 * 60 * 1000 + 100 * 60 * 1000;
+      expect((await second.inject({ url: "/api/adult", headers: { cookie } })).json().unlocked).toBe(true);
+      // ...but not using it for over two hours does not.
+      Date.now = () => real() + 90 * 60 * 1000 + 100 * 60 * 1000 + 121 * 60 * 1000;
+      expect((await second.inject({ url: "/api/adult", headers: { cookie } })).json().unlocked).toBe(false);
+    } finally {
+      Date.now = real;
+    }
+  });
+
+  it("sets a browser-session cookie, so closing the browser drops it", async () => {
+    const { app } = await setup();
+    const res = await app.inject({ method: "POST", url: "/api/adult/pin", payload: { pin: "4321" } });
+    expect(String(res.headers["set-cookie"])).not.toMatch(/Max-Age|Expires/i);
+  });
+});
