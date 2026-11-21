@@ -51,11 +51,62 @@ export interface ChapterInfo {
   scanlator: string | null;
 }
 
+export interface Progress {
+  chapterId: number;
+  chapterNumber: number;
+  chapterName: string;
+  pageIndex: number;
+  pageOffset: number;
+  updatedAt: string;
+}
+
 export interface SeriesData {
   manga: MangaDetails;
   chapters: ChapterInfo[]; // oldest first
   latest: LatestChapter;
+  inLibrary: boolean;
+  progress: Progress | null;
+  readChapterIds: number[];
 }
+
+export interface LibraryItem {
+  mangaId: number;
+  sourceId: string;
+  sourceName: string | null;
+  title: string;
+  progress: Progress | null;
+  latestNumber: number | null;
+  chapterCount: number;
+  unread: number | null;
+}
+
+async function send(method: string, url: string, body?: unknown, keepalive = false) {
+  const res = await fetch(url, {
+    method,
+    keepalive,
+    headers: body ? { "content-type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((out as { error?: string }).error ?? `Request failed (${res.status})`);
+  return out;
+}
+
+export const library = () => getJson<{ items: LibraryItem[] }>("/api/library");
+export const refreshLibrary = () => send("POST", "/api/library/refresh") as Promise<{ items: LibraryItem[]; failed: number[] }>;
+export const addToLibrary = (id: number, sourceId: string, sourceName: string | null, title: string) =>
+  send("PUT", `/api/library/${id}`, { sourceId, sourceName, title });
+export const removeFromLibrary = (id: number) => send("DELETE", `/api/library/${id}`);
+export interface ProgressInput {
+  chapterId: number;
+  chapterNumber: number;
+  chapterName: string;
+  pageIndex: number;
+  pageOffset: number;
+  finished?: boolean;
+}
+export const saveProgress = (id: number, p: ProgressInput, keepalive = false) =>
+  send("PUT", `/api/progress/${id}`, p, keepalive);
 
 export const series = (mangaId: number) => getJson<SeriesData>(`/api/manga/${mangaId}`);
 export const chapterPages = (chapterId: number) =>

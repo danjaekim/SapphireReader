@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
 import { checkEngine, engineFile } from "./engine.js";
+import { Store, type ProgressInput } from "./store.js";
 import {
   fetchChapterList,
   fetchMangaDetails,
@@ -21,11 +22,13 @@ const LATEST_TTL_MS = 10 * 60 * 1000;
 
 export interface AppOptions {
   fetchImpl?: typeof fetch;
+  store?: Store;
 }
 
 export async function buildApp(config: Config, options: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
   const { fetchImpl } = options;
+  const store = options.store ?? new Store(":memory:");
   const chapterCache = new Map<number, { at: number; value: ChapterInfo[] }>();
   // The chapter list comes from the source site, so it is slow; keep it for a few minutes.
   async function chaptersFor(mangaId: number): Promise<ChapterInfo[]> {
@@ -70,7 +73,15 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
       const [manga, chapters] = await Promise.all([fetchMangaDetails(config, id, fetchImpl), chaptersFor(id)]);
-      return { manga, chapters, latest: latestFromChapters(chapters) };
+      if (store.inLibrary(id)) store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
+      return {
+        manga,
+        chapters,
+        latest: latestFromChapters(chapters),
+        inLibrary: store.inLibrary(id),
+        progress: store.getProgress(id),
+        readChapterIds: store.readChapterIds(id),
+      };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't load this series from the source." });
@@ -107,6 +118,73 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       }
     },
   );
+
+  app.get("/api/library", async () => ({ items: store.library() }));
+
+  app.put<{ Params: { id: string }; Body: { sourceId?: string; sourceName?: string | null; title?: string } }>(
+    "/api/library/:id",
+    async (req, reply) => {
+      const id = Number(req.params.id);
+      const { sourceId, sourceName = null, title } = req.body ?? {};
+      if (!Number.isInteger(id) || id < 0 || !sourceId || !title) return reply.code(400).send({ error: "Bad request." });
+      store.addToLibrary({ mangaId: id, sourceId, sourceName, title });
+      try {
+        const chapters = await chaptersFor(id);
+        store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
+      } catch (err) {
+        req.log.warn(err); // Added anyway; the chapter counts fill in next time the series loads.
+      }
+      return { ok: true };
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>("/api/library/:id", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    store.removeFromLibrary(id);
+    return { ok: true };
+  });
+
+  // Re-reads every library series from its source so the unread counts are current.
+  app.post("/api/library/refresh", async () => {
+    const queue = store.library().map((i) => i.mangaId);
+    const failed: number[] = [];
+    const worker = async () => {
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+        try {
+          chapterCache.delete(id);
+          store.setChapterNumbers(id, (await chaptersFor(id)).map((c) => c.chapterNumber));
+        } catch {
+          failed.push(id);
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    return { items: store.library(), failed };
+  });
+
+  app.put<{ Params: { id: string }; Body: Partial<ProgressInput> }>("/api/progress/:id", async (req, reply) => {
+    const id = Number(req.params.id);
+    const b = req.body ?? {};
+    const valid =
+      Number.isInteger(id) &&
+      id >= 0 &&
+      Number.isInteger(b.chapterId) &&
+      typeof b.chapterNumber === "number" &&
+      typeof b.chapterName === "string" &&
+      Number.isInteger(b.pageIndex) &&
+      typeof b.pageOffset === "number";
+    if (!valid) return reply.code(400).send({ error: "Bad request." });
+    store.saveProgress(id, {
+      chapterId: b.chapterId!,
+      chapterNumber: b.chapterNumber!,
+      chapterName: b.chapterName!,
+      pageIndex: Math.max(0, b.pageIndex!),
+      pageOffset: Math.min(1, Math.max(0, b.pageOffset!)),
+      finished: b.finished === true,
+    });
+    return { ok: true };
+  });
 
   // Covers are served through Sapphire so the engine never needs to be reachable from devices.
   app.get<{ Params: { id: string } }>("/api/manga/:id/thumbnail", async (req, reply) => {

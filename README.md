@@ -17,8 +17,8 @@ Plan: [Manhwa Reader: desktop app plan](https://claude.ai/artifact/C1osCfwyKq3pF
 ## Status
 
 **Phase 1: Sapphire app skeleton.** A Node server and installable web app (PWA) with the
-cat branding and a status page that checks the source engine. Search, reading and library
-come next.
+cat branding, search across sources, series pages, a reader, and a library with reading
+progress saved on the NAS (`data/app/sapphire.db`).
 
 - `server/`: Fastify + TypeScript API, serves the built web app.
 - `web/`: React + Vite web app.

@@ -202,6 +202,13 @@ const MANGA_QUERY = `
     }
   }`;
 
+// Search results only carry a title and cover. The engine fills in author, genres and
+// description when asked to refresh the manga from its source.
+const FETCH_MANGA_MUTATION = `
+  mutation ($input: FetchMangaInput!) {
+    fetchManga(input: $input) { manga { id } }
+  }`;
+
 export interface MangaDetails {
   id: number;
   sourceId: string;
@@ -219,6 +226,8 @@ export async function fetchMangaDetails(
   mangaId: number,
   fetchImpl?: FetchLike,
 ): Promise<MangaDetails> {
+  // Best effort: if the refresh fails, fall back to whatever the engine already has.
+  await engineQuery(config, FETCH_MANGA_MUTATION, { input: { id: mangaId } }, { fetchImpl }).catch(() => {});
   const [data, sources] = await Promise.all([
     engineQuery<{
       manga: Omit<MangaDetails, "sourceName" | "sourceId"> & { sourceId: string | number };

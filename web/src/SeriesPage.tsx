@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { series, thumbnailUrl, type SeriesData } from "./api";
+import { addToLibrary, removeFromLibrary, series, thumbnailUrl, type SeriesData } from "./api";
 import { readHref } from "./route";
 
 function chapterLabel(c: { name: string; chapterNumber: number }): string {
@@ -17,9 +17,24 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     series(mangaId).then(setData, (e: unknown) => setError(e instanceof Error ? e.message : "Couldn't load this series."));
   }, [mangaId]);
 
+  async function toggleLibrary() {
+    if (!data) return;
+    const next = !data.inLibrary;
+    setData({ ...data, inLibrary: next });
+    try {
+      if (next) await addToLibrary(mangaId, data.manga.sourceId, data.manga.sourceName, data.manga.title);
+      else await removeFromLibrary(mangaId);
+    } catch {
+      setData((d) => (d ? { ...d, inLibrary: !next } : d));
+    }
+  }
+
+  const readIds = new Set(data?.readChapterIds ?? []);
+  const resume = data?.progress ? data.chapters.find((c) => c.id === data.progress!.chapterId) : undefined;
+
   return (
     <section>
-      <a className="back" href="#/">← Back to search</a>
+      <a className="back" href="#/">← Back</a>
       {error && <p className="bad">{error}</p>}
       {!data && !error && <p className="muted">Loading from the source. This can take several seconds.</p>}
       {data && (
@@ -36,11 +51,16 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   ? `${data.latest.chapterCount} chapters, latest ${chapterLabel({ name: "", chapterNumber: data.latest.latestNumber })}`
                   : `${data.latest.chapterCount} chapters`}
               </p>
-              {data.chapters.length > 0 && (
-                <a className="button" href={readHref(mangaId, data.chapters[0].id)}>
-                  Start reading
-                </a>
-              )}
+              <div className="actions">
+                {data.chapters.length > 0 && (
+                  <a className="button" href={readHref(mangaId, (resume ?? data.chapters[0]).id)}>
+                    {resume ? `Continue ${chapterLabel(resume)}` : "Start reading"}
+                  </a>
+                )}
+                <button type="button" className="button secondary" onClick={toggleLibrary}>
+                  {data.inLibrary ? "In library ✓" : "Add to library"}
+                </button>
+              </div>
             </div>
           </div>
           {data.manga.genre.length > 0 && (
@@ -59,7 +79,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
           </div>
           <ul className="chapters">
             {(newestFirst ? [...data.chapters].reverse() : data.chapters).map((c) => (
-              <li key={c.id}>
+              <li key={c.id} className={readIds.has(c.id) ? "read" : undefined}>
                 <a href={readHref(mangaId, c.id)}>
                   <span>{chapterLabel(c)}</span>
                   {c.name && c.chapterNumber >= 0 && c.name !== chapterLabel(c) && <span className="muted"> {c.name}</span>}

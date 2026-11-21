@@ -56,6 +56,9 @@ services:
       - ENGINE_USER=sapphire
       # Same password as the engine's AUTH_PASSWORD above.
       - ENGINE_PASSWORD=CHANGE_ME
+    volumes:
+      # Library and reading progress live here. Back up this folder.
+      - ./data/app:/data
     ports:
       - "8080:8080"
     networks:

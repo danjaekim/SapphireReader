@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Library } from "./Library";
 import { Reader } from "./Reader";
 import { Search } from "./Search";
 import { SeriesPage } from "./SeriesPage";
@@ -77,7 +78,8 @@ export function App() {
             <h2>{tab}</h2>
             {tab === "Search" && <Search />}
             {tab === "Status" && <StatusCard />}
-            {tab !== "Search" && tab !== "Status" && <p className="muted">Coming soon.</p>}
+            {tab === "Library" && <Library />}
+            {tab !== "Search" && tab !== "Status" && tab !== "Library" && <p className="muted">Coming soon.</p>}
           </>
         )}
       </main>

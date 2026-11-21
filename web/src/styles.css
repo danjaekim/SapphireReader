@@ -129,3 +129,14 @@ a { color: var(--fg); }
 }
 .readerNav a { color: var(--fg); font-weight: 600; text-decoration: none; padding: 8px 4px; }
 .reader .muted, .reader .bad { padding: 16px; }
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+button.button { border: 0; cursor: pointer; font: inherit; }
+.button.secondary { background: var(--panel); color: var(--fg); border: 1px solid var(--line); }
+.button.small { padding: 6px 12px; font-size: 0.9em; }
+.chapters li.read a { opacity: 0.5; }
+.libList { list-style: none; margin: 8px 0 16px; padding: 0; display: grid; gap: 10px; }
+.libCard { display: flex; gap: 12px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.libCard img { border-radius: 8px; object-fit: cover; }
+.libTitle { font-weight: 600; color: var(--fg); text-decoration: none; }
+.unread { color: var(--accent); margin: 2px 0 6px; }
