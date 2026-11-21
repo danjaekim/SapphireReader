@@ -11,7 +11,7 @@ import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
 import { clearUpdateCache, requestUpdate, updateInfo } from "./updater.js";
 import { rankByAnilist, ratingsFor, type RatingMeta } from "./ratings.js";
 import { parseDescription } from "./description.js";
-import { canonKey } from "./genres.js";
+import { canonKey, canonLabel } from "./genres.js";
 import { classifyAdult } from "./adultcheck.js";
 import { clearEngineUpdateCache, engineUpdateInfo, requestEngineUpdate } from "./engineupdate.js";
 import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
@@ -199,22 +199,89 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       return new Set();
     }
   };
-  // Mixed sites list some adult series among ordinary ones. While 18+ mode is off, say which of these
-  // series should be hidden: the answer is worked out once per series and remembered.
+  // --- Hidden tags: series with any of these tags never show up in lists ----------------------------
+  function hiddenTags(): string[] {
+    try {
+      const v = JSON.parse(store.getSetting("hidden_tags") ?? "[]") as unknown;
+      return Array.isArray(v) ? v.filter((t): t is string => typeof t === "string" && t.trim().length > 0) : [];
+    } catch {
+      return [];
+    }
+  }
+  app.get("/api/settings/hidden-tags", async () => ({ tags: hiddenTags() }));
+  app.put<{ Body: { tags?: unknown } }>("/api/settings/hidden-tags", async (req, reply) => {
+    const raw = req.body?.tags;
+    if (!Array.isArray(raw) || raw.some((t) => typeof t !== "string")) return reply.code(400).send({ error: "tags is a list of names." });
+    // One entry per genre, however it was typed ("BL", "Yaoi" and "Boys' Love" are the same one).
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const t of raw as string[]) {
+      const name = canonLabel(t.trim()).slice(0, 60);
+      const key = canonKey(name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      tags.push(name);
+    }
+    store.setSetting("hidden_tags", JSON.stringify(tags.slice(0, 100)));
+    similarCache.clear();
+    return { tags: hiddenTags() };
+  });
+
+  /**
+   * Which of these series carry a hidden tag. Tags already seen are used as they are; the rest are
+   * read from the source once (a few at a time) and remembered for next time.
+   */
+  async function withHiddenTags(ids: number[]): Promise<Set<number>> {
+    const out = new Set<number>();
+    const blocked = new Set(hiddenTags().map(canonKey));
+    if (blocked.size === 0 || ids.length === 0) return out;
+    const hit = (tags: string[]) => tags.some((t) => blocked.has(canonKey(t)));
+    const queue: number[] = [];
+    for (const id of ids) {
+      const tags = store.seriesTags(id);
+      if (tags && tags.length > 0) {
+        if (hit(tags)) out.add(id);
+      } else queue.push(id);
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(4, queue.length) }, async () => {
+        for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+          try {
+            const tags = (await detailsFor(id)).genre ?? [];
+            if (tags.length > 0) store.recordSeriesTags(id, tags);
+            if (hit(tags)) out.add(id);
+          } catch {
+            // Unknown tags: leave it showing.
+          }
+        }
+      }),
+    );
+    return out;
+  }
+
+  // Say which of these series should be hidden: ones with a hidden tag, and (while 18+ mode is off)
+  // adult series that mixed sites list among ordinary ones. Each answer is worked out once and remembered.
   app.post<{ Body: { items?: unknown } }>("/api/classify", async (req) => {
-    if (gate.unlocked(req.headers.cookie)) return { hide: {} };
+    const locked = !gate.unlocked(req.headers.cookie);
+    const hasHidden = hiddenTags().length > 0;
+    if (!locked && !hasHidden) return { hide: {} };
     const raw = Array.isArray(req.body?.items) ? (req.body!.items as unknown[]) : [];
-    const skip = noCheck();
     const items = raw
       .filter((i): i is { mangaId: number; title: string; sourceId?: string } => typeof i === "object" && i !== null && Number.isInteger((i as { mangaId: unknown }).mangaId) && typeof (i as { title: unknown }).title === "string")
-      .filter((i) => !(typeof i.sourceId === "string" && skip.has(i.sourceId)))
       .slice(0, 30);
-    if (items.length === 0) return { hide: {} };
-    const found = await classifyAdult(store, items, {
+    const hide: Record<number, boolean> = {};
+    if (items.length === 0) return { hide };
+    // Tags first: the adult check below then reuses the tags this reads.
+    const tagged = await withHiddenTags(items.map((i) => i.mangaId)).catch(() => new Set<number>());
+    for (const id of tagged) hide[id] = true;
+    if (!locked) return { hide };
+    const skip = noCheck();
+    const check = items.filter((i) => !hide[i.mangaId] && !(typeof i.sourceId === "string" && skip.has(i.sourceId)));
+    if (check.length === 0) return { hide };
+    const found = await classifyAdult(store, check, {
       fetchImpl,
       details: async (id) => (await detailsFor(id)).genre ?? [],
     }).catch(() => new Map<number, boolean | null>());
-    const hide: Record<number, boolean> = {};
     for (const [id, adult] of found) if (adult === true) hide[id] = true;
     return { hide };
   });
@@ -622,6 +689,11 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   });
 
   const similarCache = new Map<string, { at: number; groups: unknown[]; basedOn: string[] }>();
+  /** Similar series fill whole rows, so ones with a hidden tag are taken out here rather than on the card. */
+  async function withoutHidden(groups: SeriesGroup[]): Promise<SeriesGroup[]> {
+    const gone = await withHiddenTags(groups.map((g) => g.hits[0].mangaId)).catch(() => new Set<number>());
+    return gone.size === 0 ? groups : groups.filter((g) => !gone.has(g.hits[0].mangaId));
+  }
   app.get<{ Params: { id: string } }>("/api/manga/:id/similar", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
@@ -630,7 +702,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const scope = scopeFor(req);
       const key = `${id}|${scope}`;
       const cached = similarCache.get(key);
-      if (cached && Date.now() - cached.at < 60 * 60 * 1000) return { groups: cached.groups, basedOn: cached.basedOn };
+      if (cached && Date.now() - cached.at < 60 * 60 * 1000) return { groups: await withoutHidden(cached.groups as SeriesGroup[]), basedOn: cached.basedOn };
       const { groups, basedOn } = await similarTo(config, manga.title, manga.genre, {
         fetchImpl,
         onResult: report,
@@ -639,7 +711,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
       });
       if (groups.length > 0) similarCache.set(key, { at: Date.now(), groups, basedOn });
-      return { groups, basedOn };
+      return { groups: await withoutHidden(groups), basedOn };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't find similar series." });

@@ -694,3 +694,11 @@ code.versionValue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 .statusSlot > * { margin-top: 0; margin-bottom: 0; }
 .updateCard .loading { justify-content: flex-start; text-align: left; }
 .updateCard .loading.block { align-items: flex-start; padding: 8px 0; }
+
+/* Hidden tags (Settings) */
+.hiddenTags { list-style: none; padding: 0; margin: 10px 0; }
+.hiddenTags .chip { cursor: default; display: inline-flex; align-items: center; gap: 4px; padding-right: 4px; }
+.chipX { font: inherit; font-size: 15px; line-height: 1; width: 20px; height: 20px; border-radius: 999px; border: 0; background: none; color: inherit; cursor: pointer; display: inline-grid; place-items: center; }
+.chipX:hover { background: rgba(255, 255, 255, 0.22); }
+.hiddenTagForm { display: flex; gap: 8px; margin-top: 10px; }
+.hiddenTagForm input { flex: 1; min-width: 0; }

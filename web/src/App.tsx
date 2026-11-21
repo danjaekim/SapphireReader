@@ -8,7 +8,7 @@ import { Home } from "./Home";
 import { History } from "./History";
 import { savedTheme, setTheme, type Theme } from "./theme";
 import { EngineUpdateCard, UpdateCard, startUpdate, useUpdate } from "./update";
-import { automation, setAutomation, type Automation } from "./api";
+import { automation, genreList, hiddenTags, setAutomation, setHiddenTags, type Automation } from "./api";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
 import { Search } from "./Search";
@@ -253,6 +253,65 @@ function AutomationCard() {
   );
 }
 
+/** Tags you never want to see: series with any of them are left out of search, Discover and Similar. */
+function HiddenTagsCard() {
+  const [tags, setTags] = useState<string[] | null>(null);
+  const [draft, setDraft] = useState("");
+  const [known, setKnown] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    hiddenTags().then((r) => setTags(r.tags), () => setTags([]));
+    genreList().then((r) => setKnown(r.genres.map((g) => g.name)), () => {});
+  }, []);
+  if (!tags) return null;
+  const save = (next: string[]) => {
+    const before = tags;
+    setTags(next);
+    setError(null);
+    setHiddenTags(next).then(
+      (r) => {
+        setTags(r.tags);
+        resetHiddenCache();
+      },
+      () => {
+        setTags(before);
+        setError("Couldn't save. Try again.");
+      },
+    );
+  };
+  const add = () => {
+    const t = draft.trim();
+    if (!t) return;
+    setDraft("");
+    if (!tags.some((x) => x.toLowerCase() === t.toLowerCase())) save([...tags, t]);
+  };
+  const lower = new Set(tags.map((t) => t.toLowerCase()));
+  return (
+    <section className="card">
+      <h3>Hidden tags</h3>
+      <p className="muted small">Series with any of these tags are left out of search, Discover and Similar, whether 18+ mode is on or off. Your library isn't affected.</p>
+      {tags.length > 0 && (
+        <ul className="chips hiddenTags">
+          {tags.map((t) => (
+            <li key={t} className="chip on">
+              {t}
+              <button type="button" className="chipX" aria-label={`Stop hiding ${t}`} title="Stop hiding" onClick={() => save(tags.filter((x) => x !== t))}>×</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="hiddenTagForm" onSubmit={(e) => { e.preventDefault(); add(); }}>
+        <input list="hiddenTagOptions" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Add a tag, e.g. Boys' Love" aria-label="Tag to hide" />
+        <datalist id="hiddenTagOptions">
+          {known.filter((k) => !lower.has(k.toLowerCase())).map((k) => <option key={k} value={k} />)}
+        </datalist>
+        <button type="submit" className="button small" disabled={!draft.trim()}>Hide</button>
+      </form>
+      {error && <p className="bad small">{error}</p>}
+    </section>
+  );
+}
+
 function StatusCard() {
   const [status, setStatus] = useState<Status | null>(null);
   const [failed, setFailed] = useState(false);
@@ -415,6 +474,7 @@ export function App() {
                 <EngineUpdateCard />
                 <AppearanceCard />
                 <AutomationCard />
+                <HiddenTagsCard />
                 <TrackerSettings />
                 <section className="card">
                   <h3>Backup</h3>

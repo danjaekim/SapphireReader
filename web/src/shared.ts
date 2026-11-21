@@ -99,7 +99,8 @@ export function useLibraryIds() {
 export const forgetLibraryIds = () => { libIds = null; };
 
 /**
- * While 18+ mode is off, mixed sites can still list adult series. Cards ask (in small batches, once
+ * Cards ask whether their series should be hidden: it has one of your hidden tags, or 18+ mode is
+ * off and a mixed site listed an adult series. Cards ask (in small batches, once
  * on screen) whether their series should be hidden; the server remembers each answer.
  */
 const hideCache = new Map<number, boolean>();
@@ -126,7 +127,7 @@ function flushHide() {
   });
 }
 
-/** True when this series is adult and 18+ mode is off, so its card should be hidden. */
+/** True when this card should be hidden (a hidden tag, or adult while 18+ mode is off). */
 export function useHiddenAdult(hit: { mangaId: number; title: string; sourceId?: string }, enabled: boolean): boolean {
   const [, bump] = useState(0);
   const id = hit.mangaId;
