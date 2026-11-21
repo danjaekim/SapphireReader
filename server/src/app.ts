@@ -1020,11 +1020,18 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  const iconPaths = new Map<string, string>();
   // Extension icons, also through Sapphire. Only plain apk file names are passed on to the engine.
   app.get<{ Params: { apk: string } }>("/api/extension-icon/:apk", async (req, reply) => {
     if (!/^[\w.-]+\.apk$/.test(req.params.apk)) return reply.code(400).send({ error: "Bad name." });
     try {
-      const res = await engineFile(config, `/api/v1/extension/icon/${req.params.apk}`, fetchImpl);
+      // Use the path the engine itself reports; fall back to the classic one.
+      let path = iconPaths.get(req.params.apk);
+      if (!path) {
+        for (const x of await listExtensions(config, fetchImpl)) if (x.apkName && x.iconUrl?.startsWith("/")) iconPaths.set(x.apkName, x.iconUrl);
+        path = iconPaths.get(req.params.apk) ?? `/api/v1/extension/icon/${req.params.apk}`;
+      }
+      const res = await engineFile(config, path, fetchImpl);
       if (!res.ok) return reply.code(404).send({ error: "No icon." });
       return reply
         .header("content-type", res.headers.get("content-type") ?? "image/png")

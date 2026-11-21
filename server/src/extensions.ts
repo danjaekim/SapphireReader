@@ -7,6 +7,7 @@ type FetchLike = typeof fetch;
 export interface ExtensionInfo {
   pkgName: string;
   apkName: string;
+  iconUrl?: string;
   name: string;
   lang: string;
   versionName: string;
@@ -15,7 +16,7 @@ export interface ExtensionInfo {
   isObsolete: boolean;
 }
 
-const FIELDS = "pkgName apkName name lang versionName isInstalled hasUpdate isObsolete";
+const FIELDS = "pkgName apkName iconUrl name lang versionName isInstalled hasUpdate isObsolete";
 
 export async function listExtensions(config: Config, fetchImpl?: FetchLike): Promise<ExtensionInfo[]> {
   const data = await engineQuery<{ extensions: { nodes: ExtensionInfo[] } }>(
