@@ -218,8 +218,13 @@ export const changeExtension = (pkg: string, action: "install" | "update" | "uni
 
 export const discoverList = (sort: "popular" | "latest" | "rating" | "newest" | "az", adult = false, page = 1) =>
   getJson<BrowseResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}&page=${page}`);
+export interface Shelf {
+  tags: string[];
+  from: string;
+  groups: SeriesGroup[];
+}
 export const forYou = (adult = false) =>
-  getJson<{ groups: SeriesGroup[]; because: string[] }>(`/api/for-you${adult ? "?adult=1" : ""}`);
+  getJson<{ groups: SeriesGroup[]; because: string[]; shelves?: Shelf[] }>(`/api/for-you${adult ? "?adult=1" : ""}`);
 
 export interface AdultState {
   pinSet: boolean;

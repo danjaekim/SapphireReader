@@ -16,7 +16,7 @@ import { classifyAdult } from "./adultcheck.js";
 import { clearEngineUpdateCache, engineUpdateInfo, requestEngineUpdate } from "./engineupdate.js";
 import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
-import { discover, recommendFor, similarTo, tagWeights, type DiscoverSort } from "./discover.js";
+import { discover, recommendShelves, similarTo, tagWeights, type DiscoverSort } from "./discover.js";
 import { Downloader, mimeForFile } from "./downloader.js";
 import { backupName, snapshot } from "./backup.js";
 import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
@@ -673,13 +673,20 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.get<{ Querystring: { adult?: string } }>("/api/for-you", async (req, reply) => {
     const adult = req.query.adult === "1";
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
-    const profile = store.tasteProfile(adult);
+    const liked = store.likedSeries(adult);
     const titles = store.libraryTitles(adult);
-    const key = JSON.stringify([profile.slice(0, 3), titles.length]);
+    const hidden = new Set(hiddenTags().map(canonKey));
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]), titles.length, [...hidden]]);
     const cached = forYouCache.get(adult);
     if (cached && cached.key === key && Date.now() - cached.at < 60 * 60 * 1000) return cached.value;
     try {
-      const value = await recommendFor(config, profile, titles, { fetchImpl, onResult: report, scope: adult ? "adult" : "safe" });
+      const value = await recommendShelves(config, liked, titles, {
+        fetchImpl,
+        onResult: report,
+        scope: adult ? "adult" : "safe",
+        hidden,
+        knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
+      });
       forYouCache.set(adult, { at: Date.now(), key, value });
       return value;
     } catch (err) {

@@ -702,6 +702,53 @@ export class Store {
     return [...weights.values()].sort((a, b) => b.weight - a.weight || a.genre.localeCompare(b.genre));
   }
 
+  /**
+   * The series "For you" learns from, with how much each says about your taste: library series
+   * (read ones more, recently read most), plus series you've read a few chapters of without adding.
+   */
+  likedSeries(adult = false): { mangaId: number; title: string; tags: string[]; weight: number }[] {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const rows = this.db
+      .prepare(
+        `SELECT l.manga_id AS id, l.title AS title, l.genres AS genres, p.updated_at AS lastRead,
+                (SELECT COUNT(*) FROM chapters_read c WHERE c.manga_id = l.manga_id) AS readCount
+         FROM library l LEFT JOIN progress p ON p.manga_id = l.manga_id WHERE l.adult = ?`,
+      )
+      .all(adult ? 1 : 0) as { id: number; title: string; genres: string; lastRead: string | null; readCount: number }[];
+    const out: { mangaId: number; title: string; tags: string[]; weight: number }[] = [];
+    const seen = new Set<number>();
+    const recency = (at: string | null) => {
+      if (!at) return 1;
+      const age = (now - Date.parse(at)) / day;
+      return age < 14 ? 1.5 : age > 120 ? 0.7 : 1;
+    };
+    for (const r of rows) {
+      let tags = JSON.parse(r.genres) as string[];
+      if (tags.length === 0) tags = this.seriesTags(r.id) ?? [];
+      if (tags.length === 0) continue;
+      const started = r.lastRead !== null || r.readCount > 0;
+      const base = started ? 2 + Math.min(2, Math.log2(1 + r.readCount) / 3) : 1;
+      out.push({ mangaId: r.id, title: r.title, tags, weight: base * recency(r.lastRead) });
+      seen.add(r.id);
+    }
+    // Read a few chapters of something without adding it: still a sign you liked it.
+    const extra = this.db
+      .prepare(
+        `SELECT m.manga_id AS id, m.title AS title, COUNT(c.chapter_id) AS readCount, MAX(c.read_at) AS lastRead
+         FROM series_meta m JOIN chapters_read c ON c.manga_id = m.manga_id
+         WHERE m.adult = ? GROUP BY m.manga_id HAVING COUNT(c.chapter_id) >= 3`,
+      )
+      .all(adult ? 1 : 0) as { id: number; title: string; readCount: number; lastRead: string | null }[];
+    for (const r of extra) {
+      if (seen.has(r.id)) continue;
+      const tags = this.seriesTags(r.id);
+      if (!tags || tags.length === 0) continue;
+      out.push({ mangaId: r.id, title: r.title, tags, weight: 1.5 * recency(r.lastRead) });
+    }
+    return out;
+  }
+
   /** Normalized titles you already have, so recommendations skip them. */
   libraryTitles(adult?: boolean): string[] {
     const rows = (adult === undefined

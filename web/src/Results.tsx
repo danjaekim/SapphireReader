@@ -132,6 +132,7 @@ export function Results({
   lookups = true,
   hasMore = false,
   onMore,
+  compact = false,
 }: {
   result: SearchResult;
   note?: string;
@@ -139,6 +140,8 @@ export function Results({
   lookups?: boolean;
   hasMore?: boolean;
   onMore?: () => void;
+  /** Just the grid: no count line or end marker (for rows inside a bigger page). */
+  compact?: boolean;
 }) {
   const queue = useMemo(() => createQueue(4), []);
   const [bad, setBad] = useState<Set<string>>(new Set());
@@ -166,7 +169,7 @@ export function Results({
   const shownNote = note ?? result.note;
   return (
     <>
-      <p className="muted resultMeta">
+      {!compact && <p className="muted resultMeta">
         {result.groups.length} series{result.searched > 0 ? ` from ${result.searched} sources` : ""}.
         {result.failed.length > 0 && <> Didn't answer: {result.failed.map((f) => f.sourceName).join(", ")}.</>}
         {shownNote && <> {shownNote}</>}
@@ -179,16 +182,16 @@ export function Results({
             </button>
           </>
         )}
-      </p>
+      </p>}
       {result.groups.length === 0 && empty && <p className="muted">{empty}</p>}
       <ul className="grid">
         {result.groups.map((group) => (
           <Card key={group.key} group={group} queue={queue} lookups={lookups} hideBad={hideBad} onBad={onBad} />
         ))}
       </ul>
-      <div ref={end} className="gridEnd muted">
+      {!compact && <div ref={end} className="gridEnd muted">
         {hasMore ? <Loading label="Loading more…" size="sm" /> : result.groups.length > 0 ? "That's everything." : ""}
-      </div>
+      </div>}
     </>
   );
 }

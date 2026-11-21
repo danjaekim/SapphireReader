@@ -191,39 +191,145 @@ export async function similarTo(
   return { groups: scored.slice(0, SIMILAR_MAX).map((x) => x.c.group), basedOn: seeds };
 }
 
-/** Picks to try for the "For you" page: your top genres on their own, then the top two together. */
-export function recommendationQueries(profile: { genre: string }[]): string[][] {
-  const top = profile.slice(0, 3).map((p) => p.genre);
-  const queries: string[][] = [];
-  if (top.length >= 2) queries.push([top[0], top[1]]);
-  for (const g of top) queries.push([g]);
-  return queries;
+/** A series you like, and how strongly (more for ones you've read, and read lately). */
+export interface LikedSeries {
+  mangaId: number;
+  title: string;
+  tags: string[];
+  weight: number;
 }
 
-export async function recommendFor(
-  config: Config,
-  profile: { genre: string }[],
-  ownTitles: string[],
-  opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope } = {},
-): Promise<{ groups: SeriesGroup[]; because: string[] }> {
-  const queries = recommendationQueries(profile);
-  if (queries.length === 0) return { groups: [], because: [] };
-  const own = new Set(ownTitles.map(normalizeTitle));
-  const results = await Promise.all(queries.map((q) => browseByGenres(config, q, { ...opts, strict: true }).catch(() => null)));
-  // Series that match the combined query come first, then each single-genre list in turn.
-  const seen = new Set<string>();
-  const merged: SeriesGroup[] = [];
-  for (let rank = 0; merged.length < 40; rank++) {
-    let any = false;
-    for (const r of results) {
-      const g = r?.groups[rank];
-      if (!g) continue;
-      any = true;
-      if (own.has(g.key) || seen.has(g.key)) continue;
-      seen.add(g.key);
-      merged.push(g);
+/** One row of "For you": series with this mix of tags, because of the series you read with it. */
+export interface Shelf {
+  tags: string[];
+  /** The series of yours that best shows this taste, for "Because you read …". */
+  from: string;
+  groups: SeriesGroup[];
+}
+
+const SHELVES = 5;
+const PER_SHELF = 18;
+
+/**
+ * How much each tag says about your taste: the sum, over the series you like, of how much you like
+ * that series times how telling the tag is (rare tags count for more than ones on everything).
+ */
+export function tasteWeights(liked: LikedSeries[], weight: (tag: string) => number, hidden: Set<string> = new Set()) {
+  const out = new Map<string, { tag: string; w: number }>();
+  for (const s of liked) {
+    const seen = new Set<string>();
+    for (const t of s.tags) {
+      const k = canonKey(t);
+      if (!k || FORMAT_TAGS.has(k) || hidden.has(k) || seen.has(k)) continue;
+      seen.add(k);
+      const e = out.get(k) ?? { tag: t, w: 0 };
+      e.w += s.weight * weight(t);
+      out.set(k, e);
     }
+  }
+  return out;
+}
+
+/**
+ * The mixes of tags to look for. Each series you like votes for the pair of its tags that best
+ * describe it (telling for that series and part of your overall taste), so "Murim + Regression"
+ * from one series and "Romance + Villainess" from another become separate rows instead of one
+ * blend. Rows that would repeat a tag too often are skipped, so the page covers more of your taste.
+ */
+export function planShelves(liked: LikedSeries[], weight: (tag: string) => number, hidden: Set<string> = new Set()): { tags: string[]; from: string }[] {
+  const taste = tasteWeights(liked, weight, hidden);
+  const combos = new Map<string, { tags: string[]; score: number; from: { title: string; w: number } }>();
+  for (const s of liked) {
+    const own = [...new Set(s.tags.map(canonKey))]
+      .filter((k) => taste.has(k))
+      .map((k) => ({ k, tag: taste.get(k)!.tag, w: weight(taste.get(k)!.tag) * Math.sqrt(taste.get(k)!.w) }))
+      .sort((a, b) => b.w - a.w);
+    if (own.length === 0) continue;
+    // The series' best pair, and its next-best, so a series with several sides can seed more than one row.
+    const picks = own.length === 1 ? [[own[0]]] : [[own[0], own[1]], ...(own.length > 2 ? [[own[0], own[2]]] : [])];
+    picks.forEach((pick, i) => {
+      const key = pick.map((p) => p.k).sort().join("+");
+      const vote = s.weight * (i === 0 ? 1 : 0.6) * pick.reduce((n, p) => n + p.w, 0);
+      const c = combos.get(key) ?? { tags: pick.map((p) => p.tag), score: 0, from: { title: s.title, w: 0 } };
+      c.score += vote;
+      if (vote > c.from.w) c.from = { title: s.title, w: vote };
+      combos.set(key, c);
+    });
+  }
+  const ranked = [...combos.values()].sort((a, b) => b.score - a.score);
+  const used = new Map<string, number>();
+  const chosen: { tags: string[]; from: string }[] = [];
+  for (const c of ranked) {
+    if (chosen.length >= SHELVES) break;
+    const keys = c.tags.map(canonKey);
+    if (keys.some((k) => (used.get(k) ?? 0) >= 2)) continue;
+    if (chosen.some((x) => x.tags.map(canonKey).sort().join("+") === keys.slice().sort().join("+"))) continue;
+    keys.forEach((k) => used.set(k, (used.get(k) ?? 0) + 1));
+    chosen.push({ tags: c.tags, from: c.from.title });
+  }
+  return chosen;
+}
+
+/**
+ * "For you": a row per mix of tags you like (see planShelves). Each row's candidates are ranked by
+ * how much of your taste their full tag list covers (when Sapphire has seen it), and a series shows
+ * up in one row only.
+ */
+export async function recommendShelves(
+  config: Config,
+  liked: LikedSeries[],
+  ownTitles: string[],
+  opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope; knowledge?: TagKnowledge; hidden?: Set<string> } = {},
+): Promise<{ shelves: Shelf[]; groups: SeriesGroup[]; because: string[] }> {
+  const { knowledge = plainKnowledge, hidden = new Set<string>(), ...browseOpts } = opts;
+  const plan = planShelves(liked, knowledge.weight, hidden);
+  const taste = tasteWeights(liked, knowledge.weight, hidden);
+  const because = [...taste.values()].sort((a, b) => b.w - a.w).slice(0, 3).map((t) => t.tag);
+  if (plan.length === 0) return { shelves: [], groups: [], because: [] };
+  const own = new Set(ownTitles.map(normalizeTitle));
+  const ownIds = new Set(liked.map((l) => l.mangaId));
+  const results = await Promise.all(plan.map((p) => browseByGenres(config, p.tags, { ...browseOpts, strict: true, timeoutMs: 9000 }).catch(() => null)));
+
+  const fit = (g: SeriesGroup, fallback: string[]) => {
+    const known = g.hits.map((h) => knowledge.tagsOf(h.mangaId)).find((t) => t !== null);
+    const keys = new Set((known ?? fallback).map(canonKey));
+    if ([...keys].some((k) => hidden.has(k))) return -1;
+    let total = 0;
+    for (const k of keys) total += taste.get(k)?.w ?? 0;
+    return total;
+  };
+  const taken = new Set<string>();
+  const shelves: Shelf[] = [];
+  // Rows take turns picking, so the first row doesn't claim every series that fits several.
+  const pools = results.map((r, i) =>
+    (r?.groups ?? [])
+      .filter((g) => !own.has(g.key) && !g.hits.some((h) => ownIds.has(h.mangaId)))
+      .map((g, rank) => ({ g, s: fit(g, plan[i].tags), rank }))
+      .filter((x) => x.s >= 0)
+      // Fit first, then the site's own order (its popularity) as the tie-break.
+      .sort((a, b) => b.s - a.s || a.rank - b.rank),
+  );
+  const rows: SeriesGroup[][] = plan.map(() => []);
+  for (let round = 0; round < PER_SHELF; round++) {
+    pools.forEach((pool, i) => {
+      while (pool.length > 0) {
+        const next = pool.shift()!;
+        if (taken.has(next.g.key)) continue;
+        taken.add(next.g.key);
+        rows[i].push(next.g);
+        break;
+      }
+    });
+  }
+  plan.forEach((p, i) => {
+    if (rows[i].length > 0) shelves.push({ tags: p.tags, from: p.from, groups: rows[i] });
+  });
+  // One flat list too (the home page shows a single row): the rows' picks, taking turns.
+  const groups: SeriesGroup[] = [];
+  for (let i = 0; groups.length < 40; i++) {
+    let any = false;
+    for (const s of shelves) if (s.groups[i]) { groups.push(s.groups[i]); any = true; }
     if (!any) break;
   }
-  return { groups: merged, because: profile.slice(0, 3).map((p) => p.genre) };
+  return { shelves, groups, because };
 }

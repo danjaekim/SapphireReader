@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
-import { recommendationQueries } from "./discover.js";
 import { Store } from "./store.js";
 
 const config = loadConfig({ WEB_DIR: "./does-not-exist" });
@@ -87,13 +86,44 @@ describe("similar and for you", () => {
     const titles = out.groups.map((g: { title: string }) => g.title);
     expect(titles).toContain("Nano Machine");
     expect(titles).not.toContain("Shared Hit");
-    expect(out.because).toEqual(["Action", "Murim"]);
+    // Murim is rarer than Action, so it says more about this taste.
+    expect(out.because).toEqual(["Murim", "Action"]);
+    expect(out.shelves[0]).toMatchObject({ tags: ["Murim", "Action"], from: "Shared Hit" });
   });
 
   it("returns nothing to recommend from an empty library", async () => {
     const app = await buildApp(config, { fetchImpl: engine(), store: new Store(":memory:") });
-    expect((await app.inject({ url: "/api/for-you" })).json()).toEqual({ groups: [], because: [] });
-    expect(recommendationQueries([{ genre: "A" }, { genre: "B" }, { genre: "C" }])).toEqual([["A", "B"], ["A"], ["B"], ["C"]]);
+    expect((await app.inject({ url: "/api/for-you" })).json()).toEqual({ shelves: [], groups: [], because: [] });
+  });
+});
+
+describe("for you rows", () => {
+  it("makes a row per mix of tags your series have, not one blend of your top tags", async () => {
+    const { planShelves } = await import("./discover.js");
+    const flat = () => 1;
+    const liked = [
+      { mangaId: 1, title: "Murim Return", tags: ["Action", "Murim", "Regression"], weight: 3 },
+      { mangaId: 2, title: "Another Murim", tags: ["Murim", "Regression", "Comedy"], weight: 2 },
+      { mangaId: 3, title: "Villainess Story", tags: ["Romance", "Villainess", "Isekai"], weight: 2 },
+      { mangaId: 4, title: "Office Love", tags: ["Romance", "Office Workers", "Manhwa"], weight: 1 },
+    ];
+    const plan = planShelves(liked, flat);
+    const keys = plan.map((p) => p.tags.slice().sort().join("+"));
+    expect(keys[0]).toBe("Murim+Regression");
+    expect(plan[0].from).toBe("Murim Return");
+    // The romance side of the library gets its own row, and format tags never seed one.
+    expect(keys.some((k) => k.includes("Romance"))).toBe(true);
+    expect(keys.join(" ")).not.toContain("Manhwa");
+    // No tag carries more than two rows.
+    const counts = new Map<string, number>();
+    for (const p of plan) for (const t of p.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+    expect(Math.max(...counts.values())).toBeLessThanOrEqual(2);
+  });
+
+  it("leaves hidden tags out of the plan", async () => {
+    const { planShelves } = await import("./discover.js");
+    const plan = planShelves([{ mangaId: 1, title: "X", tags: ["Boys' Love", "Romance", "Drama"], weight: 2 }], () => 1, new Set(["boys love"]));
+    expect(plan.flatMap((p) => p.tags)).not.toContain("Boys' Love");
   });
 });
 

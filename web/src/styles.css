@@ -802,3 +802,22 @@ code.versionValue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 .recentX:hover { color: var(--fg); }
 a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .searchStartHead .linkish { font-size: 14px; min-height: 0; }
+
+/* Discover → For you: a row per taste. */
+.shelves { display: grid; gap: 26px; }
+.shelfHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-bottom: 10px; }
+.shelfHead h3 { margin: 0; font-size: 17px; min-width: 0; }
+.shelfHead em { font-style: normal; color: var(--accent); }
+.shelfMore { font-size: 14px; color: var(--muted); text-decoration: none; white-space: nowrap; }
+.shelfMore:hover { color: var(--accent); }
+@media (max-width: 720px) { .shelfHead h3 { font-size: 16px; } .shelfMore { min-height: 32px; display: inline-flex; align-items: center; } }
+/* Each row scrolls sideways, so no row leaves a half-empty line. */
+.shelf .grid {
+  grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 160px; overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity; padding-bottom: 6px; scrollbar-width: thin;
+}
+.shelf .gridCard { scroll-snap-align: start; }
+@media (max-width: 720px) { .shelf .grid { grid-auto-columns: 40%; margin: 0 -12px; padding: 0 12px 6px; scroll-padding: 0 12px; } }
+.shelves { grid-template-columns: minmax(0, 1fr); }
+.shelf { min-width: 0; }
+.shelfMore span { margin-left: 4px; }

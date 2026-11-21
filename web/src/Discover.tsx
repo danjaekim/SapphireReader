@@ -1,5 +1,6 @@
 import { Loading } from "./Loading";
-import { browse, discoverList, forYou, type SearchResult } from "./api";
+import { browse, discoverList, forYou, type SearchResult, type Shelf } from "./api";
+import { canonLabel } from "./genres";
 import { FilterBar } from "./FilterBar";
 import { Results } from "./Results";
 import { navigate, pageHref, type PageName } from "./route";
@@ -21,6 +22,12 @@ const MODES: { id: Mode; label: string }[] = [
  * Mode and genres live in the address, so Back restores them. The 18+ page uses only 18+ sources
  * and offers only their genres; the ordinary page does the opposite.
  */
+/** For you comes as rows, one per mix of tags; older servers sent one list. */
+const shelvesOf = (r: SearchResult): Shelf[] | null => {
+  const s = (r as SearchResult & { shelves?: Shelf[] }).shelves;
+  return s && s.length > 0 ? s : null;
+};
+
 export function Discover({ adult = false, params, scopeTag }: { adult?: boolean; params: URLSearchParams; scopeTag: string }) {
   const page: PageName = adult ? "discover-18" : "discover";
   const mode: Mode = MODES.some((m) => m.id === params.get("mode")) ? (params.get("mode") as Mode) : "for-you";
@@ -48,7 +55,8 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
               : "Add a few series to your library and Sapphire will start recommending similar ones here."
             : undefined,
         );
-        return { groups: f.groups, failed: [], searched: 0, note: f.because.length ? `Because you like ${f.because.join(", ")}.` : undefined };
+        const shelves = f.shelves ?? [];
+        return { groups: f.groups, failed: [], searched: 0, shelves, note: f.because.length ? `Because you like ${f.because.join(", ")}.` : undefined } as SearchResult & { shelves: Shelf[] };
       }
       const list = await discoverList(mode, adult, p);
       return { ...list, note: unsortedNote(list.unsorted) };
@@ -68,7 +76,22 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       />
       {error && <p className="bad">{error}</p>}
       {busy && <Loading label="Asking your sources. This can take several seconds." />}
-      {result && <Results result={result} empty={empty ?? (genres.length ? "No series have all of those genres. Try removing one." : undefined)} lookups={false} hasMore={more} onMore={loadMore} />}
+      {result && shelvesOf(result) && (
+        <div className="shelves">
+          {shelvesOf(result)!.map((s) => (
+            <section key={s.tags.join("+")} className="shelf">
+              <header className="shelfHead">
+                <h3>Because you read <em>{s.from}</em></h3>
+                <a className="shelfMore" href={pageHref(page, { genre: s.tags })}>
+                  {s.tags.map(canonLabel).join(" + ")} <span aria-hidden="true">→</span>
+                </a>
+              </header>
+              <Results result={{ groups: s.groups, failed: [], searched: 0 }} lookups={false} compact />
+            </section>
+          ))}
+        </div>
+      )}
+      {result && !shelvesOf(result) && <Results result={result} empty={empty ?? (genres.length ? "No series have all of those genres. Try removing one." : undefined)} lookups={false} hasMore={more} onMore={loadMore} />}
     </section>
   );
 }
