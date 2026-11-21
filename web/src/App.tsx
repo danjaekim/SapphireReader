@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
+import { Search } from "./Search";
 
 interface Status {
   server: { ok: boolean; version: string };
   engine: { reachable: boolean; version?: string; error?: string };
 }
 
-const tabs = ["Home", "Library", "Discover", "Updates", "Sources"] as const;
+const tabs = ["Search", "Library", "Discover", "Updates", "Status"] as const;
 
 export function App() {
-  const [tab, setTab] = useState<(typeof tabs)[number]>("Home");
+  const [tab, setTab] = useState<(typeof tabs)[number]>("Search");
   const [status, setStatus] = useState<Status | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -27,7 +28,9 @@ export function App() {
       </header>
       <main className="content">
         <h2>{tab}</h2>
-        {tab === "Home" ? (
+        {tab === "Search" ? (
+          <Search />
+        ) : tab === "Status" ? (
           <section className="card">
             <h3>System status</h3>
             {failed && <p className="bad">Can't reach the Sapphire server.</p>}
