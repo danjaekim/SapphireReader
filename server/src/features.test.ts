@@ -158,13 +158,13 @@ describe("source scoping", () => {
     expect(scopedSources(all, "safe").map((s) => s.id)).toEqual(["3"]);
   });
 
-  it("lets you re-flag a source by hand, but only with 18+ mode on", async () => {
+  it("lets you re-flag a source by hand without unlocking 18+ mode", async () => {
     const { adultOverrideFor, setAdultOverrides } = await import("./search.js");
     setAdultOverrides({});
     const app = await buildApp(config, { fetchImpl: fakeEngine(), store: new Store(":memory:") });
-    const denied = await app.inject({ method: "PUT", url: "/api/sources/9/adult", payload: { adult: false } });
-    expect(denied.statusCode).toBe(403);
-    expect(adultOverrideFor("9")).toBeNull();
+    const res = await app.inject({ method: "PUT", url: "/api/sources/9/adult", payload: { adult: false } });
+    expect(res.statusCode).toBe(200);
+    expect(adultOverrideFor("9")).toBe(false);
     setAdultOverrides({});
   });
 });

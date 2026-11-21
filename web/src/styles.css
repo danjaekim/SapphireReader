@@ -647,3 +647,10 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .loadError p { margin: 0 0 8px; }
 
 .extIcon { width: 36px; height: 36px; border-radius: 8px; flex: none; object-fit: cover; background: var(--panel-2, #1a2236); }
+
+.adultTag { color: #ff6b6b; font-weight: 600; }
+.extMenu { position: relative; }
+.extMenu summary { list-style: none; cursor: pointer; padding: 4px 10px; border-radius: 8px; color: var(--muted); user-select: none; }
+.extMenu summary::-webkit-details-marker { display: none; }
+.extMenu[open] summary, .extMenu summary:hover { background: var(--line); color: var(--fg); }
+.extMenuBody { position: absolute; right: 0; top: 100%; z-index: 5; min-width: 220px; margin-top: 4px; padding: 10px 12px; display: grid; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }

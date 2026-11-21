@@ -402,13 +402,11 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.get("/api/sources", async (req, reply) => {
     try {
       const health = new Map(store.sourceHealth().map((h) => [h.sourceId, h]));
-      const open = gate.unlocked(req.headers.cookie);
       const seen = new Set<string>();
       const sources = (await listSources(config, fetchImpl))
         .filter((s) => (s.lang === "en" || s.lang === "all") && s.name !== "Local source")
         .filter((s) => !seen.has(s.id) && !!seen.add(s.id))
-        // 18+ sources are listed (the extension list already names them) but their health stays hidden until 18+ mode is on.
-        .map((s) => (!open && s.isNsfw ? { ...s, adultOverride: adultOverrideFor(s.id), health: null, hidden: true } : { ...s, adultOverride: adultOverrideFor(s.id), health: health.get(s.id) ?? null, hidden: false }));
+        .map((s) => ({ ...s, adultOverride: adultOverrideFor(s.id), health: health.get(s.id) ?? null, hidden: false }));
       return { sources };
     } catch (err) {
       req.log.error(err);
@@ -418,7 +416,6 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
 
   // Mark a source as 18+ (or not) by hand, when the extension's own flag is wrong. null goes back to the extension's flag.
   app.put<{ Params: { id: string }; Body: { adult?: unknown } }>("/api/sources/:id/adult", async (req, reply) => {
-    if (!gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "Turn on 18+ mode to change this." });
     const adult = req.body?.adult;
     if (adult !== true && adult !== false && adult !== null) return reply.code(400).send({ error: "Bad request." });
     const map = loadAdultOverrides();

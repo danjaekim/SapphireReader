@@ -178,31 +178,30 @@ export function Sources() {
     const statuses = mine.map(sourceStatus);
     const worst = statuses.some((x) => x.state === "bad") ? "bad" : statuses.some((x) => x.state === "good") ? "good" : "idle";
     const first = statuses.find((x) => x.state === worst) ?? statuses[0];
-    const locked = mine.length > 0 && mine.every((r) => r.hidden);
-    const expandable = e.isInstalled && mine.length > 0 && !locked;
+    const adultRows = mine.filter((r) => r.isNsfw);
+    // Only problems are worth opening a row for; a healthy one says everything on its first line.
+    const expandable = worst === "bad";
     const isOpen = open.has(e.pkgName);
     return (
       <li key={e.pkgName} className={`extItem ${isOpen ? "open" : ""}`}>
         <div className="extRow">
-          {locked ? (
-            <span className="extToggle static" title="18+ source"><span aria-hidden="true">🔒</span></span>
-          ) : expandable ? (
+          {e.isInstalled && expandable ? (
             <button type="button" className="extToggle" onClick={() => toggle(e.pkgName)} aria-expanded={isOpen} aria-label={`Details for ${displayName(e)}`}>
-              <span className={`dot ${worst === "idle" ? "" : worst}`} />
+              <span className="dot bad" />
               <span className="chev" aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
             </button>
           ) : e.isInstalled ? (
-            <span className="extToggle static"><span className="dot" /></span>
+            <span className="extToggle static"><span className={`dot ${worst === "idle" ? "" : worst}`} /></span>
           ) : null}
           {e.apkName && <img className="extIcon" src={`/api/extension-icon/${encodeURIComponent(e.apkName)}`} alt="" loading="lazy" width={36} height={36} onError={(ev) => (ev.currentTarget.style.visibility = "hidden")} />}
           <div className="info">
             <strong>{displayName(e)}</strong>
             <span className="muted"> {LANGS[e.lang] ?? e.lang} · v{e.versionName}</span>
             {e.hasUpdate && <span className="tag"> update available</span>}
-            {e.isInstalled && locked && <div className="small muted">18+ source. Turn on 18+ mode to see its status.</div>}
+            {adultRows.length > 0 && <span className="tag adultTag"> 18+</span>}
             {e.isInstalled && mine.length === 0 && <div className="small muted">No status yet. Press “Check all now”.</div>}
-            {e.isInstalled && !locked && first && mine.length === 1 && <div className={`small ${worst === "bad" ? "bad" : "muted"}`}>{first.text}</div>}
-            {e.isInstalled && !locked && mine.length > 1 && (
+            {e.isInstalled && first && mine.length === 1 && <div className={`small ${worst === "bad" ? "bad" : "muted"}`}>{first.text}</div>}
+            {e.isInstalled && mine.length > 1 && (
               <div className={`small ${worst === "bad" ? "bad" : "muted"}`}>
                 {mine.length} sources{worst === "bad" ? `, ${statuses.filter((x) => x.state === "bad").length} failing` : ""}
               </div>
@@ -214,6 +213,21 @@ export function Sources() {
             <span className="extActions">
               {e.hasUpdate && (
                 <button type="button" className="button small" onClick={() => act(e, "update")}>Update</button>
+              )}
+              {mine.length > 0 && (
+                <details className="extMenu">
+                  <summary aria-label={`More for ${displayName(e)}`}>⋯</summary>
+                  <div className="extMenuBody">
+                    {mine.map((r) => (
+                      <label key={r.id} className="small">
+                        <input type="checkbox" checked={r.isNsfw} onChange={(ev) => void setAdult(r, ev.target.checked)} />{" "}
+                        {mine.length > 1 ? `${r.name} (${LANGS[r.lang] ?? r.lang}) is 18+` : "Treat as 18+"}
+                        {r.adultOverride != null && <span className="muted"> (set by you)</span>}
+                      </label>
+                    ))}
+                    <div className="muted small">Moves this site's series between the ordinary and 18+ pages.</div>
+                  </div>
+                </details>
               )}
               <button type="button" className="button small secondary" onClick={() => act(e, "uninstall")}>Remove</button>
             </span>
@@ -232,10 +246,6 @@ export function Sources() {
                     <span className={`dot ${st.state === "idle" ? "" : st.state}`} />
                     <strong>{r.name}</strong>
                     <span className="muted small"> {LANGS[r.lang] ?? r.lang}</span>
-                    <label className="muted small adultFlag" title="Where this source's series show up: the 18+ pages (checked) or the ordinary ones. Turn on 18+ mode to change it.">
-                      <input type="checkbox" checked={r.isNsfw} onChange={(ev) => void setAdult(r, ev.target.checked)} /> 18+
-                      {r.adultOverride != null && " (set by you)"}
-                    </label>
                   </div>
                   <div className="muted small">
                     {st.state === "good" ? st.text : st.state === "idle" ? st.text : "failing"}
