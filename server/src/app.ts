@@ -763,7 +763,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         manga,
         about: parseDescription(manga.description, manga.title),
         adult,
-        reader: readerPrefs(id, manga.sourceId),
+        reader: readerPrefs(id, manga.sourceId, deviceOf(req)),
         chapters,
         latest: latestFromChapters(chapters),
         inLibrary: store.inLibrary(id),
@@ -1233,12 +1233,24 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const validPrefs = (v: unknown): v is ReaderPrefs =>
     typeof v === "object" && v !== null &&
     ["scroll", "paged"].includes((v as ReaderPrefs).mode) && ["ltr", "rtl"].includes((v as ReaderPrefs).direction);
-  // Series first, then the series' source (one site is all manga, another all webtoons), then the default.
+  // Each device (phone, desktop, ...) keeps its own choices, since how you hold it differs. A device is
+  // told apart by an id the app sends; choices made before this existed are shared and still apply.
+  const deviceOf = (req: { headers: Record<string, string | string[] | undefined> }): string | null => {
+    const v = req.headers["x-sapphire-device"];
+    return typeof v === "string" && /^[a-z0-9-]{8,64}$/i.test(v) ? v.toLowerCase() : null;
+  };
+  // Per level: the series, then its source (one site is all manga, another all webtoons), then the
+  // default. At each level this device's choice wins over the shared one.
   type PrefsLevel = "series" | "source" | "default";
-  function readerPrefs(mangaId: number, sourceId?: string | null): ReaderPrefs & { custom: boolean; level: PrefsLevel } {
-    const keys: [string, PrefsLevel][] = [[`reader.${mangaId}`, "series"]];
-    if (sourceId) keys.push([`reader.source.${sourceId}`, "source"]);
-    keys.push(["reader.default", "default"]);
+  function readerPrefs(mangaId: number, sourceId?: string | null, device: string | null = null): ReaderPrefs & { custom: boolean; level: PrefsLevel } {
+    const levels: [string, PrefsLevel][] = [[`${mangaId}`, "series"]];
+    if (sourceId) levels.push([`source.${sourceId}`, "source"]);
+    levels.push(["default", "default"]);
+    const keys: [string, PrefsLevel][] = [];
+    for (const [k, level] of levels) {
+      if (device) keys.push([`reader.${device}.${k}`, level]);
+      keys.push([`reader.${k}`, level]);
+    }
     for (const [key, level] of keys) {
       try {
         const v = JSON.parse(store.getSetting(key) ?? "null");
@@ -1250,19 +1262,22 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return { mode: "scroll", direction: "ltr", custom: false, level: "default" };
   }
   // `everywhere: true` (or scope "all") sets the default; scope "source" sets it for every series from this one's site.
+  // With a device id these are this device's own; without one they're the shared choices.
   app.put<{ Params: { id: string }; Body: { mode?: unknown; direction?: unknown; everywhere?: unknown; scope?: unknown } }>("/api/manga/:id/reader", async (req, reply) => {
     const id = Number(req.params.id);
     const prefs = { mode: req.body?.mode, direction: req.body?.direction };
     if (!Number.isInteger(id) || !validPrefs(prefs)) return reply.code(400).send({ error: "mode is scroll or paged; direction is ltr or rtl." });
     const scope = req.body?.everywhere === true ? "all" : req.body?.scope === "source" || req.body?.scope === "all" ? req.body.scope : "series";
+    const device = deviceOf(req);
+    const base = device ? `reader.${device}.` : "reader.";
     const sourceId = await detailsFor(id).then((m) => m.sourceId, () => null);
     if (scope === "source" && !sourceId) return reply.code(502).send({ error: "Couldn't tell which source this series is from." });
-    const key = scope === "all" ? "reader.default" : scope === "source" ? `reader.source.${sourceId}` : `reader.${id}`;
+    const key = scope === "all" ? `${base}default` : scope === "source" ? `${base}source.${sourceId}` : `${base}${id}`;
     store.setSetting(key, JSON.stringify({ mode: prefs.mode, direction: prefs.direction }));
-    if (scope !== "series") store.deleteSetting(`reader.${id}`);
+    if (scope !== "series") store.deleteSetting(`${base}${id}`);
     // "All series" means all of them, so it also replaces any per-source choices.
-    if (scope === "all") store.deleteSettingsLike("reader.source.");
-    return readerPrefs(id, sourceId);
+    if (scope === "all") store.deleteSettingsLike(`${base}source.`);
+    return readerPrefs(id, sourceId, device);
   });
 
   // Mark chapters read or unread by hand (e.g. ones read elsewhere). Marking ahead of where you are

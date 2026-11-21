@@ -29,8 +29,26 @@ export interface LatestChapter {
   latestUploadDate: string | null;
 }
 
+/** Tells the server which device this is, so reading mode can differ between phone and desktop. */
+function deviceId(): string {
+  try {
+    let id = localStorage.getItem("sapphire.device");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("sapphire.device", id);
+    }
+    return id;
+  } catch {
+    return "";
+  }
+}
+const deviceHeaders = (): Record<string, string> => {
+  const id = deviceId();
+  return id ? { "x-sapphire-device": id } : {};
+};
+
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: deviceHeaders() });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const b = body as { error?: string; detail?: string };
@@ -139,7 +157,7 @@ async function send(method: string, url: string, body?: unknown, keepalive = fal
   const res = await fetch(url, {
     method,
     keepalive,
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: { ...deviceHeaders(), ...(body ? { "content-type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   const out = await res.json().catch(() => ({}));

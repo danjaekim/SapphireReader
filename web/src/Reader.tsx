@@ -380,7 +380,7 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
             </div>
             <p className="muted small">
               {paged ? "Tap the left or right side, swipe, or use the arrow keys to turn pages. Tap the middle for the bars." : "Scroll to read. Tap anywhere for the bars."}
-              {" "}This is saved for this series.
+              {" "}Saved for this series on this device; your other devices keep their own.
             </p>
             <div className="sheetActions">
               {data?.manga.sourceName && (

@@ -182,6 +182,27 @@ describe("reading mode", () => {
   });
 });
 
+describe("reading mode per device", () => {
+  it("keeps each device's choice apart, over the shared one", async () => {
+    const store = new Store(":memory:");
+    const app = await buildApp(config, { fetchImpl: fakeEngine(), store });
+    const put = (device: string | null, payload: object) =>
+      app.inject({ method: "PUT", url: "/api/manga/10/reader", payload, headers: device ? { "x-sapphire-device": device } : {} }).then((r) => r.json());
+    const get = (device: string | null) =>
+      app.inject({ method: "GET", url: "/api/manga/10", headers: device ? { "x-sapphire-device": device } : {} }).then((r) => r.json().reader);
+    await put(null, { mode: "paged", direction: "ltr", scope: "all" });
+    await put("phone-device-1", { mode: "paged", direction: "rtl", scope: "all" });
+    expect(await get("phone-device-1")).toMatchObject({ mode: "paged", direction: "rtl" });
+    // The desktop and a device that never chose anything still see the shared default.
+    expect(await get("desk-device-1")).toMatchObject({ mode: "paged", direction: "ltr" });
+    expect(await get(null)).toMatchObject({ direction: "ltr" });
+    // Setting it for a source on one device leaves the others alone.
+    await put("desk-device-1", { mode: "scroll", direction: "ltr", scope: "source" });
+    expect(await get("desk-device-1")).toMatchObject({ mode: "scroll", level: "source" });
+    expect(await get("phone-device-1")).toMatchObject({ direction: "rtl", level: "default" });
+  });
+});
+
 describe("read state across sources", () => {
   it("carries read chapters to the same series on another source by title and chapter number", () => {
     const store = new Store(":memory:");
