@@ -84,6 +84,7 @@ export function Sources() {
   const [list, setList] = useState<ExtensionInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [kind, setKind] = useState<"all" | "safe" | "adult">("all");
   const [shown, setShown] = useState(40);
   const more = useRef<HTMLLIElement | null>(null);
   const [englishOnly, setEnglishOnly] = useState(true);
@@ -150,7 +151,7 @@ export function Sources() {
     const q = filter.trim().toLowerCase();
     const sorted = [...(list ?? [])].sort((a, b) => displayName(a).localeCompare(displayName(b)));
     const match = (e: ExtensionInfo) =>
-      (!q || displayName(e).toLowerCase().includes(q)) && (e.isInstalled || !englishOnly || e.lang in LANGS);
+      (!q || displayName(e).toLowerCase().includes(q)) && (e.isInstalled || ((!englishOnly || e.lang in LANGS) && (kind === "all" || (kind === "adult") === !!e.isNsfw)));
     return {
       // Anything that's failing floats to the top so it's the first thing you see.
       installed: sorted
@@ -158,10 +159,10 @@ export function Sources() {
         .sort((a, b) => Number(sourcesFor(b, sourceRows).some((r) => sourceStatus(r).state === "bad")) - Number(sourcesFor(a, sourceRows).some((r) => sourceStatus(r).state === "bad"))),
       available: sorted.filter((e) => !e.isInstalled && match(e)),
     };
-  }, [list, filter, englishOnly, sourceRows]);
+  }, [list, filter, englishOnly, kind, sourceRows]);
 
   // Reveal more of the available list as the end comes into view; start over when the search changes.
-  useEffect(() => setShown(40), [filter, englishOnly]);
+  useEffect(() => setShown(40), [filter, englishOnly, kind]);
   useEffect(() => {
     const el = more.current;
     if (!el) return;
@@ -196,7 +197,7 @@ export function Sources() {
             <strong>{displayName(e)}</strong>
             <span className="muted"> {LANGS[e.lang] ?? e.lang} · v{e.versionName}</span>
             {e.hasUpdate && <span className="tag">update available</span>}
-            {adultRows.length > 0 && <span className="tag adultTag">18+</span>}
+            {(adultRows.length > 0 || (!e.isInstalled && e.isNsfw)) && <span className="tag adultTag">18+</span>}
             {e.isInstalled && mine.length === 0 && <div className="small muted">No status yet. Press “Check all now”.</div>}
             {e.isInstalled && first && mine.length === 1 && <div className={`small ${worst === "bad" ? "bad" : "muted"}`}>{first.text}</div>}
             {e.isInstalled && mine.length > 1 && (
@@ -300,7 +301,14 @@ export function Sources() {
           {orphans.length > 0 && !filter.trim() && (
             <p className="muted small">Also answering: {orphans.map((r) => r.name).join(", ")}.</p>
           )}
-          <h3>Available ({available.length})</h3>
+          <div className="chapterHead">
+            <h3>Available ({available.length})</h3>
+            <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} aria-label="Filter available sources">
+              <option value="all">All sources</option>
+              <option value="safe">Ordinary only</option>
+              <option value="adult">18+ only</option>
+            </select>
+          </div>
           <ul className="extList">
             {available.slice(0, shown).map(row)}
             {available.length > shown && <li ref={more} className="muted small" style={{ padding: 12 }}>Loading more…</li>}
