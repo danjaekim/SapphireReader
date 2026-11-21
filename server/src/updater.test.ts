@@ -11,7 +11,7 @@ function fakeWorld(opts: { tags: Record<string, string>; commits?: string[]; run
   return (async (url: string, init?: RequestInit) => {
     const u = String(url);
     if (u.startsWith("https://ghcr.io/token")) return opts.denied ? new Response("{}", { status: 401 }) : new Response(JSON.stringify({ token: "t" }));
-    if (u.includes("/blobs/")) return new Response(JSON.stringify({ config: { Labels: { "org.opencontainers.image.revision": (opts.revision ?? "").padEnd(40, "0") } } }));
+    if (u.includes("/blobs/")) return new Response(JSON.stringify({ config: { Labels: null, Env: ["PATH=/usr/bin", `APP_VERSION=${(opts.revision ?? "").padEnd(40, "0")}`] } }));
     const m = u.match(/ghcr\.io\/v2\/.+\/manifests\/(.+)$/);
     if (m && init?.method !== "HEAD") {
       if (!opts.revision) return new Response(null, { status: 404 });

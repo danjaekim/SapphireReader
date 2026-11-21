@@ -105,8 +105,13 @@ async function imageRevision(config: Config, tag: string, digest: string, fetchI
     }
     const configDigest = (manifest.config as { digest?: string } | undefined)?.digest;
     if (!configDigest) return null;
-    const cfg = (await get(`blobs/${configDigest}`, "application/vnd.oci.image.config.v1+json")) as { config?: { Labels?: Record<string, string> } };
-    const rev = cfg.config?.Labels?.["org.opencontainers.image.revision"]?.slice(0, 7) ?? null;
+    const cfg = (await get(`blobs/${configDigest}`, "application/vnd.oci.image.config.v1+json")) as { config?: { Labels?: Record<string, string> | null; Env?: string[] | null } };
+    // The build bakes its commit into the image as APP_VERSION (that's how the app knows its own
+    // version); newer builds also carry the standard revision label.
+    const fromEnv = cfg.config?.Env?.find((e) => e.startsWith("APP_VERSION="))?.slice("APP_VERSION=".length);
+    const fromLabel = cfg.config?.Labels?.["org.opencontainers.image.revision"];
+    const full = [fromEnv, fromLabel].find((v) => v && /^[0-9a-f]{7,40}$/.test(v));
+    const rev = full ? full.slice(0, 7) : null;
     revisionCache.set(digest, rev);
     return rev;
   } catch {
