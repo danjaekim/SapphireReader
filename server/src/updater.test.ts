@@ -7,13 +7,19 @@ const config = { ...loadConfig({}), updateUrl: "http://watchtower:8080", updateT
 beforeEach(clearUpdateCache);
 
 /** A fake GHCR + GitHub: `tags` maps a tag to its digest; `commits` is main's history, newest first. */
-function fakeWorld(opts: { tags: Record<string, string>; commits?: string[]; runs?: { status: string; conclusion: string | null }[]; denied?: boolean }) {
+function fakeWorld(opts: { tags: Record<string, string>; commits?: string[]; runs?: { status: string; conclusion: string | null }[]; denied?: boolean; revision?: string }) {
   return (async (url: string, init?: RequestInit) => {
     const u = String(url);
     if (u.startsWith("https://ghcr.io/token")) return opts.denied ? new Response("{}", { status: 401 }) : new Response(JSON.stringify({ token: "t" }));
+    if (u.includes("/blobs/")) return new Response(JSON.stringify({ config: { Labels: { "org.opencontainers.image.revision": (opts.revision ?? "").padEnd(40, "0") } } }));
     const m = u.match(/ghcr\.io\/v2\/.+\/manifests\/(.+)$/);
+    if (m && init?.method !== "HEAD") {
+      if (!opts.revision) return new Response(null, { status: 404 });
+      // The image index lists the real image and a build-provenance entry.
+      if (m[1] === "latest") return new Response(JSON.stringify({ manifests: [{ digest: "sha256:att", platform: { os: "unknown" } }, { digest: "sha256:img", platform: { os: "linux" } }] }));
+      return new Response(JSON.stringify({ config: { digest: "sha256:cfg" } }));
+    }
     if (m) {
-      expect(init?.method).toBe("HEAD");
       const d = opts.tags[m[1]];
       return d ? new Response(null, { headers: { "docker-content-digest": d } }) : new Response(null, { status: 404 });
     }
@@ -27,6 +33,11 @@ describe("updater", () => {
   it("says an update is available when a newer image is published, and names it", async () => {
     const f = fakeWorld({ tags: { latest: "sha256:new", "sha-1111111": "sha256:old", "sha-abcdef1": "sha256:new" }, commits: ["abcdef1", "1111111"] });
     expect(await updateInfo(config, "1111111", f)).toMatchObject({ enabled: true, available: true, latest: "abcdef1", building: false, problem: null });
+  });
+
+  it("names the newest image from its own revision label, even when GitHub's commit list can't be read", async () => {
+    const f = fakeWorld({ tags: { latest: "sha256:new", "sha-1111111": "sha256:old" }, commits: [], revision: "abcdef1" });
+    expect(await updateInfo(config, "1111111", f)).toMatchObject({ available: true, latest: "abcdef1" });
   });
 
   it("says you're up to date when your image is the newest published one", async () => {

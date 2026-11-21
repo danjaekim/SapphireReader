@@ -8,6 +8,7 @@ const GH_HEADERS = { accept: "application/vnd.github+json", "user-agent": "sapph
 export function clearUpdateCache(): void {
   digestCache.clear();
   tokenCache.clear();
+  revisionCache.clear();
   commitCache = null;
 }
 
@@ -76,6 +77,43 @@ async function tagDigest(config: Config, tag: string, fetchImpl: FetchLike): Pro
   return value;
 }
 
+const revisionCache = new Map<string, string | null>();
+const MANIFEST_ACCEPT = "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json";
+
+/**
+ * The commit a published image was built from, read from the image itself (its
+ * org.opencontainers.image.revision label). Needs only the registry, not GitHub's API, so it keeps
+ * working when GitHub rate-limits us or the commit is no longer in the newest few.
+ */
+async function imageRevision(config: Config, tag: string, digest: string, fetchImpl: FetchLike): Promise<string | null> {
+  const repo = imageRepo(config);
+  if (revisionCache.has(digest)) return revisionCache.get(digest) ?? null;
+  try {
+    const { token } = await registryToken(config, repo, fetchImpl);
+    if (!token) return null;
+    const get = async (path: string, accept: string) => {
+      const res = await fetchImpl(`https://ghcr.io/v2/${repo}/${path}`, { headers: { authorization: `Bearer ${token}`, accept }, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error(`registry answered ${res.status}`);
+      return res.json() as Promise<Record<string, unknown>>;
+    };
+    let manifest = await get(`manifests/${tag}`, MANIFEST_ACCEPT);
+    const entries = manifest.manifests as { digest: string; platform?: { os?: string } }[] | undefined;
+    if (entries) {
+      // An index: take a real image (not the build-provenance entries).
+      const pick = entries.find((m) => m.platform?.os === "linux") ?? entries[0];
+      manifest = await get(`manifests/${pick.digest}`, MANIFEST_ACCEPT);
+    }
+    const configDigest = (manifest.config as { digest?: string } | undefined)?.digest;
+    if (!configDigest) return null;
+    const cfg = (await get(`blobs/${configDigest}`, "application/vnd.oci.image.config.v1+json")) as { config?: { Labels?: Record<string, string> } };
+    const rev = cfg.config?.Labels?.["org.opencontainers.image.revision"]?.slice(0, 7) ?? null;
+    revisionCache.set(digest, rev);
+    return rev;
+  } catch {
+    return null;
+  }
+}
+
 /** The newest few commits on main (newest first), used to put a version number on the published image. */
 let commitCache: { at: number; shas: string[] } | null = null;
 async function recentCommits(config: Config, fetchImpl: FetchLike): Promise<string[]> {
@@ -131,9 +169,10 @@ export async function updateInfo(config: Config, current: string, fetchImpl: Fet
   if (!mine.digest) return { ...base, problem: mine.status === "error" ? "offline" : "version" };
   const available = mine.digest !== latest.digest;
 
-  // Put a version number on the newest image, and note a newer build that's still on its way.
+  // Put a version number on the newest image: the image says which commit it was built from.
+  let latestName: string | null = available ? await imageRevision(config, "latest", latest.digest, fetchImpl) : current;
+  // Note a newer build that's still on its way (and name the image from commits if its label was unreadable).
   const commits = await recentCommits(config, fetchImpl);
-  let latestName: string | null = available ? null : current;
   let building = false;
   let problem: UpdateInfo["problem"] = null;
   if (commits.length > 0) {
