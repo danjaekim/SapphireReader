@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { normalizeTitle } from "./search.js";
 
 export interface LibraryEntry {
   mangaId: number;
@@ -241,6 +242,8 @@ export class Store {
     // MangaUpdates' rating, the fallback for series AniList doesn't know.
     this.db.exec("CREATE TABLE IF NOT EXISTS mu_meta (title_key TEXT PRIMARY KEY, series_id INTEGER, score REAL, fetched_at TEXT NOT NULL)");
     // Tags of every series Sapphire has looked at, so it can tell common tags from telling ones.
+    // Which chapter numbers of a series (by normalised title) have been read on any source, so another source of the same series starts out with them marked.
+    this.db.exec("CREATE TABLE IF NOT EXISTS read_numbers (title_key TEXT NOT NULL, chapter_number REAL NOT NULL, read_at TEXT NOT NULL, PRIMARY KEY (title_key, chapter_number))");
     this.db.exec("CREATE TABLE IF NOT EXISTS series_tags (manga_id INTEGER PRIMARY KEY, tags TEXT NOT NULL, seen_at TEXT NOT NULL)");
   }
 
@@ -248,6 +251,36 @@ export class Store {
     this.db
       .prepare("INSERT INTO series_meta (manga_id, title, source_name, adult) VALUES (?, ?, ?, ?) ON CONFLICT(manga_id) DO UPDATE SET title = excluded.title, source_name = excluded.source_name, adult = excluded.adult")
       .run(mangaId, title, sourceName, adult ? 1 : 0);
+  }
+
+  private readKey(mangaId: number): string | null {
+    const row = this.db.prepare("SELECT title FROM series_meta WHERE manga_id = ?").get(mangaId) as { title: string } | undefined;
+    return row ? normalizeTitle(row.title) || null : null;
+  }
+
+  /** Remembers (or forgets) that these chapter numbers of this series are read, whichever source they were read on. */
+  recordReadNumbers(mangaId: number, numbers: number[], read: boolean): void {
+    const key = this.readKey(mangaId);
+    if (!key) return;
+    const now = new Date().toISOString();
+    const add = this.db.prepare("INSERT OR IGNORE INTO read_numbers (title_key, chapter_number, read_at) VALUES (?, ?, ?)");
+    const del = this.db.prepare("DELETE FROM read_numbers WHERE title_key = ? AND chapter_number = ?");
+    for (const n of numbers) if (n >= 0) (read ? add.run(key, n, now) : del.run(key, n));
+  }
+
+  /**
+   * Marks the chapters of this source that were already read on another source of the same series
+   * (same title, same chapter number). Returns the chapters it newly marked.
+   */
+  applyReadFromOtherSources(mangaId: number, chapters: { id: number; chapterNumber: number; name: string }[]): { id: number; chapterNumber: number; name: string }[] {
+    const key = this.readKey(mangaId);
+    if (!key) return [];
+    const readNums = new Set((this.db.prepare("SELECT chapter_number FROM read_numbers WHERE title_key = ?").all(key) as { chapter_number: number }[]).map((r) => r.chapter_number));
+    if (readNums.size === 0) return [];
+    const have = new Set(this.readChapterIds(mangaId));
+    const fresh = chapters.filter((c) => c.chapterNumber >= 0 && readNums.has(c.chapterNumber) && !have.has(c.id));
+    this.setChaptersRead(mangaId, fresh.map((c) => c.id), true);
+    return fresh;
   }
 
   /** Every series you've read, most recent first, with where you are in it. */
@@ -711,6 +744,7 @@ export class Store {
       this.db
         .prepare("INSERT OR IGNORE INTO chapters_read (manga_id, chapter_id, read_at) VALUES (?, ?, ?)")
         .run(mangaId, input.chapterId, now);
+      this.recordReadNumbers(mangaId, [input.chapterNumber], true);
     }
   }
 

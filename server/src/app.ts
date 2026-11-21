@@ -587,6 +587,18 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       }
       const adult = (await listSources(config, fetchImpl).catch(() => [])).find((x) => x.id === manga.sourceId)?.isNsfw === true;
       store.recordSeriesMeta(id, manga.title, manga.sourceName, adult);
+      // Reading done before this existed (or on this source) is remembered by chapter number so other sources can pick it up.
+      const doneHere = new Set(store.readChapterIds(id));
+      store.recordReadNumbers(id, chapters.filter((c) => doneHere.has(c.id)).map((c) => c.chapterNumber), true);
+      // Chapters already read on another source of this series count as read here too, and move your place forward.
+      const carried = store.applyReadFromOtherSources(id, chapters);
+      if (carried.length > 0 && store.inLibrary(id)) {
+        const furthest = carried.reduce((a, b) => (b.chapterNumber > a.chapterNumber ? b : a));
+        const p = store.getProgress(id);
+        if (!p || furthest.chapterNumber > p.chapterNumber) {
+          store.saveProgress(id, { chapterId: furthest.id, chapterNumber: furthest.chapterNumber, chapterName: furthest.name, pageIndex: 0, pageOffset: 0, finished: true });
+        }
+      }
       return {
         manga,
         about: parseDescription(manga.description, manga.title),
@@ -1105,6 +1117,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const chapters = await chaptersFor(id);
       const marked = chapters.filter((c) => (chapterIds as number[]).includes(c.id));
       store.setChaptersRead(id, marked.map((c) => c.id), read);
+      store.recordReadNumbers(id, marked.map((c) => c.chapterNumber), read);
       if (read && marked.length > 0) {
         const furthest = marked.reduce((a, b) => (b.chapterNumber > a.chapterNumber ? b : a));
         const p = store.getProgress(id);

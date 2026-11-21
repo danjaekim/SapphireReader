@@ -181,3 +181,21 @@ describe("reading mode", () => {
     expect(await put(10, { mode: "scroll", direction: "ltr", everywhere: true })).toMatchObject({ mode: "scroll", level: "default" });
   });
 });
+
+describe("read state across sources", () => {
+  it("carries read chapters to the same series on another source by title and chapter number", () => {
+    const store = new Store(":memory:");
+    store.recordSeriesMeta(1, "Solo Leveling!", "Asura", false);
+    store.recordSeriesMeta(2, "solo leveling", "MangaFire", false);
+    store.recordSeriesMeta(3, "Another Series", "MangaFire", false);
+    store.saveProgress(1, { chapterId: 101, chapterNumber: 5, chapterName: "Ch 5", pageIndex: 0, pageOffset: 0, finished: true });
+    store.recordReadNumbers(1, [6, 7], true);
+    const other = [1, 2, 5, 6, 7, 8].map((n) => ({ id: 200 + n, chapterNumber: n, name: `Ch ${n}` }));
+    expect(store.applyReadFromOtherSources(2, other).map((c) => c.chapterNumber)).toEqual([5, 6, 7]);
+    expect(store.readChapterIds(2).sort()).toEqual([205, 206, 207]);
+    // A different series isn't touched, and unreading forgets the number.
+    expect(store.applyReadFromOtherSources(3, other)).toEqual([]);
+    store.recordReadNumbers(1, [7], false);
+    expect(store.applyReadFromOtherSources(2, [{ id: 999, chapterNumber: 7, name: "7" }])).toEqual([]);
+  });
+});
