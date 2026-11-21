@@ -31,7 +31,8 @@ export interface FilterChange {
   groupChange?: FilterChange;
 }
 
-const GENRE_NAME = /genre|categor|tag|theme/i;
+// Sources call the same idea "genre", "tag", "category", "theme", "content" and so on.
+const GENRE_NAME = /genre|categor|tag|theme|content|warning|label|keyword|type|demograph|format/i;
 const CONDITION_NAME = /condition|match|mode|operator|logic/i;
 
 interface GenreSlot {
@@ -45,7 +46,8 @@ interface GenreSlot {
 export function genreSlots(filters: EngineFilter[]): Map<string, GenreSlot> {
   const slots = new Map<string, GenreSlot>();
   filters.forEach((f, position) => {
-    if (f.__typename === "GroupFilter" && GENRE_NAME.test(f.name ?? "")) {
+    // Any group of tick boxes counts (sources name them all sorts of things), except obvious non-topics.
+    if (f.__typename === "GroupFilter" && !/status|sort|order|year|language|rating/i.test(f.name ?? "")) {
       (f as Extract<EngineFilter, { __typename: "GroupFilter" }>).filters.forEach((child, i) => {
         if ((child.__typename !== "CheckBoxFilter" && child.__typename !== "TriStateFilter") || !child.name) return;
         const key = canonKey(child.name);
@@ -53,7 +55,7 @@ export function genreSlots(filters: EngineFilter[]): Map<string, GenreSlot> {
         const on = child.__typename === "CheckBoxFilter" ? { checkBoxState: true } : { triState: "INCLUDE" as const };
         slots.set(key, { name: child.name, change: () => ({ position, groupChange: { position: i, ...on } }) });
       });
-    } else if (f.__typename === "SelectFilter" && /genre|categor/i.test(f.name ?? "")) {
+    } else if (f.__typename === "SelectFilter" && GENRE_NAME.test(f.name ?? "") && !CONDITION_NAME.test(f.name ?? "")) {
       (f as Extract<EngineFilter, { __typename: "SelectFilter" }>).values.forEach((v, i) => {
         const key = canonKey(v);
         // Index 0 is nearly always "All"/"Any", which isn't a genre.

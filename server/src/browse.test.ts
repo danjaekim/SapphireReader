@@ -154,3 +154,16 @@ describe("AND across genres", () => {
     expect(sent[0].filters).toHaveLength(1); // only Action was sent to the site
   });
 });
+
+describe("tag-style filters", () => {
+  it("finds genres under groups and lists named tags, content or themes", () => {
+    const filters: EngineFilter[] = [
+      { __typename: "GroupFilter", name: "Content", filters: [{ __typename: "TriStateFilter", name: "Glasses" }] },
+      { __typename: "SelectFilter", name: "Tag", values: ["Any", "Isekai"] },
+      { __typename: "GroupFilter", name: "Status", filters: [{ __typename: "CheckBoxFilter", name: "Ongoing" }] },
+    ];
+    expect(planGenreFilters(filters, ["glasses"])?.changes).toHaveLength(1);
+    expect(planGenreFilters(filters, ["isekai"])?.changes).toHaveLength(1);
+    expect(planGenreFilters(filters, ["ongoing"])).toBeNull();
+  });
+});
