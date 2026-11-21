@@ -33,11 +33,14 @@ Fill this in as you go. "Cloudflare" = did you see a Cloudflare or "verify you a
 
 | Source | Search | Chapters | Latest ch. pages | Old ch. pages | Browse | Cloudflare? | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Asura Scans | | | | | | | |
-| ManhuaUS | | | | | | | |
-| Mangafreak | | | | | | | |
-| MangaFire | | | | | | | |
-| ToonGod | | | | | | | |
+| Asura Scans | Pass | Pass | Pass | Pass | Pass | No | |
+| ManhuaUS | Pass | Pass | Pass | Pass | Pass | No | |
+| Mangafreak | Pass | Pass | Pass | Pass | Pass | No | |
+| MangaFire | Pass | Pass | Pass | Pass | Pass | No | |
+| ToonGod | Pass | Pass | Pass | Pass | Pass | No | |
+
+Tested by Dan on 2026-11-21 on the DXP2800: all five sources work (search, chapters,
+reading, filters). No Cloudflare errors. Some sources load a little slowly.
 
 ## Is the Cloudflare solver needed?
 
@@ -52,9 +55,9 @@ Cloudflare. To see whether the separate solver earns its memory:
 
 | Container | Idle RAM | RAM while reading |
 | --- | --- | --- |
-| sapphire-engine | | |
-| sapphire-flaresolverr | | |
-| sapphire-ntfy | | |
+| sapphire-engine | 827 MB | |
+| sapphire-flaresolverr | 218 MB | |
+| sapphire-ntfy | 24 MB | |
 
 ## Phase 0 is done when
 
