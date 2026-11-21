@@ -242,14 +242,14 @@ export function Sources() {
               const st = statuses[i];
               return (
                 <div key={r.id} className="srcDetail">
-                  <div className="srcHead">
-                    <span className={`dot ${st.state === "idle" ? "" : st.state}`} />
-                    <strong>{r.name}</strong>
-                    <span className="muted small"> {LANGS[r.lang] ?? r.lang}</span>
-                  </div>
+                  {mine.length > 1 && (
+                    <div className="srcHead">
+                      <strong>{r.name}</strong>
+                      <span className="muted small"> {LANGS[r.lang] ?? r.lang}</span>
+                    </div>
+                  )}
                   <div className="muted small">
-                    {st.state === "good" ? st.text : st.state === "idle" ? st.text : "failing"}
-                    {h && ` · seen ${ago(h.lastOk ?? h.lastFail)}`}
+                    {st.state === "bad" && h ? `Last failed ${ago(h.lastFail ?? h.lastOk)}` : `${st.text}${h ? ` · seen ${ago(h.lastOk ?? h.lastFail)}` : ""}`}
                   </div>
                   {st.state === "bad" && h?.lastError && (
                     <div className="errBox">
