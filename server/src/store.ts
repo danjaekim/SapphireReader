@@ -238,6 +238,8 @@ export class Store {
     } catch {
       /* column already exists */
     }
+    // MangaUpdates' rating, the fallback for series AniList doesn't know.
+    this.db.exec("CREATE TABLE IF NOT EXISTS mu_meta (title_key TEXT PRIMARY KEY, series_id INTEGER, score REAL, fetched_at TEXT NOT NULL)");
     // Tags of every series Sapphire has looked at, so it can tell common tags from telling ones.
     this.db.exec("CREATE TABLE IF NOT EXISTS series_tags (manga_id INTEGER PRIMARY KEY, tags TEXT NOT NULL, seen_at TEXT NOT NULL)");
   }
@@ -320,6 +322,25 @@ export class Store {
       if (r) out.set(k, { anilistId: (r.anilist_id as number | null) ?? null, score: (r.score as number | null) ?? null, popularity: (r.popularity as number | null) ?? null, banner: (r.banner as string | null) ?? null, fetchedAt: r.fetched_at as string });
     }
     return out;
+  }
+
+  muMeta(keys: string[]): Map<string, { seriesId: number | null; score: number | null; fetchedAt: string }> {
+    const get = this.db.prepare("SELECT * FROM mu_meta WHERE title_key = ?");
+    const out = new Map<string, { seriesId: number | null; score: number | null; fetchedAt: string }>();
+    for (const k of keys) {
+      const r = get.get(k) as Record<string, unknown> | undefined;
+      if (r) out.set(k, { seriesId: (r.series_id as number | null) ?? null, score: (r.score as number | null) ?? null, fetchedAt: r.fetched_at as string });
+    }
+    return out;
+  }
+
+  putMuMeta(key: string, seriesId: number | null, score: number | null): void {
+    this.db
+      .prepare(
+        `INSERT INTO mu_meta (title_key, series_id, score, fetched_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(title_key) DO UPDATE SET series_id = excluded.series_id, score = excluded.score, fetched_at = excluded.fetched_at`,
+      )
+      .run(key, seriesId, score, new Date().toISOString());
   }
 
   putAnilistMeta(key: string, m: AnilistMeta): void {

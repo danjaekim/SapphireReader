@@ -394,7 +394,7 @@ export function App() {
     <div className="shell">
       <TopBar title={route.name === "series" ? "Sapphire" : page === "home" ? "Sapphire" : TITLES[page!]} onMenu={() => setMenuOpen(true)} />
       {nav}
-      <main className={`content ${wide ? "" : "narrow"}`}>
+      <main className={`content ${wide ? "" : "narrow"} ${route.name === "series" ? "withBackdrop" : ""}`}>
         {route.name === "series" ? (
           <SeriesPage mangaId={route.mangaId} />
         ) : (

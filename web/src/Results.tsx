@@ -1,7 +1,7 @@
 import { Loading } from "./Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { seriesHref } from "./route";
-import { useLibraryIds, useScore } from "./shared";
+import { bestRating, useLibraryIds, useRating } from "./shared";
 import { createQueue, latest, thumbnailUrl, type LatestChapter, type SearchResult, type SeriesGroup } from "./api";
 
 type Chapter = { state: "loading" } | { state: "error" } | { state: "done"; value: LatestChapter };
@@ -58,8 +58,8 @@ function Card({ group, queue, lookups }: { group: SeriesGroup; queue: Queue; loo
   const lib = useLibraryIds();
   const hit = group.hits.find((h) => h.mangaId === target) ?? group.hits[0];
   const saved = group.hits.some((h) => lib.has(h.mangaId));
-  const fetched = useScore(group.title, group.score == null && near);
-  const score = group.score ?? fetched ?? null;
+  const fetched = useRating(group.title, group.score == null && near);
+  const rating = group.score != null ? { value: group.score / 10, source: "AniList" } : bestRating(fetched);
   const loading = lookups && group.hits.some((h) => !chapters[h.mangaId] || chapters[h.mangaId].state === "loading");
 
   return (
@@ -67,7 +67,7 @@ function Card({ group, queue, lookups }: { group: SeriesGroup; queue: Queue; loo
       <a href={seriesHref(target)} className="gridCover">
         <img src={thumbnailUrl(target)} alt="" loading="lazy" />
         {group.hits.length > 1 && <span className="badge">{group.hits.length} sources</span>}
-        {score != null && <span className="badge score" title="AniList average score">★ {(score / 10).toFixed(1)}</span>}
+        {rating && <span className="badge score" title={`${rating.source} rating`}>★ {rating.value.toFixed(1)}</span>}
       </a>
       {lib.ready && (
         <button
@@ -77,7 +77,8 @@ function Card({ group, queue, lookups }: { group: SeriesGroup; queue: Queue; loo
           aria-label={saved ? "Remove from library" : "Add to library"}
           title={saved ? "In your library (tap to remove)" : "Add to library"}
         >
-          {saved ? "✓" : "＋"}
+          <span className="addIc" aria-hidden="true">{saved ? "✓" : "＋"}</span>
+          <span className="addIcHover" aria-hidden="true">{saved ? "✕" : "＋"}</span>
         </button>
       )}
       <a href={seriesHref(target)} className="gridTitle" title={group.title}>

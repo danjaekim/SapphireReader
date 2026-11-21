@@ -9,7 +9,7 @@ import type { Config } from "./config.js";
 import { checkEngine, engineFile, engineQuery } from "./engine.js";
 import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
 import { requestUpdate, updateInfo } from "./updater.js";
-import { rankByAnilist, ratingsFor } from "./ratings.js";
+import { rankByAnilist, ratingsFor, type RatingMeta } from "./ratings.js";
 import { parseDescription } from "./description.js";
 import { canonKey } from "./genres.js";
 import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
@@ -135,16 +135,23 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   }
 
   // AniList scores for a few titles at a time, so cards can show them without slowing the lists down.
-  app.post<{ Body: { titles?: unknown } }>("/api/ratings", async (req, reply) => {
+  app.post<{ Body: { titles?: unknown; alts?: unknown } }>("/api/ratings", async (req, reply) => {
     const titles = Array.isArray(req.body?.titles) ? (req.body!.titles as unknown[]).filter((t): t is string => typeof t === "string" && t.length > 0).slice(0, 60) : [];
     if (titles.length === 0) return reply.code(400).send({ error: "No titles." });
-    const meta = await ratingsFor(store, titles, fetchImpl).catch(() => new Map());
-    const out: Record<string, { score: number | null; popularity: number | null; banner: string | null }> = {};
+    // Other names for a title (from its description), tried when the main title finds nothing.
+    const alts: Record<string, string[]> = {};
+    if (req.body?.alts && typeof req.body.alts === "object") {
+      for (const [t, list] of Object.entries(req.body.alts as Record<string, unknown>)) {
+        if (Array.isArray(list)) alts[t] = list.filter((a): a is string => typeof a === "string").slice(0, 15);
+      }
+    }
+    const meta = await ratingsFor(store, titles, fetchImpl, alts).catch(() => new Map<string, RatingMeta>());
+    const out: Record<string, { score: number | null; popularity: number | null; banner: string | null; mu: number | null }> = {};
     for (const t of titles) {
       const m = meta.get(normalizeTitle(t));
       // Only AniList's own image host, so a page never loads art from somewhere unexpected.
       const banner = m?.banner && /^https:\/\/s\d*\.anilist\.co\//.test(m.banner) ? m.banner : null;
-      out[t] = { score: m?.score ?? null, popularity: m?.popularity ?? null, banner };
+      out[t] = { score: m?.score ?? null, popularity: m?.popularity ?? null, banner, mu: m?.mu ?? null };
     }
     return { ratings: out };
   });

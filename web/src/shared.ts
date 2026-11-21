@@ -4,12 +4,14 @@ import { addToLibrary, library, ratingsFor, removeFromLibrary, type Rating } fro
 /** AniList scores, asked for in small batches as cards appear and remembered for the session. */
 const ratingCache = new Map<string, Rating | null>();
 const waiting = new Map<string, Set<() => void>>();
+const altNames = new Map<string, string[]>();
 let timer: number | undefined;
 
 function flush() {
   timer = undefined;
   const titles = [...waiting.keys()].slice(0, 40);
-  ratingsFor(titles).then(
+  const alts = Object.fromEntries(titles.filter((t) => altNames.has(t)).map((t) => [t, altNames.get(t)!]));
+  ratingsFor(titles, Object.keys(alts).length ? alts : undefined).then(
     (r) => titles.forEach((t) => ratingCache.set(t, r.ratings[t] ?? null)),
     () => titles.forEach((t) => ratingCache.set(t, null)),
   ).finally(() => {
@@ -27,18 +29,31 @@ export function useScore(title: string | null, enabled = true): number | null | 
   return r === undefined ? undefined : (r?.score ?? null);
 }
 
-/** Everything AniList told us about a title (score, banner): undefined while loading, null when unknown. */
-export function useRating(title: string | null, enabled = true): Rating | null | undefined {
+/** One rating to show for a series, out of 10: AniList's when it has one, else MangaUpdates'. */
+export function bestRating(r: Rating | null | undefined): { value: number; source: string } | null {
+  if (r?.score != null) return { value: r.score / 10, source: "AniList" };
+  if (r?.mu != null) return { value: r.mu, source: "MangaUpdates" };
+  return null;
+}
+
+/**
+ * Everything known about a title's ratings (AniList score, banner, MangaUpdates): undefined while
+ * loading, null when unknown. `alts` (other names) help find series listed under another title.
+ */
+export function useRating(title: string | null, enabled = true, alts?: string[]): Rating | null | undefined {
   const [, bump] = useState(0);
+  const ready = alts !== undefined || enabled;
   useEffect(() => {
-    if (!title || !enabled || ratingCache.has(title)) return;
+    if (!title || !enabled || !ready || ratingCache.has(title)) return;
+    if (alts?.length) altNames.set(title, alts);
     const cb = () => bump((n) => n + 1);
     const set = waiting.get(title) ?? new Set();
     set.add(cb);
     waiting.set(title, set);
     if (timer === undefined) timer = window.setTimeout(flush, 150);
     return () => void set.delete(cb);
-  }, [title, enabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, enabled, ready]);
   if (!title) return null;
   return ratingCache.has(title) ? (ratingCache.get(title) ?? null) : undefined;
 }

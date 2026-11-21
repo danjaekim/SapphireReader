@@ -377,5 +377,8 @@ export interface Rating {
   popularity: number | null;
   /** AniList's wide banner art, when it has one. */
   banner?: string | null;
+  /** MangaUpdates' rating out of 10, looked up when AniList has no score. */
+  mu?: number | null;
 }
-export const ratingsFor = (titles: string[]) => send("POST", "/api/ratings", { titles }) as Promise<{ ratings: Record<string, Rating> }>;
+export const ratingsFor = (titles: string[], alts?: Record<string, string[]>) =>
+  send("POST", "/api/ratings", { titles, alts }) as Promise<{ ratings: Record<string, Rating> }>;

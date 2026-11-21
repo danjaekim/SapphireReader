@@ -3,18 +3,18 @@ import { useEffect, useState } from "react";
 import { categories as loadCategories, createCategory, deleteCategory, library, refreshLibrary, renameCategory, thumbnailUrl, type Category, type LibraryItem } from "./api";
 import { readHref, seriesHref } from "./route";
 import { chapterText } from "./util";
-import { useScore } from "./shared";
+import { bestRating, useRating } from "./shared";
 
 function Card({ item }: { item: LibraryItem }) {
   const p = item.progress;
-  const score = useScore(item.title);
+  const rating = bestRating(useRating(item.title));
   const pct = p && item.latestNumber ? Math.min(100, Math.round((Math.max(p.chapterNumber, 0) / item.latestNumber) * 100)) : 0;
   return (
     <li className="gridCard">
       <a href={p ? readHref(item.mangaId, p.chapterId) : seriesHref(item.mangaId)} className="gridCover">
         <img src={thumbnailUrl(item.mangaId)} alt="" loading="lazy" />
         {item.unread ? <span className="badge new">{item.unread} unread</span> : null}
-        {score != null && <span className="badge score" title="AniList average score">★ {(score / 10).toFixed(1)}</span>}
+        {rating && <span className="badge score" title={`${rating.source} rating`}>★ {rating.value.toFixed(1)}</span>}
       </a>
       <a href={seriesHref(item.mangaId)} className="gridTitle" title={item.title}>{item.title}</a>
       {p && <div className="bar"><i style={{ width: `${pct}%` }} /></div>}

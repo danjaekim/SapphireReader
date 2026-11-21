@@ -23,13 +23,59 @@ export function DownloadButton({ state, onDownload }: { state?: { status: string
   );
 }
 
+/**
+ * Other names on one line, with "+N more" at the end of that line. Measures how many fit, so a wide
+ * screen shows more of them.
+ */
+function AltTitles({ titles, open, onToggle }: { titles: string[]; open: boolean; onToggle: () => void }) {
+  const box = useRef<HTMLParagraphElement>(null);
+  const [fit, setFit] = useState(titles.length);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => {
+      const probe = el.querySelector<HTMLElement>(".altProbe");
+      if (!probe) return;
+      const room = el.clientWidth - 90; // space kept for "+N more"
+      const items = [...probe.children] as HTMLElement[];
+      let n = 0;
+      for (const it of items) {
+        if (it.offsetLeft + it.offsetWidth > room && n > 0) break;
+        n++;
+      }
+      // Everything fits without the "+N more" link: use the whole line.
+      const last = items[items.length - 1];
+      setFit(last && last.offsetLeft + last.offsetWidth <= el.clientWidth ? items.length : Math.max(1, n));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [titles]);
+  const shown = open ? titles : titles.slice(0, fit);
+  return (
+    <p className={`altTitles ${open ? "open" : ""}`} ref={box}>
+      <span className="altProbe" aria-hidden="true">
+        {titles.map((t, i) => <span key={i}>{i > 0 ? " · " : ""}{t}</span>)}
+      </span>
+      {shown.join(" · ")}
+      {titles.length > fit && (
+        <button type="button" className="linkish" onClick={onToggle}>
+          {open ? "Show less" : `+${titles.length - fit} more`}
+        </button>
+      )}
+    </p>
+  );
+}
+
 export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [data, setData] = useState<SeriesData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newestFirst, setNewestFirst] = useState(true);
   const [fullDesc, setFullDesc] = useState(false);
   const [jump, setJump] = useState("");
-  const rating = useRating(data?.manga.title ?? null);
+  // Wait for the series (and its other names) before asking, so the lookup can use them.
+  const rating = useRating(data?.manga.title ?? null, data !== null, data ? (data.about?.altTitles ?? []) : undefined);
   const score = rating?.score ?? null;
   const banner = rating?.banner ?? null;
   const [fullAlt, setFullAlt] = useState(false);
@@ -187,8 +233,19 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     setSelected(new Set());
     setAnchor(null);
   };
-  const siteStats = about.stats.filter((st) => !/^rank$/i.test(st.label));
+  const isRating = (label: string) => /rating|score/i.test(label);
   const rank = about.stats.find((st) => /^rank$/i.test(st.label));
+  // Ratings from every place that has one, shown together under the title.
+  const ratings: { label: string; value: string; title: string }[] = [
+    ...(score != null ? [{ label: "AniList", value: (score / 10).toFixed(1), title: "AniList average score, out of 10" }] : []),
+    ...about.stats.filter((st) => isRating(st.label)).map((st) => ({ label: data?.manga.sourceName ?? "Site", value: st.value, title: `${st.label} on ${data?.manga.sourceName ?? "the source"}` })),
+    ...(rating?.mu != null ? [{ label: "MangaUpdates", value: rating.mu.toFixed(1), title: "MangaUpdates rating, out of 10" }] : []),
+  ];
+  // Plain numbers for the box on the left: chapters plus whatever else the site counts (bookmarks, views…).
+  const counts = [
+    { label: "Chapters", value: String(data ? (data.latest.latestNumber !== null ? Math.floor(data.latest.latestNumber) : data.latest.chapterCount) : 0) },
+    ...about.stats.filter((st) => !isRating(st.label) && !/^rank$/i.test(st.label)),
+  ].slice(0, 3);
 
   return (
     <section className="seriesPage">
@@ -208,26 +265,14 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
             <div className="seriesLeft" ref={leftRef}>
               <img className="seriesCover" src={thumbnailUrl(mangaId)} alt="" width={300} height={450} />
               <aside className="seriesSide">
-                {(siteStats.length > 0 || score != null || data.chapters.length > 0) && (
-                  <ul className="statGrid">
-                    {score != null && (
-                      <li title="AniList average score">
-                        <strong className="seriesScore">★ {(score / 10).toFixed(1)}</strong>
-                        <span>AniList</span>
-                      </li>
-                    )}
-                    {siteStats.map((st) => (
-                      <li key={st.label} title={`From ${data.manga.sourceName ?? "the source"}`}>
-                        <strong>{st.value}</strong>
-                        <span>{st.label}</span>
-                      </li>
-                    ))}
-                    <li>
-                      <strong>{data.latest.latestNumber !== null ? Math.floor(data.latest.latestNumber) : data.latest.chapterCount}</strong>
-                      <span>Chapters</span>
+                <ul className="statGrid" style={{ gridTemplateColumns: `repeat(${counts.length}, 1fr)` }}>
+                  {counts.map((st) => (
+                    <li key={st.label}>
+                      <strong>{st.value}</strong>
+                      <span>{st.label}</span>
                     </li>
-                  </ul>
-                )}
+                  ))}
+                </ul>
                 <dl className="infoList">
                   <div><dt>Status</dt><dd className="cap">{data.manga.status.toLowerCase()}</dd></div>
                   {data.manga.sourceName && <div><dt>Source</dt><dd>{data.manga.sourceName}</dd></div>}
@@ -268,16 +313,16 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
             <div className="seriesRight">
               <div className="card seriesIntro">
                 <h2>{data.manga.title}</h2>
-                {rank && <span className="rankBadge" title={`From ${data.manga.sourceName ?? "the source"}`}>★ Rank {rank.value}</span>}
-                {about.altTitles.length > 0 && (
-                  <p className={`altTitles ${fullAlt ? "open" : ""}`}>
-                    {(fullAlt ? about.altTitles : about.altTitles.slice(0, 3)).join(" · ")}
-                    {about.altTitles.length > 3 && (
-                      <button type="button" className="linkish" onClick={() => setFullAlt((v) => !v)}>
-                        {fullAlt ? " less" : ` +${about.altTitles.length - 3} more`}
-                      </button>
-                    )}
-                  </p>
+                {about.altTitles.length > 0 && <AltTitles titles={about.altTitles} open={fullAlt} onToggle={() => setFullAlt((v) => !v)} />}
+                {(rank || ratings.length > 0) && (
+                  <ul className="ratingRow">
+                    {rank && <li className="rankBadge" title={`From ${data.manga.sourceName ?? "the source"}`}>Rank {rank.value}</li>}
+                    {ratings.map((r) => (
+                      <li key={r.label} className="ratingChip" title={r.title}>
+                        <strong>★ {r.value}</strong> <span>{r.label}</span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
                 {about.body && (
                   <div className="descWrap">

@@ -103,8 +103,40 @@ describe("/api/ratings", () => {
     }) as unknown as typeof fetch;
     const app = await buildApp(config, { fetchImpl: fake, store: new Store(":memory:") });
     const res = await app.inject({ method: "POST", url: "/api/ratings", payload: { titles: ["Solo Leveling"] } });
-    expect(res.json()).toEqual({ ratings: { "Solo Leveling": { score: 84, popularity: 5, banner: "https://s4.anilist.co/file/anilistcdn/media/manga/banner/1.jpg" } } });
+    expect(res.json()).toEqual({ ratings: { "Solo Leveling": { score: 84, popularity: 5, banner: "https://s4.anilist.co/file/anilistcdn/media/manga/banner/1.jpg", mu: null } } });
     expect((await app.inject({ method: "POST", url: "/api/ratings", payload: { titles: [] } })).statusCode).toBe(400);
+  });
+});
+
+describe("rating fallbacks", () => {
+  it("tries other names on AniList, then MangaUpdates (exact title only)", async () => {
+    const asked: string[] = [];
+    const fake = (async (u: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (String(u).includes("anilist")) {
+        const vars = body.variables as Record<string, string>;
+        asked.push(...Object.values(vars));
+        // AniList only knows "Breakers" by its Korean name.
+        const data = Object.fromEntries(Object.entries(vars).map(([k, t]) => [`m${k.slice(1)}`, t === "브레이커즈" ? { id: 9, averageScore: 62, meanScore: null, popularity: 1 } : null]));
+        return new Response(JSON.stringify({ data }));
+      }
+      // MangaUpdates: one near miss, one exact match by another name.
+      return new Response(JSON.stringify({ results: [
+        { hit_title: "Obscure Tale Returns", record: { series_id: 1, title: "Obscure Tale Returns", bayesian_rating: 9.9 } },
+        { hit_title: "Obscure Tale", record: { series_id: 2, title: "Obscure Tale Official", bayesian_rating: "7.40" } },
+      ] }));
+    }) as unknown as typeof fetch;
+    const app = await buildApp(config, { fetchImpl: fake, store: new Store(":memory:") });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ratings",
+      payload: { titles: ["Breakers", "Obscure Tale", "Nobody Knows This"], alts: { Breakers: ["Beureikeojeu", "브레이커즈"] } },
+    });
+    const r = res.json().ratings;
+    expect(asked[asked.indexOf("Breakers") + 3]).toBe("브레이커즈"); // native name tried first among the others
+    expect(r.Breakers.score).toBe(62);
+    expect(r["Obscure Tale"]).toMatchObject({ score: null, mu: 7.4 });
+    expect(r["Nobody Knows This"]).toMatchObject({ score: null, mu: null });
   });
 });
 
