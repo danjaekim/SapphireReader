@@ -61,6 +61,7 @@ function Card({ group, queue, lookups }: { group: SeriesGroup; queue: Queue; loo
       <a href={seriesHref(target)} className="gridCover">
         <img src={thumbnailUrl(target)} alt="" loading="lazy" />
         {group.hits.length > 1 && <span className="badge">{group.hits.length} sources</span>}
+        {group.score != null && <span className="badge score" title="AniList average score">★ {group.score}</span>}
       </a>
       <a href={seriesHref(target)} className="gridTitle" title={group.title}>
         {group.title}

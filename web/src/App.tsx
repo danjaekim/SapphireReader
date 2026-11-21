@@ -5,6 +5,9 @@ import { adultState, type AdultState } from "./api";
 import { Discover } from "./Discover";
 import { Downloads } from "./Downloads";
 import { Home } from "./Home";
+import { History } from "./History";
+import { savedTheme, setTheme, type Theme } from "./theme";
+import { automation, setAutomation, type Automation } from "./api";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
 import { Search } from "./Search";
@@ -35,6 +38,7 @@ const NAV: { page: PageName; label: string; icon: string; adultOnly?: boolean }[
   { page: "discover-18", label: "Discover (18+)", icon: "🔞", adultOnly: true },
   { page: "downloads", label: "Downloads", icon: "⬇️" },
   { page: "updates", label: "Updates", icon: "🔔" },
+  { page: "history", label: "History", icon: "🕘" },
   { page: "sources", label: "Sources", icon: "🧩" },
   { page: "status", label: "Status", icon: "📊" },
 ];
@@ -47,6 +51,7 @@ const TITLES: Record<PageName, string> = {
   "discover-18": "Discover (18+)",
   downloads: "Downloads",
   updates: "Updates",
+  history: "History",
   sources: "Sources",
   status: "Status",
 };
@@ -85,6 +90,7 @@ function SideNav({
           ))}
         </nav>
         <AdultButton state={adult} onOpen={onAdult} />
+        <ThemeButton />
       </aside>
     </>
   );
@@ -103,6 +109,85 @@ function TopBar({ title, onMenu }: { title: string; onMenu: () => void }) {
       </a>
       <a className="iconBtn" href={pageHref("search")} aria-label="Search">🔍</a>
     </header>
+  );
+}
+
+const THEMES: { id: Theme; label: string; icon: string }[] = [
+  { id: "system", label: "Match device", icon: "🌗" },
+  { id: "dark", label: "Dark", icon: "🌙" },
+  { id: "light", label: "Light", icon: "☀️" },
+];
+
+/** In the menu: cycles Match device → Dark → Light. */
+function ThemeButton() {
+  const [theme, set] = useState<Theme>(savedTheme);
+  const current = THEMES.find((t) => t.id === theme)!;
+  return (
+    <button
+      type="button"
+      className="navItem"
+      onClick={() => {
+        const next = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length].id;
+        setTheme(next);
+        set(next);
+      }}
+      title="Change the look"
+    >
+      <span className="navIcon" aria-hidden="true">{current.icon}</span>
+      <span className="navLabel">Theme</span>
+      <span className="navBadge">{current.label}</span>
+    </button>
+  );
+}
+
+function AppearanceCard() {
+  const [theme, set] = useState<Theme>(savedTheme);
+  return (
+    <section className="card">
+      <h3>Appearance</h3>
+      <div className="chips" role="radiogroup" aria-label="Theme">
+        {THEMES.map((t) => (
+          <button key={t.id} type="button" role="radio" aria-checked={theme === t.id} className={`chip ${theme === t.id ? "on" : ""}`} onClick={() => { setTheme(t.id); set(t.id); }}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+      <p className="muted small">Saved on this device. The reader always stays dark.</p>
+    </section>
+  );
+}
+
+function AutomationCard() {
+  const [a, setA] = useState<Automation | null>(null);
+  useEffect(() => {
+    automation().then(setA, () => {});
+  }, []);
+  if (!a) return null;
+  const change = (patch: Partial<Automation>) => {
+    setA({ ...a, ...patch });
+    setAutomation(patch).then(setA, () => setA(a));
+  };
+  return (
+    <section className="card">
+      <h3>Automatic</h3>
+      <label className="settingRow">
+        <span>
+          <strong>Download ahead</strong>
+          <span className="muted small">For library series you're reading, keep the next chapters saved on the NAS.</span>
+        </span>
+        <select value={a.autoDownload} onChange={(e) => change({ autoDownload: Number(e.target.value) })}>
+          <option value={0}>Off</option>
+          {[1, 2, 3, 5, 10].map((n) => <option key={n} value={n}>Next {n}</option>)}
+        </select>
+      </label>
+      <label className="settingRow">
+        <span>
+          <strong>Switch to the source that's furthest ahead</strong>
+          <span className="muted small">When you're caught up and another source has newer chapters of the same series, move it there. Your place and read chapters come along, and you get an alert.</span>
+        </span>
+        <input type="checkbox" checked={a.autoSwitch} onChange={(e) => change({ autoSwitch: e.target.checked })} />
+      </label>
+    </section>
   );
 }
 
@@ -289,10 +374,13 @@ export function App() {
             {page === "library" && <Library key={scopeTag} />}
             {page === "downloads" && <Downloads key={scopeTag} />}
             {page === "updates" && <Updates key={scopeTag} />}
+            {page === "history" && <History key={scopeTag} />}
             {page === "sources" && <Sources key={scopeTag} />}
             {page === "status" && (
               <>
                 <StatusCard />
+                <AppearanceCard />
+                <AutomationCard />
                 <TrackerSettings />
                 <section className="card">
                   <h3>Backup</h3>

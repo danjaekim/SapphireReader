@@ -1,6 +1,6 @@
 import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
-import { addToLibrary, alternatives, markChapters, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, alternatives, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, readHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -28,6 +28,10 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [fullDesc, setFullDesc] = useState(false);
   const [jump, setJump] = useState("");
   // After marking one chapter read, offer to mark the unread ones before it too (handy when you read them elsewhere).
+  const [shelves, setShelves] = useState<Category[]>([]);
+  useEffect(() => {
+    loadCategories().then((r) => setShelves(r.categories), () => {});
+  }, []);
   const [offer, setOffer] = useState<{ label: string; ids: number[] } | null>(null);
 
   const { states, download } = useSeriesDownloads(mangaId);
@@ -135,6 +139,28 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   {data.inLibrary ? "In library ✓" : "Add to library"}
                 </button>
               </div>
+              {data.inLibrary && shelves.length > 0 && (
+                <div className="chips shelfPick" aria-label="Shelves">
+                  {shelves.map((c) => {
+                    const on = (data.categories ?? []).includes(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={`chip small ${on ? "on" : ""}`}
+                        aria-pressed={on}
+                        onClick={() => {
+                          const ids = on ? (data.categories ?? []).filter((x) => x !== c.id) : [...(data.categories ?? []), c.id];
+                          setData({ ...data, categories: ids });
+                          setSeriesCategories(mangaId, ids).catch(() => setData(data));
+                        }}
+                      >
+                        {on ? "✓ " : ""}{c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
           {data.manga.genre.length > 0 && (

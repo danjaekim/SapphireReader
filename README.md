@@ -77,3 +77,15 @@ The compose file includes Watchtower, which updates the Sapphire app when a new 
 (it checks every 6 hours). The Status page also has an **Update now** button. Set `UPDATE_TOKEN` on the
 `sapphire` service and `WATCHTOWER_HTTP_API_TOKEN` on `watchtower` to the same random string. Changes to the
 compose file itself (new services, ports, env vars) still need a redeploy from the Docker app.
+
+## HTTPS (for offline reading on your phone)
+
+Browsers only let a site save things for offline use when it's opened over https. Tailscale can give
+Sapphire an https address on your tailnet. On the NAS, with Tailscale running:
+
+```
+sudo tailscale serve --bg --https=443 http://localhost:8080
+```
+
+Then open `https://<nas-name>.<your-tailnet>.ts.net` on your phone (Tailscale shows the exact name).
+Turn on HTTPS certificates in the Tailscale admin console under DNS if it asks.

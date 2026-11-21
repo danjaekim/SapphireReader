@@ -9,6 +9,19 @@
   --bad: #f87171;
   color-scheme: dark;
 }
+/* Light theme: chosen in the menu, or following the device. */
+:root[data-theme="light"] {
+  --bg: #f5f7fb; --panel: #ffffff; --line: #dde3ee; --fg: #111827; --muted: #5b6477; --accent: #2563eb; --good: #059669; --bad: #dc2626;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f5f7fb; --panel: #ffffff; --line: #dde3ee; --fg: #111827; --muted: #5b6477; --accent: #2563eb; --good: #059669; --bad: #dc2626;
+    color-scheme: light;
+  }
+}
+/* The reader always stays dark. */
+.reading { --bg: #000; --panel: #141c2e; --line: #243049; --fg: #e6ecf8; --muted: #93a0bb; --accent: #3b82f6; color-scheme: dark; color: var(--fg); }
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -231,7 +244,7 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .gridCover { position: relative; display: block; aspect-ratio: 2 / 3; border-radius: 10px; overflow: hidden; background: var(--line); }
 .gridCover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .gridCover:hover img { transform: scale(1.03); transition: transform 0.15s; }
-.badge { position: absolute; left: 6px; bottom: 6px; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgba(11, 18, 32, 0.85); }
+.badge { position: absolute; left: 6px; bottom: 6px; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: rgba(11, 18, 32, 0.85); color: #fff; }
 .gridTitle { font-weight: 600; font-size: 14px; line-height: 1.3; text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .gridMeta { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gridEnd { text-align: center; padding: 24px 0; font-size: 13px; min-height: 60px; }
@@ -361,3 +374,58 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .pageView img { max-width: 100vw; max-height: 100dvh; width: auto; height: auto; object-fit: contain; display: block; }
 .pageView img.pending { min-height: 60dvh; min-width: 40vw; background: #0a0a0a; }
 .pageView .readerEnd { min-height: 60dvh; align-content: center; }
+
+.badge.score { left: auto; right: 6px; top: 6px; bottom: auto; background: rgba(11, 18, 32, 0.85); color: #fcd34d; }
+.chipCount { opacity: 0.65; font-size: 0.85em; margin-left: 2px; }
+.chip.ghost { background: none; border-style: dashed; }
+.chip.small { font-size: 12.5px; padding: 3px 10px; }
+.shelves { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.shelves::-webkit-scrollbar { display: none; }
+.shelves .chip { flex: none; }
+.shelfPick { margin-top: 10px; }
+.shelfSheet { text-align: left; }
+.shelfSheet h3, .shelfSheet .sheetHandle { text-align: center; }
+.shelfList { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 6px; }
+.shelfList li { display: flex; gap: 6px; align-items: center; }
+.shelfList input, .searchbar input { min-width: 0; }
+.shelfList input { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; }
+.shelfSheet .button { width: 100%; margin-top: 12px; }
+.settingRow { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; }
+.settingRow + .settingRow { border-top: 1px solid var(--line); }
+.settingRow > span { display: grid; gap: 2px; }
+.settingRow select { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; }
+.settingRow input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+.historyRow { grid-template-columns: 44px 1fr auto; }
+.historyRow .info { display: grid; gap: 2px; text-decoration: none; color: inherit; }
+.clamp1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Phone polish */
+.card code, .card pre, .card a { overflow-wrap: anywhere; word-break: break-word; }
+.card pre { white-space: pre-wrap; }
+.content { overflow-x: clip; }
+@media (max-width: 720px) {
+  /* The top bar already names the page. */
+  .content > h2:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .content { padding: 12px max(12px, env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  /* iOS zooms into any field with text under 16px; keep them at 16px. */
+  input, select, textarea { font-size: 16px !important; }
+  /* Comfortable tap targets. */
+  .chip { min-height: 36px; padding-top: 6px; padding-bottom: 6px; }
+  .chip.small { min-height: 32px; }
+  .linkish { min-height: 40px; display: inline-flex; align-items: center; }
+  .toolbar .jump { flex: 1 1 140px; width: auto; }
+  .toolbar .sort-select { margin-left: 0; }
+  .chapters a { padding: 14px 12px; }
+  .gridCover:hover img { transform: none; }
+  .card { padding: 14px; border-radius: 14px; }
+  .settingRow { align-items: flex-start; }
+}
+@media (hover: none) { .gridCover:hover img, .navItem:hover, .dlBtn:hover { transform: none; } }
+@media (max-width: 520px) {
+  /* Series header: small cover beside the title, not a big cover with empty space next to it. */
+  .seriesHead { flex-direction: row; gap: 14px; align-items: flex-start; }
+  .seriesHead img { width: 104px; height: auto; aspect-ratio: 2 / 3; flex: none; }
+  .seriesHead h2 { font-size: 19px; line-height: 1.25; margin-bottom: 4px; }
+  .seriesHead .info p { margin: 2px 0; font-size: 14px; }
+  .seriesHead .actions .button { padding: 9px 12px; }
+}

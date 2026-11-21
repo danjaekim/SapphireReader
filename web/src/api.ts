@@ -10,6 +10,9 @@ export interface SeriesGroup {
   key: string;
   title: string;
   hits: SourceHit[];
+  /** AniList average score (0-100) and popularity, when sorting by them. */
+  score?: number | null;
+  popularity?: number | null;
 }
 
 export interface SearchResult {
@@ -78,6 +81,7 @@ export interface SeriesData {
   inLibrary: boolean;
   progress: Progress | null;
   readChapterIds: number[];
+  categories?: number[];
 }
 
 export interface LibraryItem {
@@ -89,7 +93,38 @@ export interface LibraryItem {
   latestNumber: number | null;
   chapterCount: number;
   unread: number | null;
+  categories: number[];
 }
+
+export interface HistoryItem {
+  mangaId: number;
+  title: string;
+  sourceName: string | null;
+  adult: boolean;
+  inLibrary: boolean;
+  progress: Progress;
+}
+export const history = () => getJson<{ items: HistoryItem[] }>("/api/history");
+export const removeHistory = (mangaId: number) => send("DELETE", `/api/history/${mangaId}`);
+
+export interface Category {
+  id: number;
+  name: string;
+  count: number;
+}
+export const categories = () => getJson<{ categories: Category[] }>("/api/categories");
+export const createCategory = (name: string) => send("POST", "/api/categories", { name }) as Promise<{ id: number; categories: Category[] }>;
+export const renameCategory = (id: number, name: string) => send("PATCH", `/api/categories/${id}`, { name }) as Promise<{ categories: Category[] }>;
+export const deleteCategory = (id: number) => send("DELETE", `/api/categories/${id}`) as Promise<{ categories: Category[] }>;
+export const setSeriesCategories = (mangaId: number, ids: number[]) =>
+  send("PUT", `/api/library/${mangaId}/categories`, { ids }) as Promise<{ categories: number[] }>;
+
+export interface Automation {
+  autoDownload: number;
+  autoSwitch: boolean;
+}
+export const automation = () => getJson<Automation>("/api/settings/automation");
+export const setAutomation = (a: Partial<Automation>) => send("PUT", "/api/settings/automation", a) as Promise<Automation>;
 
 async function send(method: string, url: string, body?: unknown, keepalive = false) {
   const res = await fetch(url, {

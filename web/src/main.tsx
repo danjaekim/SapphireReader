@@ -2,6 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./styles.css";
+import { applyTheme, savedTheme } from "./theme";
+
+applyTheme(savedTheme());
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => applyTheme(savedTheme()));
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

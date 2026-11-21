@@ -2,6 +2,7 @@ import { Loading } from "./Loading";
 import { useEffect, useMemo, useState } from "react";
 import { downloads, removeDownload, removeSeriesDownloads, thumbnailUrl, type DownloadRow } from "./api";
 import { readHref, seriesHref } from "./route";
+import { offlineSupported, removeOffline, useOfflineChapters } from "./offline";
 
 function size(bytes: number) {
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
@@ -57,13 +58,17 @@ export function Downloads() {
 
   if (error && !items) return <p className="bad">{error}</p>;
   if (!items) return <Loading label="Loading downloads…" />;
-  if (items.length === 0) return <p className="muted">Nothing downloaded yet. Use the ⬇ button on a chapter, in the chapter list or while reading.</p>;
 
   return (
     <>
-      <p className="muted">
-        {items.filter((d) => d.status === "done").length} chapters saved, {size(total)} on the NAS.
-      </p>
+      <OnThisDevice />
+      <h3>On the NAS</h3>
+      {items.length === 0 && <p className="muted">Nothing downloaded yet. Use the ⬇ button on a chapter, in the chapter list or while reading.</p>}
+      {items.length > 0 && (
+        <p className="muted">
+          {items.filter((d) => d.status === "done").length} chapters saved, {size(total)} on the NAS.
+        </p>
+      )}
       {error && <p className="bad">{error}</p>}
       {series.map(([mangaId, s]) => {
         const done = s.rows.filter((d) => d.status === "done");
@@ -99,5 +104,39 @@ export function Downloads() {
         );
       })}
     </>
+  );
+}
+
+/** Chapters saved in this browser for reading with no connection at all. */
+function OnThisDevice() {
+  const items = useOfflineChapters();
+  if (!offlineSupported()) {
+    return (
+      <section className="card">
+        <h3>On this device</h3>
+        <p className="muted small">
+          Saving chapters on this phone or tablet for reading offline needs Sapphire to be opened over https. Browsers
+          don't allow it on a plain http address. Tailscale can give Sapphire an https address; see the README section on HTTPS.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section className="card">
+      <h3>On this device</h3>
+      {items === null ? null : items.length === 0 ? (
+        <p className="muted small">Nothing yet. While reading, tap 📱 in the top bar to keep that chapter on this device for offline reading.</p>
+      ) : (
+        <ul className="extList">
+          {items.map((c) => (
+            <li key={c.chapterId} className="extRow">
+              <a href={readHref(c.mangaId, c.chapterId)}>{c.series} · {c.chapter}</a>
+              <span className="muted">{c.pages} pages</span>
+              <button type="button" className="linkish" onClick={() => removeOffline(c.chapterId)}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
