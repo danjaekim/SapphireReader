@@ -479,7 +479,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       return {
         alternatives: alternatives
           .filter((a): a is NonNullable<typeof a> => a !== null)
-          .sort((a, b) => (b.latestNumber ?? -1) - (a.latestNumber ?? -1)),
+          .sort((a, b) => (b.latestNumber ?? -1) - (a.latestNumber ?? -1))
+          // A site can list the same title twice (two entries); show each site once, furthest ahead.
+          .filter((a, i, all) => all.findIndex((x) => x.sourceName === a.sourceName) === i),
       };
     } catch (err) {
       req.log.error(err);
