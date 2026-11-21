@@ -254,6 +254,8 @@ export class Store {
     // Tags of every series Sapphire has looked at, so it can tell common tags from telling ones.
     // Which chapter numbers of a series (by normalised title) have been read on any source, so another source of the same series starts out with them marked.
     this.db.exec("CREATE TABLE IF NOT EXISTS read_numbers (title_key TEXT NOT NULL, chapter_number REAL NOT NULL, read_at TEXT NOT NULL, PRIMARY KEY (title_key, chapter_number))");
+    // Series marked "Not interested" in recommendations: never suggested again, and their tags count against.
+    this.db.exec("CREATE TABLE IF NOT EXISTS not_interested (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS series_tags (manga_id INTEGER PRIMARY KEY, tags TEXT NOT NULL, seen_at TEXT NOT NULL)");
   }
 
@@ -747,6 +749,26 @@ export class Store {
       out.push({ mangaId: r.id, title: r.title, tags, weight: 1.5 * recency(r.lastRead) });
     }
     return out;
+  }
+
+  markNotInterested(mangaId: number, title: string, adult: boolean, on: boolean): void {
+    if (!on) {
+      this.db.prepare("DELETE FROM not_interested WHERE manga_id = ?").run(mangaId);
+      return;
+    }
+    this.db
+      .prepare("INSERT INTO not_interested (manga_id, title, title_key, adult, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(manga_id) DO UPDATE SET at = excluded.at")
+      .run(mangaId, title, normalizeTitle(title), adult ? 1 : 0, new Date().toISOString());
+  }
+
+  /** Series you said you're not interested in, with their tags (when known). */
+  notInterested(adult = false): { mangaId: number; title: string; titleKey: string; tags: string[] }[] {
+    const rows = this.db.prepare("SELECT manga_id AS mangaId, title, title_key AS titleKey FROM not_interested WHERE adult = ? ORDER BY at DESC").all(adult ? 1 : 0) as {
+      mangaId: number;
+      title: string;
+      titleKey: string;
+    }[];
+    return rows.map((r) => ({ ...r, tags: this.seriesTags(r.mangaId) ?? [] }));
   }
 
   /** Normalized titles you already have, so recommendations skip them. */

@@ -821,3 +821,15 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .shelves { grid-template-columns: minmax(0, 1fr); }
 .shelf { min-width: 0; }
 .shelfMore span { margin-left: 4px; }
+
+/* "Not interested" on recommendation cards. */
+.dismissBtn {
+  position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 50%; border: 0; cursor: pointer; z-index: 2;
+  background: rgba(11, 18, 32, 0.85); color: #fff; font-size: 13px; display: grid; place-items: center; opacity: 0; transition: opacity 0.12s;
+}
+.gridCard:hover .dismissBtn, .dismissBtn:focus-visible { opacity: 1; }
+@media (hover: none) { .dismissBtn { opacity: 0.85; width: 34px; height: 34px; } }
+.dismissable .badge.score { top: auto; bottom: 6px; }
+.dismissedCard { display: flex; flex-direction: column; justify-content: center; gap: 10px; aspect-ratio: 2 / 3; padding: 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 13px; }
+.dismissedCard p { margin: 0; overflow-wrap: anywhere; }
+.dismissedCard .button { align-self: flex-start; }

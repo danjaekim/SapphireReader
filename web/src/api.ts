@@ -218,6 +218,10 @@ export const changeExtension = (pkg: string, action: "install" | "update" | "uni
 
 export const discoverList = (sort: "popular" | "latest" | "rating" | "newest" | "az", adult = false, page = 1) =>
   getJson<BrowseResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}&page=${page}`);
+export const alsoLiked = (adult = false) =>
+  getJson<{ rows: { from: string; groups: SeriesGroup[] }[] }>(`/api/for-you/also-liked${adult ? "?adult=1" : ""}`);
+export const setNotInterested = (mangaId: number, title: string, on: boolean, adult = false) =>
+  send("PUT", `/api/manga/${mangaId}/not-interested`, { title, on, adult });
 export interface Shelf {
   tags: string[];
   from: string;

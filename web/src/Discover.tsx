@@ -1,11 +1,11 @@
 import { Loading } from "./Loading";
-import { browse, discoverList, forYou, type SearchResult, type Shelf } from "./api";
+import { alsoLiked, browse, discoverList, forYou, setNotInterested, type SearchResult, type SeriesGroup, type Shelf } from "./api";
 import { canonLabel } from "./genres";
 import { FilterBar } from "./FilterBar";
 import { Results } from "./Results";
 import { navigate, pageHref, type PageName } from "./route";
 import { usePaged } from "./usePaged";
-import { useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { sortFrom, unsortedNote } from "./SortSelect";
 
 type Mode = "for-you" | "popular" | "latest" | "rating" | "newest";
@@ -22,6 +22,42 @@ const MODES: { id: Mode; label: string }[] = [
  * Mode and genres live in the address, so Back restores them. The 18+ page uses only 18+ sources
  * and offers only their genres; the ordinary page does the opposite.
  */
+/** AniList rows take a while (each series is looked for on your sources), so they load after the rest. */
+const alsoCache = new Map<boolean, { rows: { from: string; groups: SeriesGroup[] }[] }>();
+const forgetAlsoLiked = () => alsoCache.clear();
+
+function AlsoLikedRows({ adult, scopeTag, onDismiss }: { adult: boolean; scopeTag: string; onDismiss: (g: SeriesGroup, on: boolean) => void }) {
+  const [rows, setRows] = useState(() => alsoCache.get(adult)?.rows ?? null);
+  useEffect(() => {
+    if (alsoCache.has(adult)) return;
+    let live = true;
+    alsoLiked(adult).then(
+      (r) => {
+        alsoCache.set(adult, r);
+        if (live) setRows(r.rows);
+      },
+      () => live && setRows([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [adult, scopeTag]);
+  if (rows === null) return <Loading label="Checking what readers of your series also liked…" size="sm" />;
+  return (
+    <>
+      {rows.map((r) => (
+        <section key={`al-${r.from}`} className="shelf">
+          <header className="shelfHead">
+            <h3>Readers of <em>{r.from}</em> also liked</h3>
+            <span className="shelfMore">from AniList</span>
+          </header>
+          <Results result={{ groups: r.groups, failed: [], searched: 0 }} lookups={false} compact onDismiss={onDismiss} />
+        </section>
+      ))}
+    </>
+  );
+}
+
 /** For you comes as rows, one per mix of tags; older servers sent one list. */
 const shelvesOf = (r: SearchResult): Shelf[] | null => {
   const s = (r as SearchResult & { shelves?: Shelf[] }).shelves;
@@ -64,6 +100,11 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
     `${page}|${scopeTag}|${mode}|${genres.join(",")}|${seed ?? ""}|${sort}`,
   );
 
+  const dismiss = (g: SeriesGroup, on: boolean) => {
+    forgetAlsoLiked();
+    void setNotInterested(g.hits[0].mangaId, g.title, on, adult).catch(() => {});
+  };
+
   return (
     <section>
       <FilterBar
@@ -78,16 +119,20 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       {busy && <Loading label="Asking your sources. This can take several seconds." />}
       {result && shelvesOf(result) && (
         <div className="shelves">
-          {shelvesOf(result)!.map((s) => (
-            <section key={s.tags.join("+")} className="shelf">
+          {shelvesOf(result)!.map((s, i) => (
+            <Fragment key={s.tags.join("+")}>
+            {i === 1 && <AlsoLikedRows adult={adult} scopeTag={scopeTag} onDismiss={dismiss} />}
+            <section className="shelf">
               <header className="shelfHead">
                 <h3>Because you read <em>{s.from}</em></h3>
                 <a className="shelfMore" href={pageHref(page, { genre: s.tags })}>
                   {s.tags.map(canonLabel).join(" + ")} <span aria-hidden="true">→</span>
                 </a>
               </header>
-              <Results result={{ groups: s.groups, failed: [], searched: 0 }} lookups={false} compact />
+              <Results result={{ groups: s.groups, failed: [], searched: 0 }} lookups={false} compact onDismiss={dismiss} />
             </section>
+            {i === 0 && shelvesOf(result)!.length === 1 && <AlsoLikedRows adult={adult} scopeTag={scopeTag} onDismiss={dismiss} />}
+            </Fragment>
           ))}
         </div>
       )}

@@ -16,6 +16,7 @@ import { classifyAdult } from "./adultcheck.js";
 import { clearEngineUpdateCache, engineUpdateInfo, requestEngineUpdate } from "./engineupdate.js";
 import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
+import { alsoLiked } from "./alsoliked.js";
 import { discover, recommendShelves, similarTo, tagWeights, type DiscoverSort } from "./discover.js";
 import { Downloader, mimeForFile } from "./downloader.js";
 import { backupName, snapshot } from "./backup.js";
@@ -676,7 +677,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const liked = store.likedSeries(adult);
     const titles = store.libraryTitles(adult);
     const hidden = new Set(hiddenTags().map(canonKey));
-    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]), titles.length, [...hidden]]);
+    const disliked = store.notInterested(adult);
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]), titles.length, [...hidden], disliked.map((d) => d.mangaId)]);
     const cached = forYouCache.get(adult);
     if (cached && cached.key === key && Date.now() - cached.at < 60 * 60 * 1000) return cached.value;
     try {
@@ -685,7 +687,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         onResult: report,
         scope: adult ? "adult" : "safe",
         hidden,
+        disliked,
         knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
+        scores: async (list) => {
+          const meta = await ratingsFor(store, list, fetchImpl, {}, false);
+          return new Map([...meta].map(([k, m]) => [k, m.score]));
+        },
       });
       forYouCache.set(adult, { at: Date.now(), key, value });
       return value;
@@ -693,6 +700,52 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
     }
+  });
+
+  // "Readers of X also liked" (AniList's community recommendations, found on your sources). Separate from
+  // /api/for-you because finding each one on your sources is slow; the page adds these rows when they arrive.
+  const alsoLikedCache = new Map<boolean, { at: number; key: string; value: unknown }>();
+  app.get<{ Querystring: { adult?: string } }>("/api/for-you/also-liked", async (req, reply) => {
+    const adult = req.query.adult === "1";
+    if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    const liked = store.likedSeries(adult);
+    const own = new Set(store.libraryTitles(adult).map(normalizeTitle));
+    const not = store.notInterested(adult);
+    const notKeys = new Set(not.map((n) => n.titleKey));
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]), own.size, not.length]);
+    const cached = alsoLikedCache.get(adult);
+    if (cached && cached.key === key && Date.now() - cached.at < 60 * 60 * 1000) return cached.value;
+    try {
+      const rows = await alsoLiked(config, store, liked, {
+        fetchImpl,
+        onResult: report,
+        scope: adult ? "adult" : "safe",
+        skip: (g) => own.has(g.key) || notKeys.has(g.key) || g.hits.some((h) => store.inLibrary(h.mangaId)),
+      });
+      const value = { rows: await Promise.all(rows.map(async (r) => ({ ...r, groups: await withoutHidden(r.groups) }))) };
+      alsoLikedCache.set(adult, { at: Date.now(), key, value });
+      return value;
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "Couldn't reach AniList." });
+    }
+  });
+
+  // "Not interested" on a recommendation: it's never suggested again, and its tags count a little against.
+  app.put<{ Params: { id: string }; Body: { title?: unknown; on?: unknown; adult?: unknown } }>("/api/manga/:id/not-interested", async (req, reply) => {
+    const id = Number(req.params.id);
+    const title = req.body?.title;
+    if (!Number.isInteger(id) || typeof title !== "string" || !title.trim()) return reply.code(400).send({ error: "Needs the series id and title." });
+    const on = req.body?.on !== false;
+    // Its tags are what count against; read them from the source if they aren't known yet.
+    if (on && !store.seriesTags(id)) {
+      const tags = await detailsFor(id).then((m) => m.genre ?? [], () => []);
+      if (tags.length > 0) store.recordSeriesTags(id, tags);
+    }
+    store.markNotInterested(id, title, req.body?.adult === true, on);
+    forYouCache.clear();
+    alsoLikedCache.clear();
+    return { ok: true };
   });
 
   const similarCache = new Map<string, { at: number; groups: unknown[]; basedOn: string[] }>();

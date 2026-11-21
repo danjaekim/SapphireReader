@@ -240,8 +240,9 @@ export function planShelves(liked: LikedSeries[], weight: (tag: string) => numbe
   const taste = tasteWeights(liked, weight, hidden);
   const combos = new Map<string, { tags: string[]; score: number; from: { title: string; w: number } }>();
   for (const s of liked) {
+    if (s.weight <= 0) continue;
     const own = [...new Set(s.tags.map(canonKey))]
-      .filter((k) => taste.has(k))
+      .filter((k) => (taste.get(k)?.w ?? 0) > 0)
       .map((k) => ({ k, tag: taste.get(k)!.tag, w: weight(taste.get(k)!.tag) * Math.sqrt(taste.get(k)!.w) }))
       .sort((a, b) => b.w - a.w);
     if (own.length === 0) continue;
@@ -279,33 +280,51 @@ export async function recommendShelves(
   config: Config,
   liked: LikedSeries[],
   ownTitles: string[],
-  opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope; knowledge?: TagKnowledge; hidden?: Set<string> } = {},
+  opts: {
+    fetchImpl?: FetchLike;
+    onResult?: SourceReport;
+    scope?: Scope;
+    knowledge?: TagKnowledge;
+    hidden?: Set<string>;
+    /** Series you said you're not interested in: never suggested, and their tags count against. */
+    disliked?: { mangaId: number; titleKey: string; tags: string[] }[];
+    /** AniList scores (0-100) by normalized title, for a gentle nudge toward well-rated series. */
+    scores?: (titles: string[]) => Promise<Map<string, number | null>>;
+  } = {},
 ): Promise<{ shelves: Shelf[]; groups: SeriesGroup[]; because: string[] }> {
-  const { knowledge = plainKnowledge, hidden = new Set<string>(), ...browseOpts } = opts;
-  const plan = planShelves(liked, knowledge.weight, hidden);
-  const taste = tasteWeights(liked, knowledge.weight, hidden);
-  const because = [...taste.values()].sort((a, b) => b.w - a.w).slice(0, 3).map((t) => t.tag);
+  const { knowledge = plainKnowledge, hidden = new Set<string>(), disliked = [], scores, ...browseOpts } = opts;
+  // Each "not interested" counts against its tags about as much as an unread library series counts for them.
+  const signals = [...liked, ...disliked.map((d) => ({ mangaId: d.mangaId, title: "", tags: d.tags, weight: -0.8 }))];
+  const taste = tasteWeights(signals, knowledge.weight, hidden);
+  const plan = planShelves(signals, knowledge.weight, hidden);
+  const because = [...taste.values()].filter((t) => t.w > 0).sort((a, b) => b.w - a.w).slice(0, 3).map((t) => t.tag);
+  const notKeys = new Set(disliked.map((d) => d.titleKey));
+  const notIds = new Set(disliked.map((d) => d.mangaId));
   if (plan.length === 0) return { shelves: [], groups: [], because: [] };
   const own = new Set(ownTitles.map(normalizeTitle));
   const ownIds = new Set(liked.map((l) => l.mangaId));
   const results = await Promise.all(plan.map((p) => browseByGenres(config, p.tags, { ...browseOpts, strict: true, timeoutMs: 9000 }).catch(() => null)));
 
+  const all = results.flatMap((r) => r?.groups ?? []);
+  const rated = scores ? await scores([...new Set(all.map((g) => g.title))].slice(0, 200)).catch(() => new Map<string, number | null>()) : new Map<string, number | null>();
   const fit = (g: SeriesGroup, fallback: string[]) => {
     const known = g.hits.map((h) => knowledge.tagsOf(h.mangaId)).find((t) => t !== null);
     const keys = new Set((known ?? fallback).map(canonKey));
-    if ([...keys].some((k) => hidden.has(k))) return -1;
+    if ([...keys].some((k) => hidden.has(k))) return null;
     let total = 0;
     for (const k of keys) total += taste.get(k)?.w ?? 0;
-    return total;
+    // Well-rated series move up a little (at most ±15%); unknown scores stay as they are.
+    const score = rated.get(g.key) ?? rated.get(normalizeTitle(g.title));
+    return score == null ? total : total * (0.85 + 0.3 * Math.min(100, Math.max(0, score)) / 100);
   };
   const taken = new Set<string>();
   const shelves: Shelf[] = [];
   // Rows take turns picking, so the first row doesn't claim every series that fits several.
   const pools = results.map((r, i) =>
     (r?.groups ?? [])
-      .filter((g) => !own.has(g.key) && !g.hits.some((h) => ownIds.has(h.mangaId)))
+      .filter((g) => !own.has(g.key) && !notKeys.has(g.key) && !g.hits.some((h) => ownIds.has(h.mangaId) || notIds.has(h.mangaId)))
       .map((g, rank) => ({ g, s: fit(g, plan[i].tags), rank }))
-      .filter((x) => x.s >= 0)
+      .filter((x): x is { g: SeriesGroup; s: number; rank: number } => x.s !== null)
       // Fit first, then the site's own order (its popularity) as the tie-break.
       .sort((a, b) => b.s - a.s || a.rank - b.rank),
   );

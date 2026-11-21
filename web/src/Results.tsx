@@ -26,7 +26,8 @@ function useNearScreen<T extends Element>(margin = "300px") {
   return [ref, near] as const;
 }
 
-function Card({ group, queue, lookups, hideBad, onBad }: { group: SeriesGroup; queue: Queue; lookups: boolean; hideBad: boolean; onBad: (key: string, bad: boolean) => void }) {
+function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: SeriesGroup; queue: Queue; lookups: boolean; hideBad: boolean; onBad: (key: string, bad: boolean) => void; onDismiss?: (group: SeriesGroup, on: boolean) => void }) {
+  const [dismissed, setDismissed] = useState(false);
   const [ref, near] = useNearScreen<HTMLLIElement>();
   const sourceNames = [...new Set(group.hits.map((h) => h.sourceName))];
   const [chapters, setChapters] = useState<Record<number, Chapter>>({});
@@ -81,8 +82,21 @@ function Card({ group, queue, lookups, hideBad, onBad }: { group: SeriesGroup; q
   const adultHidden = useHiddenAdult({ mangaId: group.hits[0].mangaId, title: group.title, sourceId: group.hits[0].sourceId }, near);
   if (adultHidden) return null;
   if (hideBad && allFailed) return null;
+  if (dismissed) {
+    return (
+      <li className="gridCard dismissedCard" ref={ref}>
+        <p>Won't suggest <strong>{group.title}</strong> again.</p>
+        <button type="button" className="button secondary small" onClick={() => { setDismissed(false); onDismiss?.(group, false); }}>Undo</button>
+      </li>
+    );
+  }
   return (
-    <li className={`gridCard ${allFailed ? "unavailable" : ""}`} ref={ref}>
+    <li className={`gridCard ${allFailed ? "unavailable" : ""} ${onDismiss ? "dismissable" : ""}`} ref={ref}>
+      {onDismiss && (
+        <button type="button" className="dismissBtn" aria-label={`Not interested in ${group.title}`} title="Not interested" onClick={() => { setDismissed(true); onDismiss(group, true); }}>
+          <span aria-hidden="true">✕</span>
+        </button>
+      )}
       <a href={seriesHref(target)} className="gridCover">
         <img src={thumbnailUrl(target)} alt="" loading="lazy" />
         {sourceNames.length > 1 && <span className="badge">{sourceNames.length} sources</span>}
@@ -133,6 +147,7 @@ export function Results({
   hasMore = false,
   onMore,
   compact = false,
+  onDismiss,
 }: {
   result: SearchResult;
   note?: string;
@@ -142,6 +157,8 @@ export function Results({
   onMore?: () => void;
   /** Just the grid: no count line or end marker (for rows inside a bigger page). */
   compact?: boolean;
+  /** Offers "Not interested" on each card (recommendations only). */
+  onDismiss?: (group: SeriesGroup, on: boolean) => void;
 }) {
   const queue = useMemo(() => createQueue(4), []);
   const [bad, setBad] = useState<Set<string>>(new Set());
@@ -186,7 +203,7 @@ export function Results({
       {result.groups.length === 0 && empty && <p className="muted">{empty}</p>}
       <ul className="grid">
         {result.groups.map((group) => (
-          <Card key={group.key} group={group} queue={queue} lookups={lookups} hideBad={hideBad} onBad={onBad} />
+          <Card key={group.key} group={group} queue={queue} lookups={lookups} hideBad={hideBad} onBad={onBad} onDismiss={onDismiss} />
         ))}
       </ul>
       {!compact && <div ref={end} className="gridEnd muted">

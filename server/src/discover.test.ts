@@ -120,6 +120,20 @@ describe("for you rows", () => {
     expect(Math.max(...counts.values())).toBeLessThanOrEqual(2);
   });
 
+  it("never suggests a series marked not interested, and counts its tags against", async () => {
+    const store = new Store(":memory:");
+    store.addToLibrary({ mangaId: 10, sourceId: "1", sourceName: "Asura Scans", title: "Shared Hit" });
+    store.setGenres(10, ["Action", "Murim"]);
+    const app = await buildApp(config, { fetchImpl: engine(), store });
+    const titles = async () => ((await app.inject({ url: "/api/for-you" })).json().groups as { title: string }[]).map((g) => g.title);
+    expect(await titles()).toContain("Nano Machine");
+    const res = await app.inject({ method: "PUT", url: "/api/manga/20/not-interested", payload: { title: "Nano Machine" } });
+    expect(res.statusCode).toBe(200);
+    expect(await titles()).not.toContain("Nano Machine");
+    await app.inject({ method: "PUT", url: "/api/manga/20/not-interested", payload: { title: "Nano Machine", on: false } });
+    expect(await titles()).toContain("Nano Machine");
+  });
+
   it("leaves hidden tags out of the plan", async () => {
     const { planShelves } = await import("./discover.js");
     const plan = planShelves([{ mangaId: 1, title: "X", tags: ["Boys' Love", "Romance", "Drama"], weight: 2 }], () => 1, new Set(["boys love"]));
