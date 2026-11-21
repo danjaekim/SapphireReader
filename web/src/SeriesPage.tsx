@@ -4,6 +4,7 @@ import { addToLibrary, alternatives, categories as loadCategories, markChapters,
 import { genreHref, readHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
+import { useScore } from "./shared";
 
 function chapterLabel(c: { name: string; chapterNumber: number }): string {
   return c.chapterNumber >= 0 ? `Ch. ${Number.isInteger(c.chapterNumber) ? c.chapterNumber : c.chapterNumber.toFixed(1)}` : c.name;
@@ -27,6 +28,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [newestFirst, setNewestFirst] = useState(true);
   const [fullDesc, setFullDesc] = useState(false);
   const [jump, setJump] = useState("");
+  const score = useScore(data?.manga.title ?? null);
   // After marking one chapter read, offer to mark the unread ones before it too (handy when you read them elsewhere).
   const [shelves, setShelves] = useState<Category[]>([]);
   useEffect(() => {
@@ -124,6 +126,11 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
               <p className="muted">
                 {[data.manga.sourceName, data.manga.status.toLowerCase(), data.manga.author].filter(Boolean).join(" · ")}
               </p>
+              {score != null && (
+                <p className="muted">
+                  <span className="seriesScore" title="AniList average score">★ {(score / 10).toFixed(1)}</span> / 10 on AniList
+                </p>
+              )}
               <p className="muted">
                 {data.latest.latestNumber !== null
                   ? `${data.latest.chapterCount} chapters, latest ${chapterLabel({ name: "", chapterNumber: data.latest.latestNumber })}`

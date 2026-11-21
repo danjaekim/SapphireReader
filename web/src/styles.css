@@ -240,7 +240,7 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 
 .grid, .row { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 16px 14px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 @media (min-width: 1500px) { .grid, .row { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); } }
-.gridCard { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.gridCard { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .gridCover { position: relative; display: block; aspect-ratio: 2 / 3; border-radius: 10px; overflow: hidden; background: var(--line); }
 .gridCover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .gridCover:hover img { transform: scale(1.03); transition: transform 0.15s; }
@@ -453,3 +453,14 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
   .tabbar a.active span:first-child { filter: none; }
   .shell .content { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
 }
+
+/* Add to library: appears when you hover a card (always visible on touch screens). */
+.addBtn {
+  position: absolute; top: 6px; left: 6px; width: 32px; height: 32px; border-radius: 50%; border: 0; cursor: pointer;
+  background: rgba(11, 18, 32, 0.85); color: #fff; font-size: 18px; line-height: 1; display: grid; place-items: center;
+  opacity: 0; transition: opacity 0.12s; z-index: 2;
+}
+.addBtn.on { background: var(--accent); opacity: 0.9; }
+.gridCard:hover .addBtn, .addBtn:focus-visible, .addBtn.on:hover { opacity: 1; }
+@media (hover: none) { .addBtn { opacity: 0.9; width: 36px; height: 36px; } }
+.seriesScore { color: #b7791f; font-weight: 600; }

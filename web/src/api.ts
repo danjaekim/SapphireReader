@@ -369,3 +369,9 @@ export interface SwitchOffer {
 export const switchOffers = () => getJson<{ offers: SwitchOffer[] }>("/api/switch-offers").then((r) => r.offers);
 export const acceptSwitch = (mangaId: number) => send("POST", `/api/switch-offers/${mangaId}/accept`) as Promise<{ mangaId: number }>;
 export const dismissSwitch = (mangaId: number) => send("POST", `/api/switch-offers/${mangaId}/dismiss`);
+
+export interface Rating {
+  score: number | null;
+  popularity: number | null;
+}
+export const ratingsFor = (titles: string[]) => send("POST", "/api/ratings", { titles }) as Promise<{ ratings: Record<string, Rating> }>;

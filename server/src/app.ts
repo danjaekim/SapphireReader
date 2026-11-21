@@ -9,7 +9,7 @@ import type { Config } from "./config.js";
 import { checkEngine, engineFile, engineQuery } from "./engine.js";
 import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
 import { requestUpdate, updateInfo } from "./updater.js";
-import { rankByAnilist } from "./ratings.js";
+import { rankByAnilist, ratingsFor } from "./ratings.js";
 import { canonKey } from "./genres.js";
 import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
@@ -34,6 +34,7 @@ import {
   type SourceReport,
   type ChapterInfo,
   type SeriesGroup,
+  normalizeTitle,
 } from "./search.js";
 
 const rawVersion = process.env.APP_VERSION ?? "dev";
@@ -131,6 +132,19 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (sort !== "rating" && sort !== "popular") return result;
     return { ...result, groups: await rankByAnilist(store, result.groups, sort, fetchImpl) };
   }
+
+  // AniList scores for a few titles at a time, so cards can show them without slowing the lists down.
+  app.post<{ Body: { titles?: unknown } }>("/api/ratings", async (req, reply) => {
+    const titles = Array.isArray(req.body?.titles) ? (req.body!.titles as unknown[]).filter((t): t is string => typeof t === "string" && t.length > 0).slice(0, 60) : [];
+    if (titles.length === 0) return reply.code(400).send({ error: "No titles." });
+    const meta = await ratingsFor(store, titles, fetchImpl).catch(() => new Map());
+    const out: Record<string, { score: number | null; popularity: number | null }> = {};
+    for (const t of titles) {
+      const m = meta.get(normalizeTitle(t));
+      out[t] = { score: m?.score ?? null, popularity: m?.popularity ?? null };
+    }
+    return { ratings: out };
+  });
 
   const sortOf = (v: string | undefined): SortKey => (SORT_KEYS.includes(v as SortKey) ? (v as SortKey) : "relevance");
 
