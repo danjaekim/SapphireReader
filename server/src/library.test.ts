@@ -94,3 +94,23 @@ describe("library api", () => {
     expect(store.inLibrary(7)).toBe(true);
   });
 });
+
+describe("marking chapters by hand", () => {
+  it("marks read ahead (moving your place) and unread (moving it back)", async () => {
+    const store = new Store(":memory:");
+    const app = await buildApp(config, { fetchImpl: fakeEngine(), store });
+    const mark = (chapterIds: number[], read: boolean) => app.inject({ method: "POST", url: "/api/manga/10/read", payload: { chapterIds, read } });
+    let res = await mark([501, 502], true);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().readChapterIds.sort()).toEqual([501, 502]);
+    expect(store.getProgress(10)?.chapterId).toBe(502);
+    res = await mark([502], false);
+    expect(res.json().readChapterIds).toEqual([501]);
+    expect(store.getProgress(10)?.chapterId).toBe(501);
+    res = await mark([501], false);
+    expect(store.getProgress(10)).toBeNull();
+    expect((await mark([1], "yes" as unknown as boolean)).statusCode).toBe(400);
+  });
+
+
+});

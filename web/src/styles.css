@@ -124,7 +124,13 @@ a { color: var(--fg); }
 .reader { cursor: pointer; }
 .readerTop a { color: var(--fg); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .strip { display: flex; flex-direction: column; }
-.strip img { display: block; width: 100%; height: auto; min-height: 200px; background: #0a0a0a; }
+.strip img { display: block; width: 100%; height: auto; background: #0a0a0a; }
+/* Until a page arrives it holds a screen's worth of space, so lazy loading only fetches what's near. */
+.strip img.pending { min-height: 70vh; }
+.pageError { min-height: 40vh; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--muted); background: #0a0a0a; }
+.readerEnd { display: grid; justify-items: center; gap: 12px; padding: 24px 16px 40px; text-align: center; }
+.nextChapter { font-size: 1.05rem; padding: 14px 22px; }
+.pageCount { margin-left: 8px; font-size: 0.85rem; }
 .readerNav {
   display: flex; justify-content: space-between; padding: 16px max(16px, env(safe-area-inset-left));
   padding-bottom: calc(24px + env(safe-area-inset-bottom)); background: var(--bg);
@@ -253,3 +259,11 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
   background: var(--panel); color: var(--fg); border: 1px solid var(--line);
   border-radius: 8px; padding: 6px 8px; font: inherit;
 }
+
+.desc.clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.descWrap { margin-bottom: 12px; }
+.descWrap .desc { margin-bottom: 4px; }
+.chapterTools { display: flex; align-items: center; gap: 12px; }
+.jump { width: 9.5rem; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; }
+.offer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; }
+.readerEnd .readerNav { background: none; border: 0; gap: 28px; justify-content: center; width: auto; position: static; padding: 0; }

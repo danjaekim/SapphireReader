@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
+import fastifyCompress from "@fastify/compress";
 import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
 import { checkEngine, engineFile, engineQuery } from "./engine.js";
@@ -21,6 +22,7 @@ import { Store, type ProgressInput } from "./store.js";
 import {
   fetchChapterList,
   fetchMangaDetails,
+  type MangaDetails,
   onSeriesTags,
   fetchPageUrls,
   listSources,
@@ -59,6 +61,8 @@ const pageOf = (v: string | undefined) => {
 
 export async function buildApp(config: Config, options: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
+  // Smaller API and app downloads, which matters most on a phone over Tailscale. Images are left alone.
+  await app.register(fastifyCompress, { global: true, threshold: 1024, encodings: ["br", "gzip"] });
   const { fetchImpl } = options;
   const store = options.store ?? new Store(":memory:");
   // Remember the tags of every series looked at, so Similar can learn which tags are telling.
@@ -85,6 +89,18 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (cached && Date.now() - cached.at < LATEST_TTL_MS) return cached.value;
     const value = await fetchChapterList(config, mangaId, fetchImpl);
     chapterCache.set(mangaId, { at: Date.now(), value });
+    return value;
+  }
+
+  // Series details come from the source site too (and the reader asks for them on every chapter),
+  // so keep them for a while. The library check and an explicit refresh bypass this.
+  const detailsCache = new Map<number, { at: number; value: Promise<MangaDetails> }>();
+  function detailsFor(mangaId: number, fresh = false): Promise<MangaDetails> {
+    const cached = detailsCache.get(mangaId);
+    if (!fresh && cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.value;
+    const value = fetchMangaDetails(config, mangaId, fetchImpl);
+    detailsCache.set(mangaId, { at: Date.now(), value });
+    value.catch(() => detailsCache.delete(mangaId));
     return value;
   }
 
@@ -450,7 +466,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
-      const manga = await fetchMangaDetails(config, id, fetchImpl);
+      const manga = await detailsFor(id);
       const scope = scopeFor(req);
       const key = `${id}|${scope}`;
       const cached = similarCache.get(key);
@@ -485,7 +501,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
-      const [manga, chapters] = await Promise.all([fetchMangaDetails(config, id, fetchImpl), chaptersFor(id)]);
+      const [manga, chapters] = await Promise.all([detailsFor(id), chaptersFor(id)]);
       if (store.inLibrary(id)) {
         store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
         store.setGenres(id, manga.genre);
@@ -723,9 +739,54 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  // Mark chapters read or unread by hand (e.g. ones read elsewhere). Marking ahead of where you are
+  // moves your place to the furthest chapter marked, so unread counts and alerts follow.
+  app.post<{ Params: { id: string }; Body: { chapterIds?: unknown; read?: unknown } }>("/api/manga/:id/read", async (req, reply) => {
+    const id = Number(req.params.id);
+    const { chapterIds, read } = req.body ?? {};
+    if (!Number.isInteger(id) || !Array.isArray(chapterIds) || !chapterIds.every(Number.isInteger) || typeof read !== "boolean") {
+      return reply.code(400).send({ error: "Send chapterIds and read." });
+    }
+    try {
+      const chapters = await chaptersFor(id);
+      const marked = chapters.filter((c) => (chapterIds as number[]).includes(c.id));
+      store.setChaptersRead(id, marked.map((c) => c.id), read);
+      if (read && marked.length > 0) {
+        const furthest = marked.reduce((a, b) => (b.chapterNumber > a.chapterNumber ? b : a));
+        const p = store.getProgress(id);
+        if (!p || furthest.chapterNumber > p.chapterNumber) {
+          store.saveProgress(id, { chapterId: furthest.id, chapterNumber: furthest.chapterNumber, chapterName: furthest.name, pageIndex: 0, pageOffset: 0, finished: true });
+        }
+      }
+      if (!read && marked.length > 0) {
+        // Unmarking at or before your place moves your place back to just before the earliest one.
+        const earliest = Math.min(...marked.map((c) => c.chapterNumber));
+        const p = store.getProgress(id);
+        if (p && earliest <= p.chapterNumber) {
+          const before = chapters.filter((c) => c.chapterNumber >= 0 && c.chapterNumber < earliest).sort((a, b) => b.chapterNumber - a.chapterNumber)[0];
+          if (before) store.saveProgress(id, { chapterId: before.id, chapterNumber: before.chapterNumber, chapterName: before.name, pageIndex: 0, pageOffset: 0, finished: false });
+          else store.clearProgress(id);
+        }
+      }
+      return { readChapterIds: store.readChapterIds(id), progress: store.getProgress(id) };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "Couldn't load this series' chapters." });
+    }
+  });
+
   const webDir = resolve(config.webDir);
   if (existsSync(webDir)) {
-    await app.register(fastifyStatic, { root: webDir });
+    await app.register(fastifyStatic, {
+      root: webDir,
+      cacheControl: false,
+      // Built files have content hashes in their names, so they can be cached for good;
+      // the page itself and the service worker must always be checked for a new version.
+      setHeaders: (res, path) => {
+        if (/[\\/]assets[\\/]/.test(path)) res.setHeader("cache-control", "public, max-age=31536000, immutable");
+        else res.setHeader("cache-control", "no-cache");
+      },
+    });
     // Single-page app: any non-API path serves index.html.
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith("/api/")) return reply.code(404).send({ error: "not found" });

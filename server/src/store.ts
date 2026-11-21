@@ -471,6 +471,20 @@ export class Store {
     return row ? toProgress(row) : null;
   }
 
+  clearProgress(mangaId: number): void {
+    this.db.prepare("DELETE FROM progress WHERE manga_id = ?").run(mangaId);
+  }
+
+  setChaptersRead(mangaId: number, chapterIds: number[], read: boolean): void {
+    const now = new Date().toISOString();
+    const add = this.db.prepare("INSERT OR IGNORE INTO chapters_read (manga_id, chapter_id, read_at) VALUES (?, ?, ?)");
+    const del = this.db.prepare("DELETE FROM chapters_read WHERE manga_id = ? AND chapter_id = ?");
+    for (const c of chapterIds) {
+      if (read) add.run(mangaId, c, now);
+      else del.run(mangaId, c);
+    }
+  }
+
   readChapterIds(mangaId: number): number[] {
     return (
       this.db.prepare("SELECT chapter_id FROM chapters_read WHERE manga_id = ?").all(mangaId) as {

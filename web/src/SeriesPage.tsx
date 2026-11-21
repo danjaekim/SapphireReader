@@ -1,6 +1,6 @@
 import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
-import { addToLibrary, alternatives, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, alternatives, markChapters, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, readHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -25,6 +25,10 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [data, setData] = useState<SeriesData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newestFirst, setNewestFirst] = useState(true);
+  const [fullDesc, setFullDesc] = useState(false);
+  const [jump, setJump] = useState("");
+  // After marking one chapter read, offer to mark the unread ones before it too (handy when you read them elsewhere).
+  const [offer, setOffer] = useState<{ label: string; ids: number[] } | null>(null);
 
   const { states, download } = useSeriesDownloads(mangaId);
   const [similarGroups, setSimilarGroups] = useState<SeriesGroup[] | null>(null);
@@ -60,6 +64,29 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     setError(null);
     series(mangaId).then(setData, (e: unknown) => setError(e instanceof Error ? e.message : "Couldn't load this series."));
   }, [mangaId]);
+
+  // Tab title (left plain for 18+ series, so they stay out of browser history).
+  useEffect(() => {
+    if (!data || data.adult) return;
+    document.title = `${data.manga.title} · Sapphire`;
+    return () => {
+      document.title = "Sapphire";
+    };
+  }, [data?.manga.title]);
+
+  async function mark(chapterIds: number[], read: boolean) {
+    if (!data) return;
+    const before = data;
+    const ids = new Set(data.readChapterIds);
+    for (const id of chapterIds) (read ? ids.add(id) : ids.delete(id));
+    setData({ ...data, readChapterIds: [...ids] });
+    try {
+      const r = await markChapters(mangaId, chapterIds, read);
+      setData((d) => (d ? { ...d, readChapterIds: r.readChapterIds, progress: r.progress } : d));
+    } catch {
+      setData(before);
+    }
+  }
 
   async function toggleLibrary() {
     if (!data) return;
@@ -117,7 +144,16 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
               ))}
             </ul>
           )}
-          {data.manga.description && <p className="desc">{data.manga.description}</p>}
+          {data.manga.description && (
+            <div className="descWrap">
+              <p className={`desc ${fullDesc ? "" : "clamped"}`}>{data.manga.description}</p>
+              {data.manga.description.length > 280 && (
+                <button type="button" className="linkish" onClick={() => setFullDesc((v) => !v)}>
+                  {fullDesc ? "Show less" : "Show more"}
+                </button>
+              )}
+            </div>
+          )}
           {others && others.length > 0 && (
             <div className="card">
               <h3>Also on</h3>
@@ -154,10 +190,30 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
             </div>
           )}
           <div className="chapterHead">
-            <h3>Chapters</h3>
-            <button type="button" className="linkish" onClick={() => setNewestFirst((v) => !v)}>
-              {newestFirst ? "Newest first" : "Oldest first"}
-            </button>
+            <h3>
+              Chapters{" "}
+              {data.chapters.length > 0 && (
+                <span className="muted small">
+                  {data.chapters.filter((c) => !readIds.has(c.id)).length} unread of {data.chapters.length}
+                </span>
+              )}
+            </h3>
+            <div className="chapterTools">
+              {data.chapters.length > 30 && (
+                <input
+                  type="search"
+                  inputMode="decimal"
+                  className="jump"
+                  placeholder="Find chapter"
+                  value={jump}
+                  onChange={(e) => setJump(e.target.value)}
+                  aria-label="Find a chapter by number or name"
+                />
+              )}
+              <button type="button" className="linkish" onClick={() => setNewestFirst((v) => !v)}>
+                {newestFirst ? "Newest first" : "Oldest first"}
+              </button>
+            </div>
           </div>
           <div className="actions dlActions">
             <button type="button" className="button small secondary" disabled={notSaved.length === 0} onClick={() => download(data.manga, notSaved)}>
@@ -173,14 +229,37 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
             </button>
             {working > 0 && <span className="muted">Downloading {working} chapter{working === 1 ? "" : "s"} to the NAS…</span>}
           </div>
+          {offer && (
+            <div className="offer">
+              <span>Also mark the {offer.ids.length} unread chapter{offer.ids.length === 1 ? "" : "s"} before {offer.label} as read?</span>
+              <button type="button" className="button small" onClick={() => { void mark(offer.ids, true); setOffer(null); }}>Mark read</button>
+              <button type="button" className="linkish" onClick={() => setOffer(null)}>No thanks</button>
+            </div>
+          )}
           <ul className="chapters">
-            {(newestFirst ? [...data.chapters].reverse() : data.chapters).map((c) => (
+            {(newestFirst ? [...data.chapters].reverse() : data.chapters)
+              .filter((c) => !jump.trim() || chapterLabel(c).toLowerCase().includes(jump.trim().toLowerCase()) || c.name.toLowerCase().includes(jump.trim().toLowerCase()))
+              .map((c) => (
               <li key={c.id} className={readIds.has(c.id) ? "read" : undefined}>
                 <a href={readHref(mangaId, c.id)}>
                   <span>{chapterLabel(c)}</span>
                   {c.name && c.chapterNumber >= 0 && c.name !== chapterLabel(c) && <span className="muted"> {c.name}</span>}
                   <span className="muted date">{c.uploadDate ? new Date(c.uploadDate).toLocaleDateString() : ""}</span>
                 </a>
+                <button
+                  type="button"
+                  className="dlBtn"
+                  title={readIds.has(c.id) ? "Mark as unread" : "Mark as read"}
+                  aria-label={readIds.has(c.id) ? "Mark as unread" : "Mark as read"}
+                  onClick={() => {
+                    const read = !readIds.has(c.id);
+                    void mark([c.id], read);
+                    const earlier = data.chapters.slice(0, data.chapters.indexOf(c)).filter((x) => !readIds.has(x.id)).map((x) => x.id);
+                    setOffer(read && earlier.length > 0 ? { label: chapterLabel(c), ids: earlier } : null);
+                  }}
+                >
+                  {readIds.has(c.id) ? "◉" : "○"}
+                </button>
                 <DownloadButton state={states[c.id]} onDownload={() => download(data.manga, [c])} />
               </li>
             ))}

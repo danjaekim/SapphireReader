@@ -11,6 +11,10 @@ export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; 
   const [data, setData] = useState<SeriesData | null>(null);
   const [pages, setPages] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [current, setCurrent] = useState(0);
+  // Pages that failed to load, and how many times each was retried (the retry count busts the cache).
+  const [failed, setFailed] = useState<Record<number, number>>({});
+  const [loadedPages, setLoadedPages] = useState<Record<number, boolean>>({});
 
   // The series (chapter list) is cached by the server, so moving between chapters is quick.
   useEffect(() => {
@@ -20,6 +24,9 @@ export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; 
   useEffect(() => {
     setPages(null);
     setError(null);
+    setFailed({});
+    setLoadedPages({});
+    setCurrent(0);
     window.scrollTo(0, 0);
     chapterPages(chapterId).then(
       (r) => setPages(r.pages),
@@ -47,10 +54,18 @@ export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; 
   const next = index >= 0 && index < data!.chapters.length - 1 ? data!.chapters[index + 1] : null;
 
   const bottomNav = (
-    <div className="readerNav">
-      {prev ? <a href={readHref(mangaId, prev.id)}>← Previous</a> : <span className="muted">← Previous</span>}
-      <a href={seriesHref(mangaId)}>Chapters</a>
-      {next ? <a href={readHref(mangaId, next.id)}>Next →</a> : <span className="muted">Next →</span>}
+    <div className="readerEnd">
+      {next ? (
+        <a className="button nextChapter" href={readHref(mangaId, next.id)}>
+          Next: {next.chapterNumber >= 0 ? `Chapter ${next.chapterNumber}` : next.name} →
+        </a>
+      ) : (
+        <p className="muted">You're caught up. Sapphire will alert you when a new chapter comes out{data?.inLibrary ? "" : " if you add this series to your library"}.</p>
+      )}
+      <div className="readerNav">
+        {prev ? <a href={readHref(mangaId, prev.id)}>← Previous</a> : <span className="muted">← Previous</span>}
+        <a href={seriesHref(mangaId)}>All chapters</a>
+      </div>
     </div>
   );
 
@@ -79,6 +94,7 @@ export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; 
       });
       const last = imgs[imgs.length - 1].getBoundingClientRect();
       const finished = last.height > 0 && last.bottom <= window.innerHeight + 80;
+      setCurrent(pageIndex);
       saveProgress(
         mangaId,
         { chapterId, chapterNumber: chapter.chapterNumber, chapterName: chapter.name, pageIndex, pageOffset, finished },
@@ -110,10 +126,47 @@ export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; 
 
   useEffect(() => setChrome(false), [chapterId]);
 
+  // Keyboard: ← / → for previous / next chapter, Esc back to the series. Scrolling keys work as usual.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || (e.target as HTMLElement).closest("input, textarea, select")) return;
+      if (e.key === "ArrowRight" && next) window.location.hash = readHref(mangaId, next.id);
+      else if (e.key === "ArrowLeft" && prev) window.location.hash = readHref(mangaId, prev.id);
+      else if (e.key === "Escape") window.location.hash = seriesHref(mangaId);
+      else if (e.key === "m") setChrome((v) => !v);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mangaId, next?.id, prev?.id]);
+
+  // Tab title shows where you are (left plain for 18+ series, so they stay out of browser history).
+  useEffect(() => {
+    if (!data || !chapter || data.adult) return;
+    document.title = `${chapter.chapterNumber >= 0 ? `Ch. ${chapter.chapterNumber}` : chapter.name} · ${data.manga.title}`;
+    return () => {
+      document.title = "Sapphire";
+    };
+  }, [data?.manga.title, chapter?.id]);
+
+  // Near the end of a chapter, start fetching the next one's first pages so it opens instantly.
+  const warmed = useRef<number | null>(null);
+  useEffect(() => {
+    if (!pages || !next || warmed.current === next.id || current < pages.length - 4) return;
+    warmed.current = next.id;
+    chapterPages(next.id).then(
+      (r) => r.pages.slice(0, 3).forEach((src) => {
+        const img = new Image();
+        img.src = src;
+      }),
+      () => {},
+    );
+  }, [current, pages, next?.id]);
+
   // Warm the next chapter's page list so "Next" starts fast.
   useEffect(() => {
     if (pages && next) chapterPages(next.id).catch(() => {});
   }, [pages, next?.id]);
+
 
   return (
     <section className="reader" onClick={onTap}>
@@ -122,6 +175,7 @@ export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; 
         <a href={seriesHref(mangaId)}>← {data?.manga.title ?? "Back"}</a>
         <span className="readerTitle">
           <strong>{chapter ? (chapter.chapterNumber >= 0 ? `Chapter ${chapter.chapterNumber}` : chapter.name) : ""}</strong>
+          {pages && <span className="muted pageCount">{Math.min(current + 1, pages.length)} / {pages.length}</span>}
           {data && chapter && (
             <>
               <DownloadButton state={states[chapter.id]} onDownload={() => download(data.manga, [chapter])} />
@@ -147,15 +201,31 @@ export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; 
       {!pages && !error && <Loading label="Loading pages from the source…" size="lg" />}
       {pages && (
         <div className="strip" ref={stripRef}>
-          {pages.map((src, i) => (
-            <img
-              key={src}
-              src={src}
-              alt={`Page ${i + 1}`}
-              loading={i < 3 || i <= (target.current?.index ?? 0) ? "eager" : "lazy"}
-              onLoad={(e) => restoreFor(i, e.currentTarget)}
-            />
-          ))}
+          {pages.map((src, i) =>
+            failed[i] !== undefined && failed[i] < 0 ? (
+              <div key={src} className="pageError">
+                <p>Page {i + 1} didn't load.</p>
+                <button type="button" className="button small" onClick={() => setFailed((f) => ({ ...f, [i]: -f[i] }))}>
+                  Try again
+                </button>
+              </div>
+            ) : (
+              <img
+                key={`${src}#${failed[i] ?? 0}`}
+                src={failed[i] ? `${src}${src.includes("?") ? "&" : "?"}retry=${failed[i]}` : src}
+                alt={`Page ${i + 1}`}
+                className={loadedPages[i] ? undefined : "pending"}
+                loading={i < 3 || i <= (target.current?.index ?? 0) ? "eager" : "lazy"}
+                decoding="async"
+                onLoad={(e) => {
+                  setLoadedPages((l) => ({ ...l, [i]: true }));
+                  restoreFor(i, e.currentTarget);
+                }}
+                // A negative count means "showing the retry button"; retrying flips it to the next attempt.
+                onError={() => setFailed((f) => ({ ...f, [i]: -((Math.abs(f[i] ?? 0)) + 1) }))}
+              />
+            ),
+          )}
         </div>
       )}
       {pages && bottomNav}

@@ -111,6 +111,8 @@ export interface ProgressInput {
 export const saveProgress = (id: number, p: ProgressInput, keepalive = false) =>
   send("PUT", `/api/progress/${id}`, p, keepalive);
 
+export const markChapters = (mangaId: number, chapterIds: number[], read: boolean) =>
+  send("POST", `/api/manga/${mangaId}/read`, { chapterIds, read }) as Promise<{ readChapterIds: number[]; progress: Progress | null }>;
 export const series = (mangaId: number) => getJson<SeriesData>(`/api/manga/${mangaId}`);
 export const chapterPages = (chapterId: number) =>
   getJson<{ pages: string[] }>(`/api/chapters/${chapterId}/pages`);

@@ -23,8 +23,26 @@ function Card({ item }: { item: LibraryItem }) {
   );
 }
 
+type LibSort = "recent" | "unread" | "title";
+const LIB_SORTS: { id: LibSort; label: string }[] = [
+  { id: "recent", label: "Recently read" },
+  { id: "unread", label: "Most unread" },
+  { id: "title", label: "Title A–Z" },
+];
+
+function savedSort(): LibSort {
+  try {
+    const v = localStorage.getItem("sapphire.librarySort");
+    return LIB_SORTS.some((s) => s.id === v) ? (v as LibSort) : "recent";
+  } catch {
+    return "recent";
+  }
+}
+
 export function Library() {
   const [items, setItems] = useState<LibraryItem[] | null>(null);
+  const [sort, setSort] = useState<LibSort>(savedSort);
+  const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -47,13 +65,46 @@ export function Library() {
   if (!items) return <Loading label="Loading your library…" />;
   if (items.length === 0) return <p className="muted">Nothing here yet. Open a series from Search and tap Add to library.</p>;
 
-  const reading = items.filter((i) => i.progress && (i.unread ?? 1) > 0);
-  const rest = items.filter((i) => !reading.includes(i));
+  // The server already lists most recently read first.
+  const needle = filter.trim().toLowerCase();
+  const shown = items.filter((i) => !needle || i.title.toLowerCase().includes(needle));
+  if (sort === "unread") shown.sort((a, b) => (b.unread ?? 0) - (a.unread ?? 0));
+  if (sort === "title") shown.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+  const reading = shown.filter((i) => i.progress && (i.unread ?? 1) > 0);
+  const rest = shown.filter((i) => !reading.includes(i));
   return (
     <>
-      <button type="button" className="linkish" onClick={refresh} disabled={refreshing}>
-        {refreshing ? "Checking sources…" : "Check for new chapters"}
-      </button>
+      <div className="toolbar">
+        <input
+          type="search"
+          className="jump"
+          placeholder="Filter library"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          aria-label="Filter your library by title"
+        />
+        <button type="button" className="linkish" onClick={refresh} disabled={refreshing}>
+          {refreshing ? "Checking sources…" : "Check for new chapters"}
+        </button>
+        <label className="sort-select">
+          <span>Sort</span>
+          <select
+            value={sort}
+            onChange={(e) => {
+              const v = e.target.value as LibSort;
+              setSort(v);
+              try {
+                localStorage.setItem("sapphire.librarySort", v);
+              } catch {
+                // Not remembered; fine.
+              }
+            }}
+          >
+            {LIB_SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </label>
+      </div>
+      {shown.length === 0 && <p className="muted">Nothing in your library matches "{filter}".</p>}
       {reading.length > 0 && <h3>Continue reading</h3>}
       <ul className="grid">{reading.map((i) => <Card key={i.mangaId} item={i} />)}</ul>
       {rest.length > 0 && <h3>{reading.length ? "Everything else" : "Library"}</h3>}
