@@ -1,5 +1,5 @@
 import { Loading } from "./Loading";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { changeExtension, checkSources, setSourceAdult, extensions, genreSupport, refreshExtensionList, sources, type ExtensionInfo, type GenreSupport, type SourceRow } from "./api";
 
 const LANGS: Record<string, string> = { en: "English", all: "Multi-language", multi: "Multi-language" };
@@ -86,6 +86,8 @@ export function Sources() {
   const [list, setList] = useState<ExtensionInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [shown, setShown] = useState(40);
+  const more = useRef<HTMLLIElement | null>(null);
   const [englishOnly, setEnglishOnly] = useState(true);
   const [working, setWorking] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
@@ -159,6 +161,16 @@ export function Sources() {
       available: sorted.filter((e) => !e.isInstalled && match(e)),
     };
   }, [list, filter, englishOnly, sourceRows]);
+
+  // Reveal more of the available list as the end comes into view; start over when the search changes.
+  useEffect(() => setShown(40), [filter, englishOnly]);
+  useEffect(() => {
+    const el = more.current;
+    if (!el) return;
+    const io = new IntersectionObserver((hit) => hit[0]?.isIntersecting && setShown((n) => n + 40), { rootMargin: "400px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [shown, available.length]);
 
   function row(e: ExtensionInfo) {
     const busy = working[e.pkgName];
@@ -281,8 +293,10 @@ export function Sources() {
             <p className="muted small">Also answering: {orphans.map((r) => r.name).join(", ")}.</p>
           )}
           <h3>Available ({available.length})</h3>
-          <ul className="extList">{available.slice(0, 100).map(row)}</ul>
-          {available.length > 100 && <p className="muted">Showing 100. Type in the box to narrow the list.</p>}
+          <ul className="extList">
+            {available.slice(0, shown).map(row)}
+            {available.length > shown && <li ref={more} className="muted small" style={{ padding: 12 }}>Loading more…</li>}
+          </ul>
         </>
       )}
     </section>
