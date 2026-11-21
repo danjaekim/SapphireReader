@@ -161,3 +161,29 @@ export function createQueue(concurrency: number) {
     });
   };
 }
+
+export interface SourceHealth {
+  okCount: number;
+  failCount: number;
+  avgMs: number | null;
+  lastOk: string | null;
+  lastFail: string | null;
+  lastError: string | null;
+}
+export interface SourceRow {
+  id: string;
+  name: string;
+  lang: string;
+  isNsfw: boolean;
+  health: SourceHealth | null;
+}
+export const sources = () => getJson<{ sources: SourceRow[] }>("/api/sources");
+export const checkSources = () => send("POST", "/api/sources/check");
+
+export interface Alternative {
+  mangaId: number;
+  sourceName: string;
+  chapterCount: number;
+  latestNumber: number | null;
+}
+export const alternatives = (mangaId: number) => getJson<{ alternatives: Alternative[] }>(`/api/manga/${mangaId}/alternatives`);

@@ -10,6 +10,9 @@ export interface EngineSource {
   isNsfw: boolean;
 }
 
+/** Called once per source with how it answered, for health tracking. */
+export type SourceReport = (source: EngineSource, r: { ok: boolean; ms: number; error?: string }) => void;
+
 export interface SourceHit {
   mangaId: number;
   sourceId: string;
@@ -41,6 +44,8 @@ export function normalizeTitle(title: string): string {
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
+
+export const groupKey = normalizeTitle;
 
 export function groupHits(hits: SourceHit[]): SeriesGroup[] {
   const groups = new Map<string, SeriesGroup>();
@@ -77,9 +82,9 @@ const SEARCH_MUTATION = `
 export async function searchAll(
   config: Config,
   query: string,
-  opts: { fetchImpl?: FetchLike; includeNsfw?: boolean; timeoutMs?: number } = {},
+  opts: { fetchImpl?: FetchLike; includeNsfw?: boolean; timeoutMs?: number; onResult?: SourceReport } = {},
 ): Promise<SearchResult> {
-  const { fetchImpl, includeNsfw = false, timeoutMs = 8000 } = opts;
+  const { fetchImpl, includeNsfw = false, timeoutMs = 8000, onResult } = opts;
   const all = await listSources(config, fetchImpl);
   // English and multi-language sources only; 18+ sources stay out until 18+ mode exists.
   const sources = all.filter((s) => (s.lang === "en" || s.lang === "all") && (includeNsfw || !s.isNsfw));
@@ -87,6 +92,7 @@ export async function searchAll(
   const failed: SearchResult["failed"] = [];
   const results = await Promise.all(
     sources.map(async (source) => {
+      const started = Date.now();
       try {
         const data = await engineQuery<{
           fetchSourceManga: { mangas: { id: number; title: string; thumbnailUrl: string | null }[] };
@@ -96,6 +102,7 @@ export async function searchAll(
           { input: { source: source.id, type: "SEARCH", page: 1, query } },
           { fetchImpl, timeoutMs },
         );
+        onResult?.(source, { ok: true, ms: Date.now() - started });
         return data.fetchSourceManga.mangas.map<SourceHit>((m) => ({
           mangaId: m.id,
           sourceId: source.id,
@@ -104,10 +111,9 @@ export async function searchAll(
           thumbnailUrl: m.thumbnailUrl,
         }));
       } catch (err) {
-        failed.push({
-          sourceName: source.name,
-          error: err instanceof Error ? err.message : "unknown error",
-        });
+        const error = err instanceof Error ? err.message : "unknown error";
+        onResult?.(source, { ok: false, ms: Date.now() - started, error });
+        failed.push({ sourceName: source.name, error });
         return [];
       }
     }),

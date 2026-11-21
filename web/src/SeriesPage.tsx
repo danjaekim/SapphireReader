@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { addToLibrary, removeFromLibrary, series, thumbnailUrl, type SeriesData } from "./api";
+import { addToLibrary, alternatives, removeFromLibrary, series, thumbnailUrl, type Alternative, type SeriesData } from "./api";
 import { genreHref, readHref } from "./route";
 
 function chapterLabel(c: { name: string; chapterNumber: number }): string {
@@ -10,6 +10,13 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [data, setData] = useState<SeriesData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newestFirst, setNewestFirst] = useState(true);
+
+  const [others, setOthers] = useState<Alternative[] | null>(null);
+
+  useEffect(() => {
+    setOthers(null);
+    alternatives(mangaId).then((r) => setOthers(r.alternatives), () => setOthers([]));
+  }, [mangaId]);
 
   useEffect(() => {
     setData(null);
@@ -71,6 +78,23 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
             </ul>
           )}
           {data.manga.description && <p className="desc">{data.manga.description}</p>}
+          {others && others.length > 0 && (
+            <div className="card">
+              <h3>Also on</h3>
+              <ul className="sources">
+                {others.map((o) => {
+                  const ahead = o.latestNumber !== null && data.latest.latestNumber !== null && o.latestNumber > data.latest.latestNumber;
+                  return (
+                    <li key={o.mangaId} className={ahead ? "best" : undefined}>
+                      <a href={`#/series/${o.mangaId}`}>{o.sourceName}</a>
+                      <span className="muted">{o.latestNumber !== null ? chapterLabel({ name: "", chapterNumber: o.latestNumber }) : "no numbered chapters"}</span>
+                      {ahead && <span className="tag">further ahead</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
           <div className="chapterHead">
             <h3>Chapters</h3>
             <button type="button" className="linkish" onClick={() => setNewestFirst((v) => !v)}>

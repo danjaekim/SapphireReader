@@ -1,6 +1,6 @@
 import type { Config } from "./config.js";
 import { engineQuery } from "./engine.js";
-import { groupHits, listSources, type EngineSource, type SearchResult, type SourceHit } from "./search.js";
+import { groupHits, listSources, type EngineSource, type SearchResult, type SourceHit, type SourceReport } from "./search.js";
 
 type FetchLike = typeof fetch;
 
@@ -153,9 +153,9 @@ export interface BrowseResult extends SearchResult {
 export async function browseByGenres(
   config: Config,
   genres: string[],
-  opts: { query?: string; fetchImpl?: FetchLike; includeNsfw?: boolean; timeoutMs?: number } = {},
+  opts: { query?: string; fetchImpl?: FetchLike; includeNsfw?: boolean; timeoutMs?: number; onResult?: SourceReport } = {},
 ): Promise<BrowseResult> {
-  const { query, fetchImpl, includeNsfw = false, timeoutMs = 10000 } = opts;
+  const { query, fetchImpl, includeNsfw = false, timeoutMs = 10000, onResult } = opts;
   const sources = browsableSources(await listSources(config, fetchImpl), includeNsfw);
   const failed: BrowseResult["failed"] = [];
   const skipped: string[] = [];
@@ -169,6 +169,7 @@ export async function browseByGenres(
           return [];
         }
         searched++;
+        const started = Date.now();
         const data = await engineQuery<{
           fetchSourceManga: { mangas: { id: number; title: string; thumbnailUrl: string | null }[] };
         }>(
@@ -177,6 +178,7 @@ export async function browseByGenres(
           { input: { source: source.id, type: "SEARCH", page: 1, query: query || null, filters: changes } },
           { fetchImpl, timeoutMs },
         );
+        onResult?.(source, { ok: true, ms: Date.now() - started });
         return data.fetchSourceManga.mangas.map<SourceHit>((m) => ({
           mangaId: m.id,
           sourceId: source.id,
@@ -185,6 +187,7 @@ export async function browseByGenres(
           thumbnailUrl: m.thumbnailUrl,
         }));
       } catch (err) {
+        onResult?.(source, { ok: false, ms: 0, error: err instanceof Error ? err.message : "unknown error" });
         failed.push({ sourceName: source.name, error: err instanceof Error ? err.message : "unknown error" });
         return [];
       }

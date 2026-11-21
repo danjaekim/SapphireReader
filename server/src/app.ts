@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
-import { checkEngine, engineFile } from "./engine.js";
+import { checkEngine, engineFile, engineQuery } from "./engine.js";
 import { browseByGenres, listGenres } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { checkLibrary } from "./checker.js";
@@ -13,8 +13,11 @@ import {
   fetchChapterList,
   fetchMangaDetails,
   fetchPageUrls,
+  listSources,
+  groupKey,
   latestFromChapters,
   searchAll,
+  type SourceReport,
   type ChapterInfo,
 } from "./search.js";
 
@@ -41,6 +44,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const { fetchImpl } = options;
   const store = options.store ?? new Store(":memory:");
   const notify = createNotifier(config, fetchImpl);
+  const report: SourceReport = (source, r) => store.recordSource(source.id, source.name, r);
   const chapterCache = new Map<number, { at: number; value: ChapterInfo[] }>();
   // The chapter list comes from the source site, so it is slow; keep it for a few minutes.
   async function chaptersFor(mangaId: number): Promise<ChapterInfo[]> {
@@ -63,7 +67,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const q = (req.query.q ?? "").trim();
     if (q.length < 2) return reply.code(400).send({ error: "Type at least 2 characters." });
     try {
-      return await searchAll(config, q, { fetchImpl });
+      return await searchAll(config, q, { fetchImpl, onResult: report });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -84,7 +88,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const q = (req.query.q ?? "").trim();
     if (genres.length === 0) return reply.code(400).send({ error: "Pick at least one genre." });
     try {
-      return await browseByGenres(config, genres, { query: q, fetchImpl });
+      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -122,6 +126,76 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: `Couldn't ${action} that extension: ${err instanceof Error ? err.message : "engine error"}` });
+    }
+  });
+
+  // Installed sources with how reliably each has answered lately.
+  app.get("/api/sources", async (req, reply) => {
+    try {
+      const health = new Map(store.sourceHealth().map((h) => [h.sourceId, h]));
+      const sources = (await listSources(config, fetchImpl)).map((s) => ({ ...s, health: health.get(s.id) ?? null }));
+      return { sources };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "The source engine isn't answering." });
+    }
+  });
+
+  // Asks each source for its popular list, timing the answer, so health is current.
+  app.post("/api/sources/check", async (req, reply) => {
+    try {
+      const sources = (await listSources(config, fetchImpl)).filter((s) => s.lang === "en" || s.lang === "all");
+      await Promise.all(
+        sources.map(async (s) => {
+          const started = Date.now();
+          try {
+            await engineQuery(
+              config,
+              `mutation ($input: FetchSourceMangaInput!) { fetchSourceManga(input: $input) { mangas { id } } }`,
+              { input: { source: s.id, type: "POPULAR", page: 1 } },
+              { fetchImpl, timeoutMs: 15000 },
+            );
+            report(s, { ok: true, ms: Date.now() - started });
+          } catch (err) {
+            report(s, { ok: false, ms: Date.now() - started, error: err instanceof Error ? err.message : "unknown error" });
+          }
+        }),
+      );
+      return { ok: true };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "The source engine isn't answering." });
+    }
+  });
+
+  // The same series on other sources, so you can see when another site is further ahead.
+  app.get<{ Params: { id: string } }>("/api/manga/:id/alternatives", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    try {
+      const manga = await fetchMangaDetails(config, id, fetchImpl);
+      const found = await searchAll(config, manga.title, { fetchImpl, onResult: report });
+      const hits = (found.groups.find((g) => g.key === groupKey(manga.title))?.hits ?? [])
+        .filter((h) => h.mangaId !== id && h.sourceId !== manga.sourceId)
+        .slice(0, 6);
+      const alternatives = await Promise.all(
+        hits.map(async (h) => {
+          try {
+            const latest = latestFromChapters(await chaptersFor(h.mangaId));
+            return { mangaId: h.mangaId, sourceName: h.sourceName, ...latest };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      return {
+        alternatives: alternatives
+          .filter((a): a is NonNullable<typeof a> => a !== null)
+          .sort((a, b) => (b.latestNumber ?? -1) - (a.latestNumber ?? -1)),
+      };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "Couldn't look for other sources." });
     }
   });
 

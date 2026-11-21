@@ -1,10 +1,65 @@
 import { useEffect, useMemo, useState } from "react";
-import { changeExtension, extensions, refreshExtensionList, type ExtensionInfo } from "./api";
+import { changeExtension, checkSources, extensions, refreshExtensionList, sources, type ExtensionInfo, type SourceRow } from "./api";
 
 const LANGS: Record<string, string> = { en: "English", all: "Multi-language", multi: "Multi-language" };
 
 function displayName(e: ExtensionInfo) {
   return e.name.replace(/^Tachiyomi:\s*/, "");
+}
+
+function ago(iso: string | null) {
+  if (!iso) return "never";
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  return mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : mins < 1440 ? `${Math.round(mins / 60)} h ago` : `${Math.round(mins / 1440)} d ago`;
+}
+
+function Health() {
+  const [rows, setRows] = useState<SourceRow[] | null>(null);
+  const [checking, setChecking] = useState(false);
+  const load = () => sources().then((r) => setRows(r.sources), () => setRows([]));
+  useEffect(() => void load(), []);
+
+  async function check() {
+    setChecking(true);
+    await checkSources().catch(() => {});
+    await load();
+    setChecking(false);
+  }
+
+  if (!rows || rows.length === 0) return null;
+  return (
+    <>
+      <div className="chapterHead">
+        <h3>Source health</h3>
+        <button type="button" className="linkish" onClick={check} disabled={checking}>
+          {checking ? "Checking every source…" : "Check now"}
+        </button>
+      </div>
+      <ul className="extList">
+        {rows.map((r) => {
+          const h = r.health;
+          const total = h ? h.okCount + h.failCount : 0;
+          const lastBad = h?.lastFail && (!h.lastOk || h.lastFail > h.lastOk);
+          return (
+            <li key={r.id} className="extRow">
+              <div className="info">
+                <span className={`dot ${!h ? "" : lastBad ? "bad" : "good"}`} /> <strong>{r.name}</strong>
+                <span className="muted">
+                  {" "}
+                  {h
+                    ? lastBad
+                      ? `failing: ${h.lastError ?? "no answer"}`
+                      : `${h.avgMs ? `${(h.avgMs / 1000).toFixed(1)}s typical` : "ok"} · ${Math.round((h.okCount / total) * 100)}% of ${total} requests worked`
+                    : "not checked yet"}
+                </span>
+              </div>
+              <span className="muted">{h ? `seen ${ago(h.lastOk ?? h.lastFail)}` : ""}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
 }
 
 export function Sources() {
@@ -85,6 +140,8 @@ export function Sources() {
 
   return (
     <section>
+      <Health />
+      <h3>Extensions</h3>
       <p className="muted">
         Extensions are what let Sapphire read each site. Installed ones show up in search and discovery right away.
       </p>

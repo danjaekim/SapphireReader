@@ -39,6 +39,17 @@ export interface LibraryItem extends LibraryEntry {
   unread: number | null;
 }
 
+export interface SourceHealth {
+  sourceId: string;
+  name: string;
+  okCount: number;
+  failCount: number;
+  avgMs: number | null;
+  lastOk: string | null;
+  lastFail: string | null;
+  lastError: string | null;
+}
+
 /** Everything Sapphire remembers, in one SQLite file on the NAS volume. */
 export class Store {
   private db: DatabaseSync;
@@ -65,6 +76,16 @@ export class Store {
         page_index INTEGER NOT NULL,
         page_offset REAL NOT NULL,
         updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS source_health (
+        source_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        ok_count INTEGER NOT NULL DEFAULT 0,
+        fail_count INTEGER NOT NULL DEFAULT 0,
+        avg_ms REAL,
+        last_ok TEXT,
+        last_fail TEXT,
+        last_error TEXT
       );
       CREATE TABLE IF NOT EXISTS chapters_read (
         manga_id INTEGER NOT NULL,
@@ -103,6 +124,39 @@ export class Store {
     this.db
       .prepare("UPDATE library SET chapter_numbers = ?, checked_at = ? WHERE manga_id = ?")
       .run(JSON.stringify(numbers), new Date().toISOString(), mangaId);
+  }
+
+  /** Notes how a source answered, so the Sources page can show which ones are reliable. */
+  recordSource(sourceId: string, name: string, r: { ok: boolean; ms: number; error?: string }): void {
+    const now = new Date().toISOString();
+    const row = this.db.prepare("SELECT avg_ms FROM source_health WHERE source_id = ?").get(sourceId) as
+      | { avg_ms: number | null }
+      | undefined;
+    if (!row) this.db.prepare("INSERT INTO source_health (source_id, name) VALUES (?, ?)").run(sourceId, name);
+    if (r.ok) {
+      // Moving average, so one slow day doesn't stick forever.
+      const avg = row?.avg_ms == null ? r.ms : row.avg_ms * 0.7 + r.ms * 0.3;
+      this.db
+        .prepare("UPDATE source_health SET name = ?, ok_count = ok_count + 1, avg_ms = ?, last_ok = ? WHERE source_id = ?")
+        .run(name, avg, now, sourceId);
+    } else {
+      this.db
+        .prepare("UPDATE source_health SET name = ?, fail_count = fail_count + 1, last_fail = ?, last_error = ? WHERE source_id = ?")
+        .run(name, now, r.error ?? "unknown error", sourceId);
+    }
+  }
+
+  sourceHealth(): SourceHealth[] {
+    return (this.db.prepare("SELECT * FROM source_health").all() as Record<string, unknown>[]).map((r) => ({
+      sourceId: r.source_id as string,
+      name: r.name as string,
+      okCount: r.ok_count as number,
+      failCount: r.fail_count as number,
+      avgMs: (r.avg_ms as number | null) ?? null,
+      lastOk: (r.last_ok as string | null) ?? null,
+      lastFail: (r.last_fail as string | null) ?? null,
+      lastError: (r.last_error as string | null) ?? null,
+    }));
   }
 
   saveProgress(mangaId: number, input: ProgressInput): void {
