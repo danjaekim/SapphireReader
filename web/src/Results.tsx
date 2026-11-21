@@ -4,7 +4,7 @@ import { seriesHref } from "./route";
 import { bestRating, useLibraryIds, useRating } from "./shared";
 import { createQueue, latest, thumbnailUrl, type LatestChapter, type SearchResult, type SeriesGroup } from "./api";
 
-type Chapter = { state: "loading" } | { state: "error" } | { state: "done"; value: LatestChapter };
+type Chapter = { state: "loading" } | { state: "error"; reason?: string } | { state: "done"; value: LatestChapter };
 type Queue = ReturnType<typeof createQueue>;
 
 function formatChapter(n: number | null): string {
@@ -26,27 +26,34 @@ function useNearScreen<T extends Element>(margin = "300px") {
   return [ref, near] as const;
 }
 
-function Card({ group, queue, lookups }: { group: SeriesGroup; queue: Queue; lookups: boolean }) {
+function Card({ group, queue, lookups, hideBad, onBad }: { group: SeriesGroup; queue: Queue; lookups: boolean; hideBad: boolean; onBad: (key: string, bad: boolean) => void }) {
   const [ref, near] = useNearScreen<HTMLLIElement>();
   const sourceNames = [...new Set(group.hits.map((h) => h.sourceName))];
   const [chapters, setChapters] = useState<Record<number, Chapter>>({});
+  const [tries, setTries] = useState(0);
 
   // Only cards you can almost see look up their chapters; the sites would otherwise be asked for hundreds at once.
   useEffect(() => {
     if (!lookups || !near) return;
     let cancelled = false;
     for (const hit of group.hits) {
-      setChapters((prev) => (prev[hit.mangaId] ? prev : { ...prev, [hit.mangaId]: { state: "loading" } }));
+      if (tries === 0 ? chapters[hit.mangaId] : chapters[hit.mangaId]?.state !== "error") continue;
+      setChapters((prev) => ({ ...prev, [hit.mangaId]: { state: "loading" } }));
       queue(() => latest(hit.mangaId)).then(
         (value) => !cancelled && setChapters((prev) => ({ ...prev, [hit.mangaId]: { state: "done", value } })),
-        () => !cancelled && setChapters((prev) => ({ ...prev, [hit.mangaId]: { state: "error" } })),
+        (e: unknown) => {
+          if (cancelled) return;
+          setChapters((prev) => ({ ...prev, [hit.mangaId]: { state: "error", reason: (e as { detail?: string })?.detail } }));
+          // Sites often fail once and answer the next time: try each failure again after a pause.
+          if (tries === 0) window.setTimeout(() => !cancelled && setTries(1), 5000);
+        },
       );
     }
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [near, lookups, group.hits.length]);
+  }, [near, lookups, group.hits.length, tries]);
 
   let best = null as null | { mangaId: number; sourceName: string; n: number };
   for (const hit of group.hits) {
@@ -61,10 +68,17 @@ function Card({ group, queue, lookups }: { group: SeriesGroup; queue: Queue; loo
   const saved = group.hits.some((h) => lib.has(h.mangaId));
   const fetched = useRating(group.title, group.score == null && near);
   const rating = group.score != null ? { value: group.score / 10, source: "AniList" } : bestRating(fetched);
+  const allFailed = lookups && tries > 0 && group.hits.every((h) => chapters[h.mangaId]?.state === "error");
+  useEffect(() => {
+    onBad(group.key, allFailed);
+    return () => onBad(group.key, false);
+  }, [allFailed, group.key]);
+  const failReason = group.hits.map((h) => (chapters[h.mangaId] as { reason?: string } | undefined)?.reason).find(Boolean);
   const loading = lookups && group.hits.some((h) => !chapters[h.mangaId] || chapters[h.mangaId].state === "loading");
 
+  if (hideBad && allFailed) return null;
   return (
-    <li className="gridCard" ref={ref}>
+    <li className={`gridCard ${allFailed ? "unavailable" : ""}`} ref={ref}>
       <a href={seriesHref(target)} className="gridCover">
         <img src={thumbnailUrl(target)} alt="" loading="lazy" />
         {sourceNames.length > 1 && <span className="badge">{sourceNames.length} sources</span>}
@@ -91,7 +105,12 @@ function Card({ group, queue, lookups }: { group: SeriesGroup; queue: Queue; loo
           : lookups
             ? loading
               ? "checking sources…"
-              : "unavailable"
+              : (
+                <span title={failReason ? `The source said: ${failReason}` : "The source didn't answer for this series."}>
+                  couldn't load ·{" "}
+                  <button type="button" className="linkish inlineRetry" onClick={() => setTries((n) => n + 1)}>retry</button>
+                </span>
+              )
             : sourceNames.join(", ")}
       </span>
     </li>
@@ -118,6 +137,18 @@ export function Results({
   onMore?: () => void;
 }) {
   const queue = useMemo(() => createQueue(4), []);
+  const [bad, setBad] = useState<Set<string>>(new Set());
+  const [hideBad, setHideBad] = useState(false);
+  const onBad = useMemo(
+    () => (key: string, isBad: boolean) =>
+      setBad((prev) => {
+        if (prev.has(key) === isBad) return prev;
+        const next = new Set(prev);
+        isBad ? next.add(key) : next.delete(key);
+        return next;
+      }),
+    [],
+  );
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -135,11 +166,20 @@ export function Results({
         {result.groups.length} series{result.searched > 0 ? ` from ${result.searched} sources` : ""}.
         {result.failed.length > 0 && <> Didn't answer: {result.failed.map((f) => f.sourceName).join(", ")}.</>}
         {shownNote && <> {shownNote}</>}
+        {bad.size > 0 && (
+          <>
+            {" "}
+            {bad.size} couldn't load.{" "}
+            <button type="button" className="linkish" onClick={() => setHideBad((v) => !v)}>
+              {hideBad ? "Show them" : "Hide them"}
+            </button>
+          </>
+        )}
       </p>
       {result.groups.length === 0 && empty && <p className="muted">{empty}</p>}
       <ul className="grid">
         {result.groups.map((group) => (
-          <Card key={group.key} group={group} queue={queue} lookups={lookups} />
+          <Card key={group.key} group={group} queue={queue} lookups={lookups} hideBad={hideBad} onBad={onBad} />
         ))}
       </ul>
       <div ref={end} className="gridEnd muted">

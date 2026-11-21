@@ -32,7 +32,10 @@ export interface LatestChapter {
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as { error?: string }).error ?? `Request failed (${res.status})`);
+  if (!res.ok) {
+    const b = body as { error?: string; detail?: string };
+    throw Object.assign(new Error(b.error ?? `Request failed (${res.status})`), { detail: b.detail });
+  }
   return body as T;
 }
 

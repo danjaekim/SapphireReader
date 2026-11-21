@@ -71,6 +71,8 @@ function AltTitles({ titles, open, onToggle }: { titles: string[]; open: boolean
 export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [data, setData] = useState<SeriesData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [newestFirst, setNewestFirst] = useState(true);
   const [fullDesc, setFullDesc] = useState(false);
   const [jump, setJump] = useState("");
@@ -157,8 +159,12 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   useEffect(() => {
     setData(null);
     setError(null);
-    series(mangaId).then(setData, (e: unknown) => setError(e instanceof Error ? e.message : "Couldn't load this series."));
-  }, [mangaId]);
+    setErrorDetail(null);
+    series(mangaId).then(setData, (e: unknown) => {
+      setError(e instanceof Error ? e.message : "Couldn't load this series.");
+      setErrorDetail((e as { detail?: string } | null)?.detail ?? null);
+    });
+  }, [mangaId, attempt]);
 
   // Tab title (left plain for 18+ series, so they stay out of browser history).
   useEffect(() => {
@@ -257,7 +263,19 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
         />
       )}
       <a className="back" href="#/" onClick={(e) => { e.preventDefault(); goBack(); }}>← Back</a>
-      {error && <p className="bad">{error}</p>}
+      {error && (
+        <div className="loadError">
+          <p className="bad"><strong>{error}</strong></p>
+          {errorDetail && <p className="muted small">The source said: {errorDetail}</p>}
+          <p className="muted small">
+            This is usually the site being slow, blocking the NAS for a moment, or the series having been removed there. A search can still list a series the site no longer serves.
+          </p>
+          <div className="actions">
+            <button type="button" className="button small" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+            <button type="button" className="button small secondary" onClick={() => goBack()}>Go back</button>
+          </div>
+        </div>
+      )}
       {!data && !error && (
         <div className="pageCenter">
           <Loading label="Loading from the source. This can take several seconds." size="lg" />

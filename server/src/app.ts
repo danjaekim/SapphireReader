@@ -549,6 +549,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  /** A short, readable reason from an engine error (no stack trace), shown beside "couldn't load". */
+  const reasonOf = (err: unknown): string => {
+    const m = err instanceof Error ? err.message : String(err);
+    const cut = m.search(/\s(?:at\s|java\.|kotlin|Caused by)/);
+    return (cut > 0 ? m.slice(0, cut) : m).replace(/^Exception while fetching data \([^)]*\)\s*:\s*/, "").trim().slice(0, 200);
+  };
+
   app.get<{ Params: { id: string } }>("/api/manga/:id/latest", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
@@ -556,7 +563,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       return latestFromChapters(await chaptersFor(id));
     } catch (err) {
       req.log.error(err);
-      return reply.code(502).send({ error: "Couldn't load chapters from the source." });
+      return reply.code(502).send({ error: "Couldn't load chapters from the source.", detail: reasonOf(err) });
     }
   });
 
@@ -585,7 +592,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       };
     } catch (err) {
       req.log.error(err);
-      return reply.code(502).send({ error: "Couldn't load this series from the source." });
+      return reply.code(502).send({ error: "Couldn't load this series from the source.", detail: reasonOf(err) });
     }
   });
 
