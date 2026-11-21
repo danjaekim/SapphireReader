@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Loading } from "./Loading";
 import { ago } from "./util";
 
@@ -175,6 +175,105 @@ export function UpdateCard() {
               </button>
             ) : (
               <p className="muted small">One-tap updates aren't set up (see the Watchtower part of the compose file). Update from the Docker app instead.</p>
+            ))}
+        </>
+      )}
+    </section>
+  );
+}
+
+interface EngineInfo {
+  current: string | null;
+  latest: string | null;
+  available: boolean | null;
+  enabled: boolean;
+  problem: "engine" | "github" | null;
+}
+
+/** The "Source engine" card: the engine's version, the newest release, and a button to update it. */
+export function EngineUpdateCard() {
+  const [info, setInfo] = useState<EngineInfo | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "updating" | "failed">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+
+  async function check(fresh = false) {
+    setChecking(true);
+    const r = await fetch(`/api/engine-update${fresh ? "?refresh=1" : ""}`).then((x) => x.json() as Promise<EngineInfo>).catch(() => null);
+    if (r) setInfo(r);
+    setChecking(false);
+    return r;
+  }
+  useEffect(() => {
+    void check();
+    return () => window.clearInterval(timer.current);
+  }, []);
+
+  async function update() {
+    if (phase === "updating") return;
+    setPhase("updating");
+    setMessage("Asking Watchtower to update the engine…");
+    const res = await fetch("/api/engine-update", { method: "POST" }).catch(() => null);
+    const body = res ? ((await res.json().catch(() => ({}))) as { error?: string }) : {};
+    if (!res?.ok) {
+      setPhase("failed");
+      return setMessage(body.error ?? "Couldn't reach the Sapphire server.");
+    }
+    setMessage("Downloading the new engine. It restarts in a minute or so.");
+    const before = info?.current;
+    const startedAt = Date.now();
+    window.clearInterval(timer.current);
+    timer.current = window.setInterval(async () => {
+      const r = await fetch("/api/engine-update?refresh=1").then((x) => x.json() as Promise<EngineInfo>).catch(() => null);
+      if (r?.current && r.current !== before) {
+        window.clearInterval(timer.current);
+        setInfo(r);
+        setPhase("idle");
+        setMessage(null);
+      } else if (!r?.current) setMessage("The engine is restarting…");
+      else if (Date.now() - startedAt > 4 * 60 * 1000) {
+        window.clearInterval(timer.current);
+        setPhase("failed");
+        setMessage("The engine is still on the old version. Try again in a few minutes, or update it from the Docker app.");
+      }
+    }, 5000);
+  }
+
+  const busy = phase === "updating";
+  const available = info?.available === true;
+  return (
+    <section className={`card updateCard ${available ? "hasUpdate" : ""}`}>
+      <div className="updateHead">
+        <h3>Source engine</h3>
+        <button type="button" className="button small secondary" onClick={() => void check(true)} disabled={checking || busy}>
+          {checking ? "Checking…" : "Check for updates"}
+        </button>
+      </div>
+      <p className="muted small">The engine (Suwayomi) is what reads each site. Keeping it current keeps sources working.</p>
+      {busy ? (
+        <div className="updateBusy">
+          <Loading label={message ?? "Updating…"} size="md" />
+          <p className="muted small">Searches and downloads pause for a moment while it restarts.</p>
+        </div>
+      ) : !info ? (
+        <Loading label="Checking the engine…" size="sm" />
+      ) : (
+        <>
+          <dl className="versionList">
+            <div><dt>Running</dt><dd>{info.current ? <code>{info.current}</code> : <span className="muted">unknown</span>}</dd></div>
+            <div><dt>Newest</dt><dd>{info.latest ? <code>{info.latest}</code> : <span className="muted">unknown</span>}</dd></div>
+          </dl>
+          {!checking && available && <p className="updateAvail"><span className="dot bad" /> A newer engine is available.</p>}
+          {!checking && info.available === false && <p><span className="dot good" /> The engine is up to date.</p>}
+          {!checking && info.problem === "engine" && <p className="bad">The engine isn't answering, so its version can't be read.</p>}
+          {!checking && info.problem === "github" && <p className="bad">Couldn't check GitHub for the newest engine. Try again in a moment.</p>}
+          {phase === "failed" && message && <p className="bad">{message}</p>}
+          {available && !checking &&
+            (info.enabled ? (
+              <button type="button" className="button" onClick={() => void update()}>Update engine</button>
+            ) : (
+              <p className="muted small">One-tap engine updates aren't set up (see "Updating the engine" in the README). Update it from the Docker app instead.</p>
             ))}
         </>
       )}

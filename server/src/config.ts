@@ -17,6 +17,9 @@ export interface Config {
   /** Watchtower's address and token, so the app can ask for an update. Empty turns the button off. */
   updateUrl: string;
   updateToken: string;
+  /** A second Watchtower that can update only the engine. Empty hides the engine's update button. */
+  engineUpdateUrl: string;
+  engineUpdateToken: string;
   /** GitHub repo checked for newer versions. */
   updateRepo: string;
   /** Read-only GitHub token, needed to see a private repo's latest commit. */
@@ -42,6 +45,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     checkIntervalHours: Number(env.CHECK_INTERVAL_HOURS ?? 6),
     updateUrl: (env.UPDATE_URL ?? "").replace(/\/+$/, ""),
     updateToken: env.UPDATE_TOKEN ?? "",
+    engineUpdateUrl: (env.ENGINE_UPDATE_URL ?? "").replace(/\/+$/, ""),
+    engineUpdateToken: env.ENGINE_UPDATE_TOKEN ?? "",
     updateRepo: env.UPDATE_REPO ?? "danjaekim/SapphireReader",
     updateGithubToken: env.UPDATE_GITHUB_TOKEN ?? "",
     updateImage: env.UPDATE_IMAGE ?? "",

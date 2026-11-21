@@ -84,6 +84,15 @@ actually be installed. That works with no setup while the package is public. If 
 create a GitHub token (Settings > Developer settings > Fine-grained or classic token) that can read the package and
 repo, and set it as `UPDATE_GITHUB_TOKEN` on the `sapphire` service.
 
+### Updating the engine
+
+Settings > **Source engine** shows the engine's (Suwayomi's) version next to the newest release, so you can see
+when it's behind. The engine is updated only when you press **Update engine**, never on a schedule, because it
+restarts for about half a minute. That button needs the second Watchtower in the compose file
+(`watchtower-engine`): copy it, the `scope` labels, `WATCHTOWER_SCOPE=sapphire` on the first Watchtower, and the
+`ENGINE_UPDATE_URL` / `ENGINE_UPDATE_TOKEN` lines, set both tokens to the same random string, and redeploy
+once from the Docker app. Without them the card still shows versions; update the engine from the Docker app.
+
 ## HTTPS (for offline reading on your phone)
 
 Browsers only let a site save things for offline use (and install it as an app) when it's opened

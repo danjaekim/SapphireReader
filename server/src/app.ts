@@ -13,6 +13,7 @@ import { rankByAnilist, ratingsFor, type RatingMeta } from "./ratings.js";
 import { parseDescription } from "./description.js";
 import { canonKey } from "./genres.js";
 import { classifyAdult } from "./adultcheck.js";
+import { clearEngineUpdateCache, engineUpdateInfo, requestEngineUpdate } from "./engineupdate.js";
 import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { discover, recommendFor, similarTo, tagWeights, type DiscoverSort } from "./discover.js";
@@ -134,6 +135,22 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.get<{ Querystring: { refresh?: string } }>("/api/update", async (req) => {
     if (req.query.refresh === "1") clearUpdateCache();
     return { ...(await updateInfo(config, VERSION, fetchImpl ?? fetch)), current: VERSION };
+  });
+
+  // The engine (Suwayomi) has its own version and its own update button.
+  app.get<{ Querystring: { refresh?: string } }>("/api/engine-update", async (req) => {
+    if (req.query.refresh === "1") clearEngineUpdateCache();
+    const status = await checkEngine(config, fetchImpl);
+    return engineUpdateInfo(config, status.reachable ? status.version : undefined, fetchImpl ?? fetch);
+  });
+
+  app.post("/api/engine-update", async (_req, reply) => {
+    try {
+      await requestEngineUpdate(config, fetchImpl ?? fetch);
+      return reply.code(202).send({ started: true });
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : "Couldn't start the engine update." });
+    }
   });
 
   app.post("/api/update", async (_req, reply) => {

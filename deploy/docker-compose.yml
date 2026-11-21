@@ -21,6 +21,10 @@ services:
     image: ghcr.io/suwayomi/suwayomi-server:stable
     container_name: sapphire-engine
     restart: unless-stopped
+    labels:
+      # Only the engine's own Watchtower (watchtower-engine, below) may update it, and only when you press the button.
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=engine
     environment:
       - TZ=America/New_York
       # Keiyoushi extension repository (Mihon/Tachiyomi extensions).
@@ -50,8 +54,9 @@ services:
     container_name: sapphire-app
     restart: unless-stopped
     labels:
-      # Watchtower only touches containers with this label.
+      # Watchtower only touches containers with this label, and each Watchtower only the ones in its scope.
       - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=sapphire
     depends_on:
       - engine
     environment:
@@ -73,6 +78,9 @@ services:
       - UPDATE_URL=http://watchtower:8080
       # Any long random string; must match WATCHTOWER_HTTP_API_TOKEN below.
       - UPDATE_TOKEN=CHANGE_ME_UPDATE_TOKEN
+      # Lets Settings > Source engine update the engine, through the second Watchtower (watchtower-engine, below).
+      - ENGINE_UPDATE_URL=http://watchtower-engine:8080
+      - ENGINE_UPDATE_TOKEN=CHANGE_ME_ENGINE_UPDATE_TOKEN
       # Only if the Sapphire package or repo is private: a read-only GitHub token (README, "Updating")
       # so Settings can see the newest published image. Not needed while both are public.
       # - UPDATE_GITHUB_TOKEN=github_pat_CHANGE_ME
@@ -126,6 +134,7 @@ services:
     environment:
       - TZ=America/New_York
       - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_SCOPE=sapphire
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_HTTP_API_UPDATE=true
       - WATCHTOWER_HTTP_API_PERIODIC_POLLS=true
@@ -137,6 +146,24 @@ services:
       # Only if the Sapphire image on GHCR is private: lets Watchtower use the login you made with
       # `sudo docker login ghcr.io` on the NAS. Uncomment it (making the package public also works).
       # - /root/.docker/config.json:/config.json:ro
+    networks:
+      - sapphire
+
+  watchtower-engine:
+    # Updates the engine only when you press "Update engine" in Settings (no schedule of its own).
+    image: ghcr.io/nicholas-fedor/watchtower:latest
+    container_name: sapphire-watchtower-engine
+    restart: unless-stopped
+    environment:
+      - TZ=America/New_York
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_SCOPE=engine
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_HTTP_API_UPDATE=true
+      # Any long random string; must match ENGINE_UPDATE_TOKEN on the sapphire service.
+      - WATCHTOWER_HTTP_API_TOKEN=CHANGE_ME_ENGINE_UPDATE_TOKEN
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - sapphire
 

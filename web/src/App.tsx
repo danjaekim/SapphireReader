@@ -7,7 +7,7 @@ import { Downloads } from "./Downloads";
 import { Home } from "./Home";
 import { History } from "./History";
 import { savedTheme, setTheme, type Theme } from "./theme";
-import { UpdateCard, startUpdate, useUpdate } from "./update";
+import { EngineUpdateCard, UpdateCard, startUpdate, useUpdate } from "./update";
 import { automation, setAutomation, type Automation } from "./api";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
@@ -412,6 +412,7 @@ export function App() {
               <>
                 <StatusCard />
                 <UpdateCard />
+                <EngineUpdateCard />
                 <AppearanceCard />
                 <AutomationCard />
                 <TrackerSettings />
