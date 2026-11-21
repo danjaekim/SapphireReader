@@ -79,7 +79,7 @@ export const setReaderPrefs = (mangaId: number, p: ReaderPrefs, scope: PrefsScop
 export interface SeriesData {
   manga: MangaDetails;
   /** The description split into story, other names and the site's own numbers. */
-  about?: { body: string; altTitles: string[]; stats: { label: string; value: string }[] };
+  about?: { body: string; altTitles: string[]; stats: { label: string; value: string }[]; facets?: { label: string; values: string[] }[] };
   adult?: boolean;
   reader?: ReaderPrefs & { custom: boolean; level?: "series" | "source" | "default" };
   chapters: ChapterInfo[]; // oldest first

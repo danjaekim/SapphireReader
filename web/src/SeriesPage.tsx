@@ -370,7 +370,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     single
       ? { label: "Pages", value: pageCount === null ? "…" : pageCount < 0 ? "—" : String(pageCount) }
       : { label: "Chapters", value: String(data ? (data.latest.latestNumber !== null ? Math.floor(data.latest.latestNumber) : data.latest.chapterCount) : 0) },
-    ...about.stats.filter((st) => !isRating(st.label) && !/^rank$/i.test(st.label)),
+    ...about.stats.filter((st) => !isRating(st.label) && !/^rank$/i.test(st.label) && !(single && /^pages$/i.test(st.label))),
   ].slice(0, 3);
 
   return (
@@ -438,6 +438,16 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     )}
                   </ul>
                 )}
+                {(about.facets ?? []).map((f) => (
+                  <div key={f.label} className="facet">
+                    <span className="facetLabel muted small">{f.label}</span>
+                    <ul className="genres">
+                      {f.values.map((v) => (
+                        <li key={v}><a className="tag facetTag" href={searchHref(v)} title={`Search for ${v}`}>{v}</a></li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
                 {others && others.length > 0 && (
                   <div className="card">
                     <h3>Also on</h3>

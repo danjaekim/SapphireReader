@@ -6,6 +6,44 @@ export interface About {
   altTitles: string[];
   /** Numbers the site puts in its description, e.g. Rank #11, Rating 9.76, Bookmarks 121.4K. */
   stats: { label: string; value: string }[];
+  /** Named lists some sites (gallery sites especially) write as "Parodies: a, b" lines: parodies, characters, groups… */
+  facets: { label: string; values: string[] }[];
+}
+
+// Labels we treat as lists of names. Anything else stays in the description.
+const FACET_LABELS = new Map([
+  ["parody", "Parodies"], ["parodies", "Parodies"], ["series", "Parodies"],
+  ["character", "Characters"], ["characters", "Characters"],
+  ["group", "Groups"], ["groups", "Groups"], ["circle", "Groups"], ["circles", "Groups"],
+  ["artist", "Artists"], ["artists", "Artists"],
+  ["language", "Languages"], ["languages", "Languages"],
+  ["category", "Categories"], ["categories", "Categories"],
+]);
+// "**Parodies**: a, b" / "Parodies: a, b" / "Pages: 24", one per line.
+const FACET_LINE = /^\s*(?:\*\*|__)?([A-Za-z]{3,12})(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.+?)\s*$/;
+// Values that just mean "none".
+const EMPTY_VALUE = /^(?:original|none|n\/a|-|unknown)$/i;
+
+function takeFacets(text: string, stats: About["stats"]): { text: string; facets: About["facets"] } {
+  const facets = new Map<string, string[]>();
+  const kept: string[] = [];
+  for (const line of text.split("\n")) {
+    const m = FACET_LINE.exec(line);
+    const label = m ? FACET_LABELS.get(m[1].toLowerCase()) : undefined;
+    if (m && /^pages?$/i.test(m[1]) && /^\d+$/.test(m[2])) {
+      stats.push({ label: "Pages", value: m[2] });
+      continue;
+    }
+    if (!m || !label) {
+      kept.push(line);
+      continue;
+    }
+    const values = m[2].split(/\s*,\s*/).map((v) => v.trim()).filter((v) => v && !EMPTY_VALUE.test(v));
+    const have = facets.get(label) ?? [];
+    for (const v of values) if (!have.some((h) => h.toLowerCase() === v.toLowerCase())) have.push(v);
+    facets.set(label, have);
+  }
+  return { text: kept.join("\n"), facets: [...facets].filter(([, v]) => v.length > 0).map(([label, values]) => ({ label, values })) };
 }
 
 const NON_LATIN = /[Ѐ-ӿ؀-ۿ฀-๿぀-ヿ㐀-鿿가-힯]/;
@@ -31,6 +69,9 @@ export function parseDescription(description: string | null, title: string): Abo
     stats.push({ label: m[1].trim(), value: m[2].trim() });
     text = text.slice(m[0].length);
   }
+
+  const taken = takeFacets(text, stats);
+  text = taken.text;
 
   // "Alternative Titles: - A - B - C" (usually at the end; stop at a blank line).
   const head = ALT_HEAD.exec(text);
@@ -59,5 +100,5 @@ export function parseDescription(description: string | null, title: string): Abo
     seen.add(k);
     return true;
   });
-  return { body: text.replace(/\n{3,}/g, "\n\n").trim(), altTitles, stats };
+  return { body: text.replace(/\n{3,}/g, "\n\n").trim(), altTitles, stats, facets: taken.facets };
 }

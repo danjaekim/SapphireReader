@@ -22,7 +22,21 @@ describe("parseDescription", () => {
 
   it("leaves an ordinary description alone", () => {
     const d = "A boy wakes up.\nHe fights monsters.";
-    expect(parseDescription(d, "X")).toEqual({ body: d, altTitles: [], stats: [] });
-    expect(parseDescription(null, "X")).toEqual({ body: "", altTitles: [], stats: [] });
+    expect(parseDescription(d, "X")).toEqual({ body: d, altTitles: [], stats: [], facets: [] });
+    expect(parseDescription(null, "X")).toEqual({ body: "", altTitles: [], stats: [], facets: [] });
+  });
+});
+
+describe("facets", () => {
+  it("pulls gallery-style lists (parodies, characters, groups…) out of the description", () => {
+    const d = "**Parodies**: original\n\n**Characters**: rem, ram, Rem\n\n**Groups**: circle a\n\n**Languages**: english, translated\n\n**Pages**: 24\n\nA short note.";
+    const r = parseDescription(d, "X");
+    expect(r.facets).toEqual([
+      { label: "Characters", values: ["rem", "ram"] },
+      { label: "Groups", values: ["circle a"] },
+      { label: "Languages", values: ["english", "translated"] },
+    ]);
+    expect(r.stats).toEqual([{ label: "Pages", value: "24" }]);
+    expect(r.body).toBe("A short note.");
   });
 });
