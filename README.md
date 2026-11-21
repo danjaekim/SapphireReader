@@ -78,10 +78,11 @@ The compose file includes Watchtower, which updates the Sapphire app when a new 
 `sapphire` service and `WATCHTOWER_HTTP_API_TOKEN` on `watchtower` to the same random string. Changes to the
 compose file itself (new services, ports, env vars) still need a redeploy from the Docker app.
 
-To see on the Settings page whether a newer version is out, Sapphire asks GitHub for the latest commit.
-The repo is private, so it needs a token: on GitHub open Settings > Developer settings > Fine-grained
-tokens > Generate new token, pick only the SapphireReader repository, give it **Contents: Read-only**
-(nothing else), and set it as `UPDATE_GITHUB_TOKEN` on the `sapphire` service.
+To see on the Settings page whether a newer version is out, Sapphire compares the image it is running with the
+newest published image (`latest` on GitHub's container registry), so a new version only shows up once it can
+actually be installed. That works with no setup while the package is public. If the package or repo is private,
+create a GitHub token (Settings > Developer settings > Fine-grained or classic token) that can read the package and
+repo, and set it as `UPDATE_GITHUB_TOKEN` on the `sapphire` service.
 
 ## HTTPS (for offline reading on your phone)
 

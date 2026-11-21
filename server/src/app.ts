@@ -126,10 +126,6 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
 
   app.post("/api/update", async (_req, reply) => {
     try {
-      // Watchtower can only install what's published; right after a push the image is still being built.
-      clearUpdateCache();
-      const info = await updateInfo(config, VERSION, fetchImpl ?? fetch);
-      if (info.building) return reply.code(409).send({ error: "The new version is still being built. Try again in a minute or two." });
       await requestUpdate(config, fetchImpl ?? fetch);
       return reply.code(202).send({ started: true });
     } catch (err) {

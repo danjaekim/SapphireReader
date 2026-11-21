@@ -59,7 +59,7 @@ const WIDE: PageName[] = ["home", "search", "library", "discover", "discover-18"
 function UpdatePrompt({ onClose }: { onClose: () => void }) {
   const u = useUpdate();
   const busy = u.phase === "starting" || u.phase === "updating";
-  if (!busy && (u.info?.available !== true || u.info?.building)) return null;
+  if (!busy && u.info?.available !== true) return null;
   return (
     <div className="updatePrompt">
       {busy ? (
@@ -89,7 +89,7 @@ function UpdatePrompt({ onClose }: { onClose: () => void }) {
 
 function UpdateDot() {
   const u = useUpdate();
-  return u.info?.available === true && !u.info.building ? <span className="navBadge on" title="A newer version is available">New</span> : null;
+  return u.info?.available === true ? <span className="navBadge on" title="A newer version is available">New</span> : null;
 }
 
 function SideNav({

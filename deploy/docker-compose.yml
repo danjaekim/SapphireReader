@@ -73,8 +73,8 @@ services:
       - UPDATE_URL=http://watchtower:8080
       # Any long random string; must match WATCHTOWER_HTTP_API_TOKEN below.
       - UPDATE_TOKEN=CHANGE_ME_UPDATE_TOKEN
-      # The repo is private, so checking for a newer version needs a read-only GitHub token
-      # (README, "Updating"). Leave it out and Settings just can't tell you when one is out.
+      # Only if the Sapphire package or repo is private: a read-only GitHub token (README, "Updating")
+      # so Settings can see the newest published image. Not needed while both are public.
       # - UPDATE_GITHUB_TOKEN=github_pat_CHANGE_ME
     volumes:
       # Library and reading progress live here. Back up this folder.

@@ -21,6 +21,8 @@ export interface Config {
   updateRepo: string;
   /** Read-only GitHub token, needed to see a private repo's latest commit. */
   updateGithubToken: string;
+  /** The published image to compare against, if it isn't ghcr.io/<owner>/sapphire. */
+  updateImage: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -42,5 +44,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     updateToken: env.UPDATE_TOKEN ?? "",
     updateRepo: env.UPDATE_REPO ?? "danjaekim/SapphireReader",
     updateGithubToken: env.UPDATE_GITHUB_TOKEN ?? "",
+    updateImage: env.UPDATE_IMAGE ?? "",
   };
 }

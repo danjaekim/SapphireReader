@@ -3,48 +3,102 @@ import type { Config } from "./config.js";
 type FetchLike = typeof fetch;
 
 const TTL_MS = 10 * 60 * 1000;
-let cached: { at: number; sha: string | null; problem: UpdateInfo["problem"] } | null = null;
+const GH_HEADERS = { accept: "application/vnd.github+json", "user-agent": "sapphire" };
 
 export function clearUpdateCache(): void {
-  cached = null;
+  digestCache.clear();
+  tokenCache.clear();
+  commitCache = null;
 }
 
-/** The newest commit on main, which is what the image is built from. Null if GitHub can't be reached. */
-async function latestSha(config: Config, fetchImpl: FetchLike): Promise<{ sha: string | null; problem: UpdateInfo["problem"] }> {
-  if (cached && Date.now() - cached.at < TTL_MS) return cached;
-  let sha: string | null = null;
-  let problem: UpdateInfo["problem"] = null;
+export interface UpdateInfo {
+  /** Whether Watchtower is set up, so the button can work. */
+  enabled: boolean;
+  /** True/false when known, null when the published image couldn't be checked. */
+  available: boolean | null;
+  /** The version (short commit) of the newest published image, when it can be worked out. */
+  latest: string | null;
+  /** A newer build than the published image is still being made (it'll be installable soon). */
+  building?: boolean;
+  /** Why it couldn't check. */
+  problem: "private" | "token" | "github" | "offline" | "version" | "build" | null;
+}
+
+/** "ghcr.io/<owner>/sapphire": the image the CI workflow publishes. */
+function imageRepo(config: Config): string {
+  if (config.updateImage) return config.updateImage.replace(/^ghcr\.io\//, "");
+  return `${config.updateRepo.split("/")[0].toLowerCase()}/sapphire`;
+}
+
+type DigestResult = { digest: string | null; status: "ok" | "missing" | "denied" | "error" };
+const digestCache = new Map<string, { at: number; value: DigestResult }>();
+const tokenCache = new Map<string, { at: number; token: string | null; denied: boolean }>();
+
+async function registryToken(config: Config, repo: string, fetchImpl: FetchLike): Promise<{ token: string | null; denied: boolean }> {
+  const hit = tokenCache.get(repo);
+  if (hit && Date.now() - hit.at < 4 * 60 * 1000) return hit;
+  const headers: Record<string, string> = {};
+  // A private package needs a login; the same read-only GitHub token works for it (needs read:packages).
+  if (config.updateGithubToken) headers.authorization = `Basic ${Buffer.from(`sapphire:${config.updateGithubToken}`).toString("base64")}`;
+  const res = await fetchImpl(`https://ghcr.io/token?scope=repository:${repo}:pull`, { headers, signal: AbortSignal.timeout(8000) });
+  const out = res.ok ? { at: Date.now(), token: ((await res.json()) as { token?: string }).token ?? null, denied: false } : { at: Date.now(), token: null, denied: res.status === 401 || res.status === 403 };
+  tokenCache.set(repo, out);
+  return out;
+}
+
+/** The content digest of a tag on the published image ("latest", or "sha-abc1234" for one build). */
+async function tagDigest(config: Config, tag: string, fetchImpl: FetchLike): Promise<DigestResult> {
+  const repo = imageRepo(config);
+  const key = `${repo}:${tag}`;
+  const hit = digestCache.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
+  let value: DigestResult;
   try {
-    const res = await fetchImpl(`https://api.github.com/repos/${config.updateRepo}/commits/main`, {
-      headers: {
-        accept: "application/vnd.github+json",
-        "user-agent": "sapphire",
-        // A private repo is invisible without a token (GitHub answers 404).
-        ...(config.updateGithubToken ? { authorization: `Bearer ${config.updateGithubToken}` } : {}),
-      },
+    const { token, denied } = await registryToken(config, repo, fetchImpl);
+    if (!token) value = { digest: null, status: denied ? "denied" : "error" };
+    else {
+      const res = await fetchImpl(`https://ghcr.io/v2/${repo}/manifests/${tag}`, {
+        method: "HEAD",
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json",
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+      value = res.ok
+        ? { digest: res.headers.get("docker-content-digest"), status: "ok" }
+        : { digest: null, status: res.status === 404 ? "missing" : res.status === 401 || res.status === 403 ? "denied" : "error" };
+    }
+  } catch {
+    value = { digest: null, status: "error" };
+  }
+  if (value.status !== "error") digestCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
+/** The newest few commits on main (newest first), used to put a version number on the published image. */
+let commitCache: { at: number; shas: string[] } | null = null;
+async function recentCommits(config: Config, fetchImpl: FetchLike): Promise<string[]> {
+  if (commitCache && Date.now() - commitCache.at < TTL_MS) return commitCache.shas;
+  try {
+    const res = await fetchImpl(`https://api.github.com/repos/${config.updateRepo}/commits?sha=main&per_page=12`, {
+      headers: { ...GH_HEADERS, ...(config.updateGithubToken ? { authorization: `Bearer ${config.updateGithubToken}` } : {}) },
       signal: AbortSignal.timeout(8000),
     });
-    if (res.ok) sha = ((await res.json()) as { sha?: string }).sha ?? null;
-    else problem = res.status === 404 || res.status === 401 || res.status === 403 ? (config.updateGithubToken ? "token" : "private") : "github";
+    if (!res.ok) return commitCache?.shas ?? [];
+    const shas = ((await res.json()) as { sha: string }[]).map((c) => c.sha.slice(0, 7));
+    commitCache = { at: Date.now(), shas };
+    return shas;
   } catch {
-    problem = "offline";
+    return commitCache?.shas ?? [];
   }
-  cached = { at: Date.now(), sha, problem };
-  return cached;
 }
 
-/**
- * Whether the newest commit's build (the workflow that publishes the image) is still running, or failed.
- * The commit shows up on GitHub right away, but Watchtower can only install it once the image is published.
- */
+/** Whether the newest commit's build is still running (so a newer image is coming) or failed. */
 async function buildState(config: Config, sha: string, fetchImpl: FetchLike): Promise<"building" | "failed" | "done" | "unknown"> {
   try {
     const res = await fetchImpl(`https://api.github.com/repos/${config.updateRepo}/actions/runs?head_sha=${sha}&per_page=10`, {
-      headers: {
-        accept: "application/vnd.github+json",
-        "user-agent": "sapphire",
-        ...(config.updateGithubToken ? { authorization: `Bearer ${config.updateGithubToken}` } : {}),
-      },
+      headers: { ...GH_HEADERS, ...(config.updateGithubToken ? { authorization: `Bearer ${config.updateGithubToken}` } : {}) },
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return "unknown";
@@ -58,33 +112,49 @@ async function buildState(config: Config, sha: string, fetchImpl: FetchLike): Pr
   }
 }
 
-export interface UpdateInfo {
-  /** Whether Watchtower is set up, so the button can work. */
-  enabled: boolean;
-  /** True/false when known, null when the latest version couldn't be checked. */
-  available: boolean | null;
-  latest: string | null;
-  /** The newer version is on GitHub but its image is still being built, so it can't be installed yet. */
-  building?: boolean;
-  /** Why it couldn't check: the repo is private and no token is set, the token was refused, GitHub erred, or no internet. */
-  problem: "private" | "token" | "github" | "offline" | "version" | "build" | null;
-}
-
+/**
+ * Compares the image this copy runs with the newest published image ("latest" on GHCR). Both are
+ * identified by their digests, so a new commit only counts once its image actually exists.
+ */
 export async function updateInfo(config: Config, current: string, fetchImpl: FetchLike): Promise<UpdateInfo> {
   const enabled = config.updateUrl !== "" && config.updateToken !== "";
-  const { sha, problem } = await latestSha(config, fetchImpl);
+  const base = { enabled, available: null, latest: null, building: false } as const;
   const versionKnown = /^[0-9a-f]{7}$/.test(current);
-  const known = sha !== null && versionKnown;
-  const available = known ? !sha.startsWith(current) : null;
-  // Only newer versions need the build check, and it's asked fresh each time (a build takes a minute or two).
-  const build = available && sha ? await buildState(config, sha, fetchImpl) : "unknown";
-  return {
-    enabled,
-    available,
-    latest: sha ? sha.slice(0, 7) : null,
-    building: build === "building",
-    problem: problem ?? (build === "failed" ? "build" : versionKnown ? null : "version"),
-  };
+
+  const latest = await tagDigest(config, "latest", fetchImpl);
+  if (latest.status === "denied") return { ...base, problem: config.updateGithubToken ? "token" : "private" };
+  if (!latest.digest) return { ...base, problem: latest.status === "error" ? "offline" : "github" };
+  if (!versionKnown) return { ...base, problem: "version" };
+
+  const mine = await tagDigest(config, `sha-${current}`, fetchImpl);
+  if (mine.status === "denied") return { ...base, problem: config.updateGithubToken ? "token" : "private" };
+  if (!mine.digest) return { ...base, problem: mine.status === "error" ? "offline" : "version" };
+  const available = mine.digest !== latest.digest;
+
+  // Put a version number on the newest image, and note a newer build that's still on its way.
+  const commits = await recentCommits(config, fetchImpl);
+  let latestName: string | null = available ? null : current;
+  let building = false;
+  let problem: UpdateInfo["problem"] = null;
+  if (commits.length > 0) {
+    const head = commits[0];
+    const headDigest = (await tagDigest(config, `sha-${head}`, fetchImpl)).digest;
+    if (headDigest === latest.digest) latestName = head;
+    else if (headDigest === null) {
+      const state = await buildState(config, head, fetchImpl);
+      building = state === "building";
+      if (state === "failed") problem = "build";
+    }
+    if (!latestName) {
+      for (const sha of commits.slice(1)) {
+        if ((await tagDigest(config, `sha-${sha}`, fetchImpl)).digest === latest.digest) {
+          latestName = sha;
+          break;
+        }
+      }
+    }
+  }
+  return { enabled, available, latest: latestName, building, problem };
 }
 
 /**

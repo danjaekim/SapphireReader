@@ -116,7 +116,7 @@ export function UpdateCard() {
   const { info, checking, phase } = u;
   const busy = phase === "starting" || phase === "updating";
   const building = info?.building === true;
-  const available = info?.available === true && !building;
+  const available = info?.available === true;
   const problem = info?.available === null || info?.problem === "build" ? (PROBLEMS[info?.problem ?? "github"] ?? "Couldn't check for a newer version.") : null;
 
   return (
@@ -147,7 +147,7 @@ export function UpdateCard() {
           {checking && <Loading label="Checking for a newer version…" size="sm" block={false} />}
           {building && (
             <div className="updateBuilding">
-              <Loading label={`Version ${info.latest ?? ""} is being built. It'll be ready to install in a minute or two.`} size="sm" block={false} />
+              <Loading label="An even newer version is being built. It'll be ready to install in a minute or two." size="sm" block={false} />
               <p className="muted small">This page checks again every few seconds, so you can leave it open.</p>
             </div>
           )}
@@ -156,7 +156,7 @@ export function UpdateCard() {
               <span className="dot bad" /> A newer version is available.
             </p>
           )}
-          {!checking && !building && info.available === false && (
+          {!checking && info.available === false && !building && (
             <p>
               <span className="dot good" /> You're on the latest version.
               {u.checkedAt && <span className="muted small"> Checked {ago(u.checkedAt)}.</span>}

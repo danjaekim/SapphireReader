@@ -6,42 +6,57 @@ const config = { ...loadConfig({}), updateUrl: "http://watchtower:8080", updateT
 
 beforeEach(clearUpdateCache);
 
+/** A fake GHCR + GitHub: `tags` maps a tag to its digest; `commits` is main's history, newest first. */
+function fakeWorld(opts: { tags: Record<string, string>; commits?: string[]; runs?: { status: string; conclusion: string | null }[]; denied?: boolean }) {
+  return (async (url: string, init?: RequestInit) => {
+    const u = String(url);
+    if (u.startsWith("https://ghcr.io/token")) return opts.denied ? new Response("{}", { status: 401 }) : new Response(JSON.stringify({ token: "t" }));
+    const m = u.match(/ghcr\.io\/v2\/.+\/manifests\/(.+)$/);
+    if (m) {
+      expect(init?.method).toBe("HEAD");
+      const d = opts.tags[m[1]];
+      return d ? new Response(null, { headers: { "docker-content-digest": d } }) : new Response(null, { status: 404 });
+    }
+    if (u.includes("/commits?")) return new Response(JSON.stringify((opts.commits ?? []).map((sha) => ({ sha: sha.padEnd(40, "0") }))));
+    if (u.includes("/actions/runs")) return new Response(JSON.stringify({ workflow_runs: opts.runs ?? [] }));
+    throw new Error(`unexpected request ${u}`);
+  }) as unknown as typeof fetch;
+}
+
 describe("updater", () => {
-  it("says an update is available when main moved on", async () => {
-    const f = (async () => new Response(JSON.stringify({ sha: "abcdef1234567" }))) as unknown as typeof fetch;
-    expect(await updateInfo(config, "1111111", f)).toMatchObject({ enabled: true, available: true, latest: "abcdef1", problem: null });
-    clearUpdateCache();
-    expect((await updateInfo(config, "abcdef1", f)).available).toBe(false);
+  it("says an update is available when a newer image is published, and names it", async () => {
+    const f = fakeWorld({ tags: { latest: "sha256:new", "sha-1111111": "sha256:old", "sha-abcdef1": "sha256:new" }, commits: ["abcdef1", "1111111"] });
+    expect(await updateInfo(config, "1111111", f)).toMatchObject({ enabled: true, available: true, latest: "abcdef1", building: false, problem: null });
   });
 
-  it("doesn't guess when GitHub or the version is unknown", async () => {
+  it("says you're up to date when your image is the newest published one", async () => {
+    const f = fakeWorld({ tags: { latest: "sha256:x", "sha-abcdef1": "sha256:x" }, commits: ["abcdef1"] });
+    expect(await updateInfo(config, "abcdef1", f)).toMatchObject({ available: false, latest: "abcdef1", building: false });
+  });
+
+  it("doesn't offer a commit whose image isn't published yet, and notes the build", async () => {
+    const f = fakeWorld({
+      tags: { latest: "sha256:x", "sha-1111111": "sha256:x" },
+      commits: ["2222222", "1111111"],
+      runs: [{ status: "in_progress", conclusion: null }],
+    });
+    expect(await updateInfo(config, "1111111", f)).toMatchObject({ available: false, latest: "1111111", building: true });
+  });
+
+  it("reports a failed build", async () => {
+    const f = fakeWorld({ tags: { latest: "sha256:x", "sha-1111111": "sha256:x" }, commits: ["2222222", "1111111"], runs: [{ status: "completed", conclusion: "failure" }] });
+    expect(await updateInfo(config, "1111111", f)).toMatchObject({ available: false, building: false, problem: "build" });
+  });
+
+  it("explains a private package and doesn't guess when it can't tell", async () => {
+    expect(await updateInfo(config, "1111111", fakeWorld({ tags: {}, denied: true }))).toMatchObject({ available: null, problem: "private" });
+    clearUpdateCache();
+    expect(await updateInfo({ ...config, updateGithubToken: "gh" }, "1111111", fakeWorld({ tags: {}, denied: true }))).toMatchObject({ problem: "token" });
+    clearUpdateCache();
     const down = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
-    expect((await updateInfo(config, "1111111", down)).available).toBeNull();
+    expect(await updateInfo(config, "1111111", down)).toMatchObject({ available: null, problem: "offline" });
     clearUpdateCache();
-    const f = (async () => new Response(JSON.stringify({ sha: "abcdef1234567" }))) as unknown as typeof fetch;
-    expect((await updateInfo(config, "dev", f)).available).toBeNull();
-  });
-
-  it("says the new version is still building until its workflow finishes", async () => {
-    const runs = { workflow_runs: [{ status: "in_progress", conclusion: null }] };
-    const f = (async (u: string) => (String(u).includes("/actions/runs") ? new Response(JSON.stringify(runs)) : new Response(JSON.stringify({ sha: "abcdef1234567" })))) as unknown as typeof fetch;
-    expect(await updateInfo(config, "1111111", f)).toMatchObject({ available: true, building: true });
-    runs.workflow_runs = [{ status: "completed", conclusion: "success" }];
-    expect(await updateInfo(config, "1111111", f)).toMatchObject({ available: true, building: false, problem: null });
-    runs.workflow_runs = [{ status: "completed", conclusion: "failure" }];
-    expect(await updateInfo(config, "1111111", f)).toMatchObject({ building: false, problem: "build" });
-  });
-
-  it("explains a private repo and sends the token when one is set", async () => {
-    let auth: string | undefined;
-    const f = (async (_u: string, init?: RequestInit) => {
-      auth = (init?.headers as Record<string, string>).authorization;
-      return auth ? new Response(JSON.stringify({ sha: "abcdef1234567" })) : new Response("{}", { status: 404 });
-    }) as unknown as typeof fetch;
-    expect(await updateInfo(config, "1111111", f)).toMatchObject({ available: null, problem: "private" });
-    clearUpdateCache();
-    expect(await updateInfo({ ...config, updateGithubToken: "gh" }, "1111111", f)).toMatchObject({ available: true, problem: null });
-    expect(auth).toBe("Bearer gh");
+    expect(await updateInfo(config, "dev", fakeWorld({ tags: { latest: "sha256:x" } }))).toMatchObject({ available: null, problem: "version" });
   });
 
   it("posts to Watchtower with the token and fails when it's unreachable", async () => {
