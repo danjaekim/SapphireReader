@@ -108,8 +108,9 @@ a { color: var(--fg); }
 .chapterHead h3 { margin: 0; }
 .linkish { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 4px; }
 .chapters { list-style: none; margin: 8px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.chapters li { display: flex; background: var(--panel); }
 .chapters li + li { border-top: 1px solid var(--line); }
-.chapters a { display: flex; gap: 8px; padding: 12px; text-decoration: none; background: var(--panel); }
+.chapters a { flex: 1; min-width: 0; display: flex; gap: 8px; padding: 12px; text-decoration: none; }
 .chapters a:hover { background: var(--line); }
 .chapters .date { margin-left: auto; white-space: nowrap; }
 .reading { background: #000; padding-top: 0; }
@@ -175,3 +176,16 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .readerTop.show { padding-left: 224px; }
 @media (max-width: 720px) { .readerTop.show { padding-left: 76px; } }
 @media (max-width: 720px) { .grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px 10px; } .content { padding-left: 14px; } }
+
+.dlBtn, .dlState { flex: none; min-width: 44px; padding: 0 12px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.dlBtn:hover { color: var(--fg); background: var(--line); }
+.dlBtn.wide { font-size: 13px; white-space: nowrap; border-radius: 8px; min-width: 0; padding: 4px 10px; }
+.dlState { cursor: default; }
+.dlState.done { color: var(--good); }
+.dlActions { margin: 8px 0; align-items: center; }
+.readerTitle { display: flex; align-items: center; gap: 8px; }
+.readerTop .dlBtn, .readerTop .dlState { color: var(--fg); }
+.dlSeries { margin-bottom: 14px; }
+.dlHead { display: flex; gap: 12px; margin-bottom: 8px; }
+.dlHead img { border-radius: 8px; object-fit: cover; }
+.dlHead p { margin: 2px 0 4px; }

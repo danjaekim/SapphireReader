@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { chapterPages, saveProgress, series, type SeriesData } from "./api";
+import { DownloadButton } from "./SeriesPage";
 import { readHref, seriesHref } from "./route";
+import { useSeriesDownloads } from "./useDownloads";
 
 export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; chapterId: number; nav: ReactNode }) {
   // Chrome (top bar and menu) stays hidden while reading; tapping the page shows or hides it.
@@ -24,6 +26,7 @@ export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; 
     );
   }, [chapterId]);
 
+  const { states, download } = useSeriesDownloads(mangaId);
   const stripRef = useRef<HTMLDivElement>(null);
   const restored = useRef(false);
   const target = useRef<{ index: number; offset: number } | null>(null);
@@ -116,7 +119,24 @@ export function Reader({ mangaId, chapterId, nav: sideNav }: { mangaId: number; 
       {chrome && sideNav}
       <header className={`readerTop ${chrome ? "show" : ""}`}>
         <a href={seriesHref(mangaId)}>← {data?.manga.title ?? "Back"}</a>
-        <strong>{chapter ? (chapter.chapterNumber >= 0 ? `Chapter ${chapter.chapterNumber}` : chapter.name) : ""}</strong>
+        <span className="readerTitle">
+          <strong>{chapter ? (chapter.chapterNumber >= 0 ? `Chapter ${chapter.chapterNumber}` : chapter.name) : ""}</strong>
+          {data && chapter && (
+            <>
+              <DownloadButton state={states[chapter.id]} onDownload={() => download(data.manga, [chapter])} />
+              {next && (
+                <button
+                  type="button"
+                  className="dlBtn wide"
+                  title="Download the next five chapters to the NAS"
+                  onClick={() => download(data.manga, data.chapters.slice(index + 1, index + 6).filter((c) => !states[c.id] || states[c.id].status === "failed"))}
+                >
+                  ⬇ next 5
+                </button>
+              )}
+            </>
+          )}
+        </span>
       </header>
       {error && (
         <p className="bad">

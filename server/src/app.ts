@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
@@ -10,6 +10,7 @@ import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
 import { browseByGenres, listGenres } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { discover, recommendFor, similarTo, type DiscoverSort } from "./discover.js";
+import { Downloader, mimeForFile } from "./downloader.js";
 import { backupName, snapshot } from "./backup.js";
 import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
 import { checkLibrary } from "./checker.js";
@@ -37,6 +38,7 @@ const LATEST_TTL_MS = 10 * 60 * 1000;
 declare module "fastify" {
   interface FastifyInstance {
     /** Checks every library series for new chapters (and sends alerts). */
+    downloader: Downloader;
     runCheck: (pauseMs?: number) => Promise<{ checked: number; failed: number[]; alerts: number }>;
   }
 }
@@ -58,6 +60,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const store = options.store ?? new Store(":memory:");
   const notify = createNotifier(config, fetchImpl);
   const gate = new AdultGate(store);
+  const downloader = new Downloader(config, store, join(config.dataDir, "downloads"), fetchImpl, app.log);
+  store.requeueInterruptedDownloads();
+  downloader.kick();
+  app.decorate("downloader", downloader);
   // 18+ sources are only used while this browser has unlocked 18+ mode.
   const scopeFor = (req: { headers: { cookie?: string } }): Scope => (gate.unlocked(req.headers.cookie) ? "all" : "safe");
   const report: SourceReport = (source, r) => store.recordSource(source.id, source.name, r);
@@ -410,9 +416,79 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  // ---- Downloads ----
+  app.get("/api/downloads", async (req) => {
+    const items = store.downloads(gate.unlocked(req.headers.cookie));
+    return { items, totalBytes: items.reduce((n, d) => n + d.bytes, 0) };
+  });
+
+  // Which of one series' chapters are saved (for the chapter list and the reader).
+  app.get<{ Params: { id: string } }>("/api/manga/:id/downloads", async (req) => ({
+    items: store.downloads(true, Number(req.params.id)).map((d) => ({ chapterId: d.chapterId, status: d.status, error: d.error })),
+  }));
+
+  app.post<{
+    Body: {
+      mangaId?: unknown;
+      title?: unknown;
+      sourceId?: unknown;
+      sourceName?: unknown;
+      chapters?: { id?: unknown; name?: unknown; number?: unknown }[];
+    };
+  }>("/api/downloads", async (req, reply) => {
+    const b = req.body ?? {};
+    const chapters = Array.isArray(b.chapters) ? b.chapters : [];
+    const valid =
+      Number.isInteger(b.mangaId) &&
+      typeof b.title === "string" &&
+      chapters.length > 0 &&
+      chapters.length <= 500 &&
+      chapters.every((c) => Number.isInteger(c.id) && typeof c.name === "string" && typeof c.number === "number");
+    if (!valid) return reply.code(400).send({ error: "Bad request." });
+    const sourceId = String(b.sourceId ?? "");
+    const adult = (await listSources(config, fetchImpl).catch(() => [])).find((s) => s.id === sourceId)?.isNsfw === true;
+    if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    const queued = store.queueDownloads(
+      { mangaId: b.mangaId as number, title: b.title as string, sourceName: typeof b.sourceName === "string" ? b.sourceName : null, adult },
+      chapters.map((c) => ({ id: c.id as number, name: c.name as string, number: c.number as number })),
+    );
+    downloader.kick();
+    return { queued };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/downloads/:id", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: "Bad id." });
+    const row = store.getDownload(id);
+    if (row?.status === "downloading") return reply.code(409).send({ error: "That chapter is downloading right now." });
+    downloader.remove(id);
+    return { ok: true };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/downloads/series/:id", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: "Bad id." });
+    for (const d of store.downloads(true, id)) if (d.status !== "downloading") downloader.remove(d.chapterId);
+    return { ok: true };
+  });
+
+  // A saved page, served from the NAS disk.
+  app.get<{ Params: { chapter: string; page: string } }>("/api/dl/:chapter/:page", async (req, reply) => {
+    const chapter = Number(req.params.chapter);
+    const page = Number(req.params.page);
+    const row = Number.isInteger(chapter) ? store.getDownload(chapter) : null;
+    const file = row?.status === "done" && Number.isInteger(page) ? downloader.pageFile(row.mangaId, chapter, page) : null;
+    if (!file) return reply.code(404).send({ error: "Page not saved." });
+    return reply.header("content-type", mimeForFile(file)).header("cache-control", "public, max-age=604800, immutable").send(createReadStream(file));
+  });
+
   app.get<{ Params: { id: string } }>("/api/chapters/:id/pages", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    const saved = store.getDownload(id);
+    if (saved?.status === "done" && saved.pages > 0) {
+      return { pages: Array.from({ length: saved.pages }, (_, i) => `/api/dl/${id}/${i}`), downloaded: true };
+    }
     try {
       return { pages: await fetchPageUrls(config, id, fetchImpl) };
     } catch (err) {
@@ -539,6 +615,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.get<{ Params: { id: string } }>("/api/manga/:id/thumbnail", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    const local = downloader.coverFile(id);
+    if (local) {
+      return reply.header("content-type", mimeForFile(local)).header("cache-control", "public, max-age=86400").send(createReadStream(local));
+    }
     try {
       const res = await engineFile(config, `/api/v1/manga/${id}/thumbnail`, fetchImpl);
       if (!res.ok) return reply.code(404).send({ error: "No cover." });

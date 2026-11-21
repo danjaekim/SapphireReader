@@ -2,9 +2,22 @@ import { useEffect, useState } from "react";
 import { addToLibrary, alternatives, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, readHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
+import { useSeriesDownloads } from "./useDownloads";
 
 function chapterLabel(c: { name: string; chapterNumber: number }): string {
   return c.chapterNumber >= 0 ? `Ch. ${Number.isInteger(c.chapterNumber) ? c.chapterNumber : c.chapterNumber.toFixed(1)}` : c.name;
+}
+
+export function DownloadButton({ state, onDownload }: { state?: { status: string; error: string | null }; onDownload: () => void }) {
+  if (state?.status === "done") return <span className="dlState done" title="Saved on the NAS. Remove it from the Downloads page.">✓</span>;
+  if (state?.status === "queued" || state?.status === "downloading") {
+    return <span className="dlState" title={state.status === "queued" ? "Waiting to download" : "Downloading"}>…</span>;
+  }
+  return (
+    <button type="button" className="dlBtn" onClick={onDownload} title={state?.status === "failed" ? `Failed: ${state.error ?? "try again"}. Tap to retry.` : "Download this chapter to the NAS"} aria-label="Download chapter">
+      {state?.status === "failed" ? "⚠" : "⬇"}
+    </button>
+  );
 }
 
 export function SeriesPage({ mangaId }: { mangaId: number }) {
@@ -12,6 +25,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [newestFirst, setNewestFirst] = useState(true);
 
+  const { states, download } = useSeriesDownloads(mangaId);
   const [similarGroups, setSimilarGroups] = useState<SeriesGroup[] | null>(null);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [others, setOthers] = useState<Alternative[] | null>(null);
@@ -50,6 +64,9 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   }
 
   const readIds = new Set(data?.readChapterIds ?? []);
+  const unread = data ? data.chapters.filter((c) => !readIds.has(c.id) && states[c.id]?.status !== "done") : [];
+  const notSaved = data ? data.chapters.filter((c) => !states[c.id] || states[c.id].status === "failed") : [];
+  const working = Object.values(states).filter((d) => d.status === "queued" || d.status === "downloading").length;
   const resume = data?.progress ? data.chapters.find((c) => c.id === data.progress!.chapterId) : undefined;
 
   return (
@@ -136,6 +153,20 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
               {newestFirst ? "Newest first" : "Oldest first"}
             </button>
           </div>
+          <div className="actions dlActions">
+            <button type="button" className="button small secondary" disabled={notSaved.length === 0} onClick={() => download(data.manga, notSaved)}>
+              Download all{notSaved.length ? ` (${notSaved.length})` : ""}
+            </button>
+            <button
+              type="button"
+              className="button small secondary"
+              disabled={unread.filter((c) => !states[c.id]).length === 0}
+              onClick={() => download(data.manga, unread.filter((c) => !states[c.id] || states[c.id].status === "failed"))}
+            >
+              Download unread
+            </button>
+            {working > 0 && <span className="muted">Downloading {working} chapter{working === 1 ? "" : "s"} to the NAS…</span>}
+          </div>
           <ul className="chapters">
             {(newestFirst ? [...data.chapters].reverse() : data.chapters).map((c) => (
               <li key={c.id} className={readIds.has(c.id) ? "read" : undefined}>
@@ -144,6 +175,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   {c.name && c.chapterNumber >= 0 && c.name !== chapterLabel(c) && <span className="muted"> {c.name}</span>}
                   <span className="muted date">{c.uploadDate ? new Date(c.uploadDate).toLocaleDateString() : ""}</span>
                 </a>
+                <DownloadButton state={states[c.id]} onDownload={() => download(data.manga, [c])} />
               </li>
             ))}
           </ul>

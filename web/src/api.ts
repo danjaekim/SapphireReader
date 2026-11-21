@@ -230,3 +230,46 @@ export const tracking = (mangaId: number) => getJson<{ anilist: TrackerLink | nu
 export const linkAnilist = (mangaId: number, mediaId: number, title: string) =>
   send("PUT", `/api/manga/${mangaId}/tracking`, { mediaId, title }) as Promise<{ anilist: TrackerLink | null }>;
 export const unlinkAnilist = (mangaId: number) => send("DELETE", `/api/manga/${mangaId}/tracking`);
+
+export interface DownloadRow {
+  chapterId: number;
+  mangaId: number;
+  mangaTitle: string;
+  sourceName: string | null;
+  adult: boolean;
+  chapterName: string;
+  chapterNumber: number;
+  status: "queued" | "downloading" | "done" | "failed";
+  pages: number;
+  bytes: number;
+  error: string | null;
+}
+export interface DownloadState {
+  chapterId: number;
+  status: DownloadRow["status"];
+  error: string | null;
+}
+export const downloads = () => getJson<{ items: DownloadRow[]; totalBytes: number }>("/api/downloads");
+export const seriesDownloads = (mangaId: number) => getJson<{ items: DownloadState[] }>(`/api/manga/${mangaId}/downloads`);
+export const removeDownload = (chapterId: number) => send("DELETE", `/api/downloads/${chapterId}`);
+export const removeSeriesDownloads = (mangaId: number) => send("DELETE", `/api/downloads/series/${mangaId}`);
+
+/** Queues chapters on the NAS (in batches the server accepts). */
+export async function queueDownloads(
+  manga: { id: number; title: string; sourceId: string; sourceName: string | null },
+  chapters: { id: number; name: string; chapterNumber: number }[],
+): Promise<number> {
+  let queued = 0;
+  for (let i = 0; i < chapters.length; i += 400) {
+    const batch = chapters.slice(i, i + 400).map((c) => ({ id: c.id, name: c.name, number: c.chapterNumber }));
+    const r = (await send("POST", "/api/downloads", {
+      mangaId: manga.id,
+      title: manga.title,
+      sourceId: manga.sourceId,
+      sourceName: manga.sourceName,
+      chapters: batch,
+    })) as { queued: number };
+    queued += r.queued;
+  }
+  return queued;
+}

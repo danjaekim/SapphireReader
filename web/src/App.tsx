@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AdultLock } from "./AdultLock";
 import { adultState, type AdultState } from "./api";
 import { Discover } from "./Discover";
+import { Downloads } from "./Downloads";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
 import { Search } from "./Search";
@@ -16,8 +17,8 @@ interface Status {
   alerts?: { enabled: boolean; everyHours: number };
 }
 
-const baseTabs = ["Search", "Library", "Discover", "Updates", "Sources", "Status"] as const;
-const adultTabs = ["Search", "Library", "Discover", "Discover (18+)", "Updates", "Sources", "Status"] as const;
+const baseTabs = ["Search", "Library", "Discover", "Downloads", "Updates", "Sources", "Status"] as const;
+const adultTabs = ["Search", "Library", "Discover", "Discover (18+)", "Downloads", "Updates", "Sources", "Status"] as const;
 type Tab = (typeof adultTabs)[number];
 
 const ICONS: Record<Tab, string> = {
@@ -25,6 +26,7 @@ const ICONS: Record<Tab, string> = {
   Library: "📚",
   Discover: "✨",
   "Discover (18+)": "🔞",
+  Downloads: "⬇️",
   Updates: "🔔",
   Sources: "🧩",
   Status: "📊",
@@ -188,6 +190,7 @@ export function App() {
               </>
             )}
             {tab === "Library" && <Library key={String(adult.unlocked)} />}
+            {tab === "Downloads" && <Downloads key={String(adult.unlocked)} />}
             {tab === "Updates" && <p className="muted">Coming soon.</p>}
           </>
         )}

@@ -41,6 +41,36 @@ export interface LibraryItem extends LibraryEntry {
   unread: number | null;
 }
 
+export interface DownloadRow {
+  chapterId: number;
+  mangaId: number;
+  mangaTitle: string;
+  sourceName: string | null;
+  adult: boolean;
+  chapterName: string;
+  chapterNumber: number;
+  status: "queued" | "downloading" | "done" | "failed";
+  pages: number;
+  bytes: number;
+  error: string | null;
+}
+
+function toDownload(r: Record<string, unknown>): DownloadRow {
+  return {
+    chapterId: r.chapter_id as number,
+    mangaId: r.manga_id as number,
+    mangaTitle: r.manga_title as string,
+    sourceName: (r.source_name as string | null) ?? null,
+    adult: r.adult === 1,
+    chapterName: r.chapter_name as string,
+    chapterNumber: r.chapter_number as number,
+    status: r.status as DownloadRow["status"],
+    pages: r.pages as number,
+    bytes: r.bytes as number,
+    error: (r.error as string | null) ?? null,
+  };
+}
+
 export interface TrackerLink {
   mediaId: number;
   title: string;
@@ -86,6 +116,20 @@ export class Store {
         page_offset REAL NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS downloads (
+        chapter_id INTEGER PRIMARY KEY,
+        manga_id INTEGER NOT NULL,
+        manga_title TEXT NOT NULL,
+        source_name TEXT,
+        adult INTEGER NOT NULL DEFAULT 0,
+        chapter_name TEXT NOT NULL,
+        chapter_number REAL NOT NULL,
+        status TEXT NOT NULL,
+        pages INTEGER NOT NULL DEFAULT 0,
+        bytes INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS tracker_links (
         manga_id INTEGER NOT NULL,
         service TEXT NOT NULL,
@@ -130,6 +174,60 @@ export class Store {
   backupTo(path: string): void {
     mkdirSync(dirname(path), { recursive: true });
     this.db.exec(`VACUUM INTO '${path.replace(/'/g, "''")}'`);
+  }
+
+  /** Adds chapters to the download queue; ones already queued or finished are left alone. */
+  queueDownloads(
+    series: { mangaId: number; title: string; sourceName: string | null; adult: boolean },
+    chapters: { id: number; name: string; number: number }[],
+  ): number {
+    const insert = this.db.prepare(
+      `INSERT INTO downloads (chapter_id, manga_id, manga_title, source_name, adult, chapter_name, chapter_number, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+       ON CONFLICT(chapter_id) DO UPDATE SET status = 'queued', error = NULL WHERE downloads.status = 'failed'`,
+    );
+    let added = 0;
+    const now = new Date().toISOString();
+    for (const c of chapters) {
+      const before = this.getDownload(c.id);
+      insert.run(c.id, series.mangaId, series.title, series.sourceName, series.adult ? 1 : 0, c.name, c.number, now);
+      if (!before || before.status === "failed") added++;
+    }
+    return added;
+  }
+
+  getDownload(chapterId: number): DownloadRow | null {
+    const r = this.db.prepare("SELECT * FROM downloads WHERE chapter_id = ?").get(chapterId) as Record<string, unknown> | undefined;
+    return r ? toDownload(r) : null;
+  }
+
+  /** The oldest chapter waiting to download. */
+  nextQueuedDownload(): DownloadRow | null {
+    const r = this.db.prepare("SELECT * FROM downloads WHERE status = 'queued' ORDER BY created_at, chapter_id LIMIT 1").get() as
+      | Record<string, unknown>
+      | undefined;
+    return r ? toDownload(r) : null;
+  }
+
+  setDownloadState(chapterId: number, state: { status: DownloadRow["status"]; pages?: number; bytes?: number; error?: string | null }): void {
+    this.db
+      .prepare("UPDATE downloads SET status = ?, pages = COALESCE(?, pages), bytes = COALESCE(?, bytes), error = ? WHERE chapter_id = ?")
+      .run(state.status, state.pages ?? null, state.bytes ?? null, state.error ?? null, chapterId);
+  }
+
+  /** After a restart, anything that was mid-download goes back in the queue. */
+  requeueInterruptedDownloads(): void {
+    this.db.prepare("UPDATE downloads SET status = 'queued' WHERE status = 'downloading'").run();
+  }
+
+  downloads(includeAdult = false, mangaId?: number): DownloadRow[] {
+    const where = [includeAdult ? "1" : "adult = 0", mangaId === undefined ? "1" : "manga_id = ?"].join(" AND ");
+    const stmt = this.db.prepare(`SELECT * FROM downloads WHERE ${where} ORDER BY manga_title, chapter_number, chapter_id`);
+    return (mangaId === undefined ? stmt.all() : stmt.all(mangaId)).map((r) => toDownload(r as Record<string, unknown>));
+  }
+
+  deleteDownload(chapterId: number): void {
+    this.db.prepare("DELETE FROM downloads WHERE chapter_id = ?").run(chapterId);
   }
 
   deleteSetting(key: string): void {
