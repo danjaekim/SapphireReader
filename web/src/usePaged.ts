@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SearchResult, SeriesGroup } from "./api";
+import { parseHash } from "./route";
 
 /** Adds a later page's series to the ones already shown, merging sources for the same series. */
 export function mergeResults(a: SearchResult, b: SearchResult): { merged: SearchResult; added: number } {
@@ -81,6 +82,8 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
       return;
     }
     restoreTo.current = null;
+    // A new tab or filter starts at the top, not wherever the last list was scrolled to.
+    window.scrollTo(0, 0);
     setResult(null);
     setMore(false);
     setBusy(true);
@@ -108,18 +111,24 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
     }
   }, [result]);
 
-  // Remember the scroll position at the moment you leave (the address changes before the page does).
+  // Remember the scroll position when you leave for a series or the reader (the address changes before the
+  // page does). Switching tabs, filters or pages isn't "leaving": that list starts from the top next time.
   useEffect(() => {
     if (key === null) return;
     const save = () => {
       const entry = cache.get(key);
+      if (!entry) return;
+      entry.scrollY = parseHash(location.hash).name === "page" ? 0 : window.scrollY;
+    };
+    const saveNow = () => {
+      const entry = cache.get(key);
       if (entry) entry.scrollY = window.scrollY;
     };
     window.addEventListener("hashchange", save);
-    window.addEventListener("pagehide", save);
+    window.addEventListener("pagehide", saveNow);
     return () => {
       window.removeEventListener("hashchange", save);
-      window.removeEventListener("pagehide", save);
+      window.removeEventListener("pagehide", saveNow);
     };
   }, [key]);
 
@@ -136,7 +145,7 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
         const { merged, added } = mergeResults(result, r);
         setResult(merged);
         setMore(added > 0);
-        if (key !== null) remember(key, { result: merged, page: next, more: added > 0, scrollY: window.scrollY });
+        if (key !== null) remember(key, { result: merged, page: next, more: added > 0, scrollY: cache.get(key)?.scrollY ?? 0 });
       })
       .catch(() => id === run.current && setMore(false))
       .finally(() => {
