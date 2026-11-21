@@ -666,3 +666,5 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 @media (max-width: 520px) { .extRow.genreRow { grid-template-columns: 12px 1fr; } .genreRow > .muted:not(.genreSub) { grid-column: 2; } }
 .genreRow .dot { margin: 0; }
 .personLink { color: inherit; text-decoration-color: var(--line); text-underline-offset: 3px; } .personLink:hover { color: var(--accent); }
+.simTitle { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; line-height: 1.35; min-height: calc(2 * 1.35em); }
+.similarCard .similar { align-items: start; }

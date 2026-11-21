@@ -575,9 +575,9 @@ function SimilarGrid({ groups }: { groups: SeriesGroup[] }) {
               <ul className="similar" ref={ref}>
                 {shown.map((g) => (
                   <li key={g.key}>
-                    <a href={`#/series/${g.hits[0].mangaId}`}>
+                    <a href={`#/series/${g.hits[0].mangaId}`} title={g.title}>
                       <img src={thumbnailUrl(g.hits[0].mangaId)} alt="" loading="lazy" width={120} height={174} />
-                      <span>{g.title}</span>
+                      <span className="simTitle">{g.title}</span>
                     </a>
                   </li>
                 ))}
