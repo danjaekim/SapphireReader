@@ -181,6 +181,7 @@ export const genreList = (scope?: GenreScope) =>
 
 export interface ExtensionInfo {
   pkgName: string;
+  apkName?: string;
   name: string;
   lang: string;
   versionName: string;

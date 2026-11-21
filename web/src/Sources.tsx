@@ -182,6 +182,7 @@ export function Sources() {
           ) : e.isInstalled ? (
             <span className="extToggle static"><span className="dot" /></span>
           ) : null}
+          {e.apkName && <img className="extIcon" src={`/api/extension-icon/${encodeURIComponent(e.apkName)}`} alt="" loading="lazy" width={36} height={36} onError={(ev) => (ev.currentTarget.style.visibility = "hidden")} />}
           <div className="info">
             <strong>{displayName(e)}</strong>
             <span className="muted"> {LANGS[e.lang] ?? e.lang} · v{e.versionName}</span>

@@ -1023,6 +1023,22 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  // Extension icons, also through Sapphire. Only plain apk file names are passed on to the engine.
+  app.get<{ Params: { apk: string } }>("/api/extension-icon/:apk", async (req, reply) => {
+    if (!/^[\w.-]+\.apk$/.test(req.params.apk)) return reply.code(400).send({ error: "Bad name." });
+    try {
+      const res = await engineFile(config, `/api/v1/extension/icon/${req.params.apk}`, fetchImpl);
+      if (!res.ok) return reply.code(404).send({ error: "No icon." });
+      return reply
+        .header("content-type", res.headers.get("content-type") ?? "image/png")
+        .header("cache-control", "public, max-age=604800")
+        .send(Buffer.from(await res.arrayBuffer()));
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "Icon unavailable." });
+    }
+  });
+
   // How a series is read: scrolling (webtoons) or one page at a time, left-to-right or right-to-left.
   // Each series can have its own; otherwise the default (which the person can also set) applies.
   type ReaderPrefs = { mode: "scroll" | "paged"; direction: "ltr" | "rtl" };
