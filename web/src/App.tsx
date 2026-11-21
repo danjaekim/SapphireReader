@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { AdultLock } from "./AdultLock";
+import { adultState, type AdultState } from "./api";
 import { Discover } from "./Discover";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
@@ -13,8 +15,9 @@ interface Status {
   alerts?: { enabled: boolean; everyHours: number };
 }
 
-const tabs = ["Search", "Library", "Discover", "Updates", "Sources", "Status"] as const;
-type Tab = (typeof tabs)[number];
+const baseTabs = ["Search", "Library", "Discover", "Updates", "Sources", "Status"] as const;
+const adultTabs = ["Search", "Library", "Discover", "Discover (18+)", "Updates", "Sources", "Status"] as const;
+type Tab = (typeof adultTabs)[number];
 
 function StatusCard() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -72,11 +75,17 @@ function StatusCard() {
 }
 
 export function App() {
+  const [adult, setAdult] = useState<AdultState>({ pinSet: false, unlocked: false });
+  useEffect(() => {
+    adultState().then(setAdult, () => {});
+  }, []);
+  const tabs: readonly Tab[] = adult.unlocked ? adultTabs : baseTabs;
   const [pickedTab, setTab] = useState<Tab>("Search");
   const route = useRoute();
   // A genre link opens Search with that genre selected.
   const genres = route.name === "tab" ? route.genres : [];
-  const tab: Tab = genres.length > 0 ? "Search" : pickedTab;
+  // If 18+ mode is switched off while its page is open, fall back to Search.
+  const tab: Tab = genres.length > 0 ? "Search" : tabs.includes(pickedTab) ? pickedTab : "Search";
 
   if (route.name === "read") {
     return (
@@ -97,6 +106,7 @@ export function App() {
       <header className="top">
         <img src="/icon.svg" alt="" width={32} height={32} />
         <h1>Sapphire</h1>
+        <AdultLock state={adult} onChange={setAdult} />
       </header>
       <main className="content">
         {route.name === "series" ? (
@@ -104,11 +114,12 @@ export function App() {
         ) : (
           <>
             <h2>{tab}</h2>
-            {tab === "Search" && <Search key={genres.join("|")} initialGenres={genres} />}
-            {tab === "Discover" && <Discover />}
+            {tab === "Search" && <Search key={`${genres.join("|")}${adult.unlocked}`} initialGenres={genres} />}
+            {tab === "Discover" && <Discover key={String(adult.unlocked)} />}
+            {tab === "Discover (18+)" && <Discover adult />}
             {tab === "Sources" && <Sources />}
             {tab === "Status" && <StatusCard />}
-            {tab === "Library" && <Library />}
+            {tab === "Library" && <Library key={String(adult.unlocked)} />}
             {tab === "Updates" && <p className="muted">Coming soon.</p>}
           </>
         )}

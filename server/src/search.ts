@@ -3,6 +3,13 @@ import { engineQuery } from "./engine.js";
 
 type FetchLike = typeof fetch;
 
+/** Which sources a request may use: ordinary ones, 18+ ones only, or both. */
+export type Scope = "safe" | "adult" | "all";
+
+export function inScope(s: EngineSource, scope: Scope): boolean {
+  return (s.lang === "en" || s.lang === "all") && (scope === "all" || (scope === "adult" ? s.isNsfw : !s.isNsfw));
+}
+
 export interface EngineSource {
   id: string;
   name: string;
@@ -82,12 +89,12 @@ const SEARCH_MUTATION = `
 export async function searchAll(
   config: Config,
   query: string,
-  opts: { fetchImpl?: FetchLike; includeNsfw?: boolean; timeoutMs?: number; onResult?: SourceReport } = {},
+  opts: { fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport } = {},
 ): Promise<SearchResult> {
-  const { fetchImpl, includeNsfw = false, timeoutMs = 8000, onResult } = opts;
+  const { fetchImpl, scope = "safe", timeoutMs = 8000, onResult } = opts;
   const all = await listSources(config, fetchImpl);
-  // English and multi-language sources only; 18+ sources stay out until 18+ mode exists.
-  const sources = all.filter((s) => (s.lang === "en" || s.lang === "all") && (includeNsfw || !s.isNsfw));
+  // English and multi-language sources only; 18+ sources are used only when 18+ mode is unlocked.
+  const sources = all.filter((s) => inScope(s, scope));
 
   const failed: SearchResult["failed"] = [];
   const results = await Promise.all(

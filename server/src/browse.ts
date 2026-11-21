@@ -1,6 +1,6 @@
 import type { Config } from "./config.js";
 import { engineQuery } from "./engine.js";
-import { groupHits, listSources, type EngineSource, type SearchResult, type SourceHit, type SourceReport } from "./search.js";
+import { groupHits, listSources, type EngineSource, type SearchResult, type SourceHit, type SourceReport, type Scope, inScope } from "./search.js";
 
 type FetchLike = typeof fetch;
 
@@ -108,17 +108,17 @@ async function filtersFor(config: Config, sourceId: string, fetchImpl?: FetchLik
   return data.source.filters;
 }
 
-function browsableSources(all: EngineSource[], includeNsfw: boolean) {
-  return all.filter((s) => (s.lang === "en" || s.lang === "all") && (includeNsfw || !s.isNsfw));
+function browsableSources(all: EngineSource[], scope: Scope) {
+  return all.filter((s) => inScope(s, scope));
 }
 
 /** Every genre any of your sources can filter by, with how many sources offer it. */
 export async function listGenres(
   config: Config,
-  opts: { fetchImpl?: FetchLike; includeNsfw?: boolean } = {},
+  opts: { fetchImpl?: FetchLike; scope?: Scope } = {},
 ): Promise<{ name: string; sources: number }[]> {
-  const { fetchImpl, includeNsfw = false } = opts;
-  const sources = browsableSources(await listSources(config, fetchImpl), includeNsfw);
+  const { fetchImpl, scope = "safe" } = opts;
+  const sources = browsableSources(await listSources(config, fetchImpl), scope);
   const counts = new Map<string, { name: string; sources: number }>();
   await Promise.all(
     sources.map(async (s) => {
@@ -153,10 +153,10 @@ export interface BrowseResult extends SearchResult {
 export async function browseByGenres(
   config: Config,
   genres: string[],
-  opts: { query?: string; fetchImpl?: FetchLike; includeNsfw?: boolean; timeoutMs?: number; onResult?: SourceReport } = {},
+  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport } = {},
 ): Promise<BrowseResult> {
-  const { query, fetchImpl, includeNsfw = false, timeoutMs = 10000, onResult } = opts;
-  const sources = browsableSources(await listSources(config, fetchImpl), includeNsfw);
+  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult } = opts;
+  const sources = browsableSources(await listSources(config, fetchImpl), scope);
   const failed: BrowseResult["failed"] = [];
   const skipped: string[] = [];
   let searched = 0;

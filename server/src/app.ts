@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
 import { checkEngine, engineFile, engineQuery } from "./engine.js";
+import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
 import { browseByGenres, listGenres } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { discover, recommendFor, similarTo, type DiscoverSort } from "./discover.js";
@@ -18,6 +19,7 @@ import {
   groupKey,
   latestFromChapters,
   searchAll,
+  type Scope,
   type SourceReport,
   type ChapterInfo,
 } from "./search.js";
@@ -45,6 +47,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const { fetchImpl } = options;
   const store = options.store ?? new Store(":memory:");
   const notify = createNotifier(config, fetchImpl);
+  const gate = new AdultGate(store);
+  // 18+ sources are only used while this browser has unlocked 18+ mode.
+  const scopeFor = (req: { headers: { cookie?: string } }): Scope => (gate.unlocked(req.headers.cookie) ? "all" : "safe");
   const report: SourceReport = (source, r) => store.recordSource(source.id, source.name, r);
   const chapterCache = new Map<number, { at: number; value: ChapterInfo[] }>();
   // The chapter list comes from the source site, so it is slow; keep it for a few minutes.
@@ -68,16 +73,46 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const q = (req.query.q ?? "").trim();
     if (q.length < 2) return reply.code(400).send({ error: "Type at least 2 characters." });
     try {
-      return await searchAll(config, q, { fetchImpl, onResult: report });
+      return await searchAll(config, q, { fetchImpl, onResult: report, scope: scopeFor(req) });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
     }
   });
 
+  app.get("/api/adult", async (req) => ({ pinSet: gate.pinSet(), unlocked: gate.unlocked(req.headers.cookie) }));
+
+  app.post<{ Body: { pin?: unknown; currentPin?: unknown } }>("/api/adult/pin", async (req, reply) => {
+    const { pin, currentPin } = req.body ?? {};
+    if (!AdultGate.validPin(pin)) return reply.code(400).send({ error: "A PIN is 4 to 8 digits." });
+    // The first PIN can be set by anyone on the network; changing it needs the old one.
+    if (gate.pinSet()) {
+      const check = typeof currentPin === "string" ? gate.check(currentPin) : "wrong";
+      if (check === "locked") return reply.code(429).send({ error: "Too many wrong tries. Wait a few minutes." });
+      if (check !== "ok") return reply.code(403).send({ error: "That isn't the current PIN." });
+    }
+    gate.setPin(pin);
+    gate.closeAll();
+    return reply.header("set-cookie", sessionCookie(gate.open())).send({ pinSet: true, unlocked: true });
+  });
+
+  app.post<{ Body: { pin?: unknown } }>("/api/adult/unlock", async (req, reply) => {
+    const pin = req.body?.pin;
+    if (typeof pin !== "string" || !gate.pinSet()) return reply.code(400).send({ error: "Set a PIN first." });
+    const check = gate.check(pin);
+    if (check === "locked") return reply.code(429).send({ error: "Too many wrong tries. Wait a few minutes." });
+    if (check !== "ok") return reply.code(403).send({ error: "Wrong PIN." });
+    return reply.header("set-cookie", sessionCookie(gate.open())).send({ pinSet: true, unlocked: true });
+  });
+
+  app.post("/api/adult/lock", async (req, reply) => {
+    gate.close(req.headers.cookie);
+    return reply.header("set-cookie", clearedCookie).send({ pinSet: gate.pinSet(), unlocked: false });
+  });
+
   app.get("/api/genres", async (req, reply) => {
     try {
-      return { genres: await listGenres(config, { fetchImpl }) };
+      return { genres: await listGenres(config, { fetchImpl, scope: scopeFor(req) }) };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -89,7 +124,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const q = (req.query.q ?? "").trim();
     if (genres.length === 0) return reply.code(400).send({ error: "Pick at least one genre." });
     try {
-      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report });
+      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: scopeFor(req) });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -134,7 +169,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.get("/api/sources", async (req, reply) => {
     try {
       const health = new Map(store.sourceHealth().map((h) => [h.sourceId, h]));
-      const sources = (await listSources(config, fetchImpl)).map((s) => ({ ...s, health: health.get(s.id) ?? null }));
+      const open = gate.unlocked(req.headers.cookie);
+      const sources = (await listSources(config, fetchImpl))
+        .filter((s) => open || !s.isNsfw)
+        .map((s) => ({ ...s, health: health.get(s.id) ?? null }));
       return { sources };
     } catch (err) {
       req.log.error(err);
@@ -175,7 +213,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
       const manga = await fetchMangaDetails(config, id, fetchImpl);
-      const found = await searchAll(config, manga.title, { fetchImpl, onResult: report });
+      const found = await searchAll(config, manga.title, { fetchImpl, onResult: report, scope: scopeFor(req) });
       const hits = (found.groups.find((g) => g.key === groupKey(manga.title))?.hits ?? [])
         .filter((h) => h.mangaId !== id && h.sourceId !== manga.sourceId)
         .slice(0, 6);
@@ -200,10 +238,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  app.get<{ Querystring: { sort?: string } }>("/api/discover", async (req, reply) => {
+  app.get<{ Querystring: { sort?: string; adult?: string } }>("/api/discover", async (req, reply) => {
     const sort: DiscoverSort = req.query.sort === "latest" ? "latest" : "popular";
+    const adult = req.query.adult === "1";
+    if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     try {
-      return await discover(config, sort, { fetchImpl, onResult: report });
+      return await discover(config, sort, { fetchImpl, onResult: report, scope: adult ? "adult" : "safe" });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -211,14 +251,19 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   });
 
   // "For you" learns from the genres of what's in your library; cached so the page opens fast.
-  let forYouCache: { at: number; key: string; value: unknown } | null = null;
-  app.get("/api/for-you", async (req, reply) => {
-    const profile = store.tasteProfile();
-    const key = JSON.stringify([profile.slice(0, 3), store.libraryTitles().length]);
-    if (forYouCache && forYouCache.key === key && Date.now() - forYouCache.at < 60 * 60 * 1000) return forYouCache.value;
+  // The 18+ page has its own taste profile and never mixes with the ordinary one.
+  const forYouCache = new Map<boolean, { at: number; key: string; value: unknown }>();
+  app.get<{ Querystring: { adult?: string } }>("/api/for-you", async (req, reply) => {
+    const adult = req.query.adult === "1";
+    if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    const profile = store.tasteProfile(adult);
+    const titles = store.libraryTitles(adult);
+    const key = JSON.stringify([profile.slice(0, 3), titles.length]);
+    const cached = forYouCache.get(adult);
+    if (cached && cached.key === key && Date.now() - cached.at < 60 * 60 * 1000) return cached.value;
     try {
-      const value = await recommendFor(config, profile, store.libraryTitles(), { fetchImpl, onResult: report });
-      forYouCache = { at: Date.now(), key, value };
+      const value = await recommendFor(config, profile, titles, { fetchImpl, onResult: report, scope: adult ? "adult" : "safe" });
+      forYouCache.set(adult, { at: Date.now(), key, value });
       return value;
     } catch (err) {
       req.log.error(err);
@@ -231,7 +276,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
       const manga = await fetchMangaDetails(config, id, fetchImpl);
-      return { groups: await similarTo(config, manga.title, manga.genre, { fetchImpl, onResult: report }) };
+      return { groups: await similarTo(config, manga.title, manga.genre, { fetchImpl, onResult: report, scope: scopeFor(req) }) };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't find similar series." });
@@ -303,7 +348,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     },
   );
 
-  app.get("/api/library", async () => ({ items: store.library() }));
+  app.get("/api/library", async (req) => ({ items: store.library(gate.unlocked(req.headers.cookie)) }));
 
   app.put<{ Params: { id: string }; Body: { sourceId?: string; sourceName?: string | null; title?: string } }>(
     "/api/library/:id",
@@ -311,7 +356,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const id = Number(req.params.id);
       const { sourceId, sourceName = null, title } = req.body ?? {};
       if (!Number.isInteger(id) || id < 0 || !sourceId || !title) return reply.code(400).send({ error: "Bad request." });
-      store.addToLibrary({ mangaId: id, sourceId, sourceName, title });
+      const adult = (await listSources(config, fetchImpl).catch(() => [])).find((s) => s.id === sourceId)?.isNsfw === true;
+      if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+      store.addToLibrary({ mangaId: id, sourceId, sourceName, title, adult });
       try {
         const chapters = await chaptersFor(id);
         store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
@@ -355,9 +402,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   };
   app.decorate("runCheck", runCheck);
 
-  app.post("/api/library/refresh", async () => {
+  app.post("/api/library/refresh", async (req) => {
+    const unlocked = gate.unlocked(req.headers.cookie);
     const result = await runCheck(0);
-    return { items: store.library(), failed: result.failed };
+    return { items: store.library(unlocked), failed: result.failed };
   });
 
   app.post("/api/notify/test", async (_req, reply) => {

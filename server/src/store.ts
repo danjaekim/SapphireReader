@@ -8,6 +8,8 @@ export interface LibraryEntry {
   sourceName: string | null;
   title: string;
   addedAt: string;
+  /** From an 18+ source; hidden unless 18+ mode is unlocked. */
+  adult: boolean;
 }
 
 export interface Progress {
@@ -95,25 +97,37 @@ export class Store {
       );
     `);
     // Added after the first release; older databases get the column on startup.
-    try {
-      this.db.exec("ALTER TABLE library ADD COLUMN genres TEXT NOT NULL DEFAULT '[]'");
-    } catch {
-      /* column already exists */
+    for (const column of ["genres TEXT NOT NULL DEFAULT '[]'", "adult INTEGER NOT NULL DEFAULT 0"]) {
+      try {
+        this.db.exec(`ALTER TABLE library ADD COLUMN ${column}`);
+      } catch {
+        /* column already exists */
+      }
     }
+    this.db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   }
 
   close(): void {
     this.db.close();
   }
 
-  addToLibrary(entry: { mangaId: number; sourceId: string; sourceName: string | null; title: string }): void {
+  getSetting(key: string): string | null {
+    const r = this.db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
+    return r?.value ?? null;
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+  }
+
+  addToLibrary(entry: { mangaId: number; sourceId: string; sourceName: string | null; title: string; adult?: boolean }): void {
     this.db
       .prepare(
-        `INSERT INTO library (manga_id, source_id, source_name, title, added_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(manga_id) DO UPDATE SET title = excluded.title, source_name = excluded.source_name`,
+        `INSERT INTO library (manga_id, source_id, source_name, title, added_at, adult)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(manga_id) DO UPDATE SET title = excluded.title, source_name = excluded.source_name, adult = excluded.adult`,
       )
-      .run(entry.mangaId, entry.sourceId, entry.sourceName, entry.title, new Date().toISOString());
+      .run(entry.mangaId, entry.sourceId, entry.sourceName, entry.title, new Date().toISOString(), entry.adult ? 1 : 0);
   }
 
   /** Removes a series from the library but keeps its reading history. */
@@ -132,12 +146,13 @@ export class Store {
   }
 
   /** Genres across the library, weighted: series you've read count double. Most liked first. */
-  tasteProfile(): { genre: string; weight: number }[] {
+  tasteProfile(adult = false): { genre: string; weight: number }[] {
     const rows = this.db
       .prepare(
-        `SELECT l.genres AS genres, EXISTS (SELECT 1 FROM progress p WHERE p.manga_id = l.manga_id) AS started FROM library l`,
+        `SELECT l.genres AS genres, EXISTS (SELECT 1 FROM progress p WHERE p.manga_id = l.manga_id) AS started
+         FROM library l WHERE l.adult = ?`,
       )
-      .all() as { genres: string; started: number }[];
+      .all(adult ? 1 : 0) as { genres: string; started: number }[];
     const weights = new Map<string, { genre: string; weight: number }>();
     for (const r of rows) {
       for (const g of JSON.parse(r.genres) as string[]) {
@@ -151,8 +166,11 @@ export class Store {
   }
 
   /** Normalized titles you already have, so recommendations skip them. */
-  libraryTitles(): string[] {
-    return (this.db.prepare("SELECT title FROM library").all() as { title: string }[]).map((r) => r.title);
+  libraryTitles(adult?: boolean): string[] {
+    const rows = (adult === undefined
+      ? this.db.prepare("SELECT title FROM library").all()
+      : this.db.prepare("SELECT title FROM library WHERE adult = ?").all(adult ? 1 : 0)) as { title: string }[];
+    return rows.map((r) => r.title);
   }
 
   inLibrary(mangaId: number): boolean {
@@ -233,8 +251,11 @@ export class Store {
     ).map((r) => r.chapter_id);
   }
 
-  library(): LibraryItem[] {
-    const rows = this.db.prepare("SELECT * FROM library").all() as Record<string, unknown>[];
+  /** 18+ series are left out unless `includeAdult` is set (the 18+ lock is open, or a background check). */
+  library(includeAdult = false): LibraryItem[] {
+    const rows = this.db
+      .prepare(includeAdult ? "SELECT * FROM library" : "SELECT * FROM library WHERE adult = 0")
+      .all() as Record<string, unknown>[];
     const items = rows.map<LibraryItem>((row) => {
       const mangaId = row.manga_id as number;
       const numbers = JSON.parse(row.chapter_numbers as string) as number[];
@@ -253,6 +274,7 @@ export class Store {
         sourceName: (row.source_name as string | null) ?? null,
         title: row.title as string,
         addedAt: row.added_at as string,
+        adult: row.adult === 1,
         progress,
         latestNumber: numbered.length ? Math.max(...numbered) : null,
         chapterCount: numbers.length,

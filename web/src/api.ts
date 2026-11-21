@@ -133,8 +133,20 @@ export const refreshExtensionList = () =>
 export const changeExtension = (pkg: string, action: "install" | "update" | "uninstall") =>
   send("POST", `/api/extensions/${pkg}/${action}`) as Promise<{ extension: ExtensionInfo }>;
 
-export const discoverList = (sort: "popular" | "latest") => getJson<SearchResult>(`/api/discover?sort=${sort}`);
-export const forYou = () => getJson<{ groups: SeriesGroup[]; because: string[] }>("/api/for-you");
+export const discoverList = (sort: "popular" | "latest", adult = false) =>
+  getJson<SearchResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}`);
+export const forYou = (adult = false) =>
+  getJson<{ groups: SeriesGroup[]; because: string[] }>(`/api/for-you${adult ? "?adult=1" : ""}`);
+
+export interface AdultState {
+  pinSet: boolean;
+  unlocked: boolean;
+}
+export const adultState = () => getJson<AdultState>("/api/adult");
+export const setAdultPin = (pin: string, currentPin?: string) =>
+  send("POST", "/api/adult/pin", { pin, currentPin }) as Promise<AdultState>;
+export const unlockAdult = (pin: string) => send("POST", "/api/adult/unlock", { pin }) as Promise<AdultState>;
+export const lockAdult = () => send("POST", "/api/adult/lock") as Promise<AdultState>;
 export const similar = (mangaId: number) => getJson<{ groups: SeriesGroup[] }>(`/api/manga/${mangaId}/similar`);
 
 export const search = (q: string) => getJson<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`);

@@ -7,7 +7,7 @@ type Mode = "For you" | "Popular" | "Latest";
 const modes: Mode[] = ["For you", "Popular", "Latest"];
 
 /** Browse without a search term: recommendations, each site's popular and latest lists, or genre filters. */
-export function Discover() {
+export function Discover({ adult = false }: { adult?: boolean }) {
   const [mode, setMode] = useState<Mode>("For you");
   const [genres, setGenres] = useState<string[]>([]);
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -32,12 +32,12 @@ export function Discover() {
           if (b.skipped.length > 0) setNote(`Left out because they can't filter by every genre picked: ${b.skipped.join(", ")}.`);
           r = b;
         } else if (mode === "For you") {
-          const f = await forYou();
-          if (f.because.length === 0) setEmpty("Add a few series to your library and Sapphire will start recommending similar ones here.");
+          const f = await forYou(adult);
+          if (f.because.length === 0) setEmpty(adult ? "Add a few 18+ series to your library and this page will start recommending similar ones. It never mixes with your regular recommendations." : "Add a few series to your library and Sapphire will start recommending similar ones here.");
           else setNote(`Because you like ${f.because.join(", ")}.`);
           r = { groups: f.groups, failed: [], searched: 0 };
         } else {
-          r = await discoverList(mode === "Latest" ? "latest" : "popular");
+          r = await discoverList(mode === "Latest" ? "latest" : "popular", adult);
         }
         if (id === runId.current) setResult(r);
       } catch (err) {
@@ -46,7 +46,7 @@ export function Discover() {
         if (id === runId.current) setBusy(false);
       }
     })();
-  }, [mode, genres]);
+  }, [mode, genres, adult]);
 
   return (
     <section>

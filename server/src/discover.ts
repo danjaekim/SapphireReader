@@ -4,7 +4,9 @@ import { browseByGenres } from "./browse.js";
 import {
   groupHits,
   listSources,
+  inScope,
   normalizeTitle,
+  type Scope,
   type SearchResult,
   type SeriesGroup,
   type SourceHit,
@@ -29,12 +31,10 @@ export type DiscoverSort = "popular" | "latest";
 export async function discover(
   config: Config,
   sort: DiscoverSort,
-  opts: { fetchImpl?: FetchLike; includeNsfw?: boolean; onResult?: SourceReport; timeoutMs?: number } = {},
+  opts: { fetchImpl?: FetchLike; scope?: Scope; onResult?: SourceReport; timeoutMs?: number } = {},
 ): Promise<SearchResult> {
-  const { fetchImpl, includeNsfw = false, onResult, timeoutMs = 10000 } = opts;
-  const sources = (await listSources(config, fetchImpl)).filter(
-    (s) => (s.lang === "en" || s.lang === "all") && (includeNsfw || !s.isNsfw),
-  );
+  const { fetchImpl, scope = "safe", onResult, timeoutMs = 10000 } = opts;
+  const sources = (await listSources(config, fetchImpl)).filter((s) => inScope(s, scope));
   const failed: SearchResult["failed"] = [];
   const lists = await Promise.all(
     sources.map(async (source) => {
@@ -81,7 +81,7 @@ export async function similarTo(
   config: Config,
   title: string,
   genres: string[],
-  opts: { fetchImpl?: FetchLike; onResult?: SourceReport } = {},
+  opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope } = {},
 ): Promise<SeriesGroup[]> {
   if (genres.length === 0) return [];
   const self = normalizeTitle(title);
@@ -103,7 +103,7 @@ export async function recommendFor(
   config: Config,
   profile: { genre: string }[],
   ownTitles: string[],
-  opts: { fetchImpl?: FetchLike; onResult?: SourceReport } = {},
+  opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope } = {},
 ): Promise<{ groups: SeriesGroup[]; because: string[] }> {
   const queries = recommendationQueries(profile);
   if (queries.length === 0) return { groups: [], because: [] };

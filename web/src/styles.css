@@ -56,10 +56,12 @@ h2 { margin: 0 0 12px; }
   border-top: 1px solid var(--line);
   background: var(--panel);
   padding-bottom: env(safe-area-inset-bottom);
+  overflow-x: auto;
 }
 .tabs button {
-  flex: 1;
-  padding: 12px 4px;
+  flex: 1 0 auto;
+  white-space: nowrap;
+  padding: 12px 10px;
   background: none;
   border: 0;
   color: var(--muted);
@@ -156,3 +158,8 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .similar li { flex: 0 0 80px; }
 .similar a { display: block; text-decoration: none; color: var(--fg); font-size: 12px; }
 .similar img { border-radius: 8px; object-fit: cover; display: block; margin-bottom: 4px; }
+
+.top { position: relative; }
+.adultLock { margin-left: auto; }
+.adultPanel { position: absolute; right: 0; top: 100%; z-index: 5; width: min(320px, 90vw); }
+.adultPanel input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg, var(--panel)); color: var(--fg); font: inherit; }
