@@ -8,6 +8,7 @@ import { useRoute } from "./route";
 interface Status {
   server: { ok: boolean; version: string };
   engine: { reachable: boolean; version?: string; error?: string };
+  alerts?: { enabled: boolean; everyHours: number };
 }
 
 const tabs = ["Search", "Library", "Discover", "Updates", "Status"] as const;
@@ -16,6 +17,14 @@ type Tab = (typeof tabs)[number];
 function StatusCard() {
   const [status, setStatus] = useState<Status | null>(null);
   const [failed, setFailed] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  async function sendTest() {
+    setTestResult("Sending…");
+    const res = await fetch("/api/notify/test", { method: "POST" }).catch(() => null);
+    const body = res ? ((await res.json().catch(() => ({}))) as { error?: string }) : {};
+    setTestResult(res?.ok ? "Sent. Check your phone." : (body.error ?? "Couldn't reach the Sapphire server."));
+  }
 
   useEffect(() => {
     fetch("/api/status")
@@ -40,6 +49,20 @@ function StatusCard() {
               ? `Source engine${status.engine.version ? `, version ${status.engine.version}` : ""}`
               : `Source engine unreachable${status.engine.error ? `: ${status.engine.error}` : ""}`}
           </li>
+          {status.alerts && (
+            <li>
+              <span className={`dot ${status.alerts.enabled ? "good" : "bad"}`} />{" "}
+              {status.alerts.enabled
+                ? `New-chapter alerts on, checking every ${status.alerts.everyHours} hours `
+                : "New-chapter alerts off (NTFY_URL isn't set) "}
+              {status.alerts.enabled && (
+                <button type="button" className="linkish" onClick={sendTest}>
+                  Send test alert
+                </button>
+              )}
+              {testResult && <span className="muted"> {testResult}</span>}
+            </li>
+          )}
         </ul>
       )}
     </section>

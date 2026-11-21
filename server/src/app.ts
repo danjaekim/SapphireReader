@@ -4,6 +4,8 @@ import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
 import { checkEngine, engineFile } from "./engine.js";
+import { checkLibrary } from "./checker.js";
+import { createNotifier } from "./notify.js";
 import { Store, type ProgressInput } from "./store.js";
 import {
   fetchChapterList,
@@ -20,6 +22,13 @@ export const VERSION = /^[0-9a-f]{40}$/.test(rawVersion) ? rawVersion.slice(0, 7
 
 const LATEST_TTL_MS = 10 * 60 * 1000;
 
+declare module "fastify" {
+  interface FastifyInstance {
+    /** Checks every library series for new chapters (and sends alerts). */
+    runCheck: (pauseMs?: number) => Promise<{ checked: number; failed: number[]; alerts: number }>;
+  }
+}
+
 export interface AppOptions {
   fetchImpl?: typeof fetch;
   store?: Store;
@@ -29,6 +38,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const app = Fastify({ logger: true });
   const { fetchImpl } = options;
   const store = options.store ?? new Store(":memory:");
+  const notify = createNotifier(config, fetchImpl);
   const chapterCache = new Map<number, { at: number; value: ChapterInfo[] }>();
   // The chapter list comes from the source site, so it is slow; keep it for a few minutes.
   async function chaptersFor(mangaId: number): Promise<ChapterInfo[]> {
@@ -44,6 +54,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.get("/api/status", async () => ({
     server: { ok: true, version: VERSION },
     engine: await checkEngine(config, fetchImpl),
+    alerts: { enabled: notify !== null, everyHours: config.checkIntervalHours },
   }));
 
   app.get<{ Querystring: { q?: string } }>("/api/search", async (req, reply) => {
@@ -145,22 +156,39 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return { ok: true };
   });
 
-  // Re-reads every library series from its source so the unread counts are current.
+  // Re-reads every library series from its source; the same check the scheduler runs.
+  let checking: Promise<unknown> | null = null;
+  const runCheck = (pauseMs?: number) => {
+    checking ??= checkLibrary({
+      config,
+      store,
+      notify,
+      pauseMs,
+      log: app.log,
+      loadNumbers: async (id) => {
+        chapterCache.delete(id);
+        return (await chaptersFor(id)).map((c) => c.chapterNumber);
+      },
+    }).finally(() => {
+      checking = null;
+    });
+    return checking as ReturnType<typeof checkLibrary>;
+  };
+  app.decorate("runCheck", runCheck);
+
   app.post("/api/library/refresh", async () => {
-    const queue = store.library().map((i) => i.mangaId);
-    const failed: number[] = [];
-    const worker = async () => {
-      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
-        try {
-          chapterCache.delete(id);
-          store.setChapterNumbers(id, (await chaptersFor(id)).map((c) => c.chapterNumber));
-        } catch {
-          failed.push(id);
-        }
-      }
-    };
-    await Promise.all([worker(), worker(), worker()]);
-    return { items: store.library(), failed };
+    const result = await runCheck(0);
+    return { items: store.library(), failed: result.failed };
+  });
+
+  app.post("/api/notify/test", async (_req, reply) => {
+    if (!notify) return reply.code(400).send({ error: "Alerts aren't set up. Set NTFY_URL on the Sapphire container." });
+    try {
+      await notify({ title: "Sapphire", message: "Test alert. Push notifications are working.", click: config.publicUrl || undefined });
+      return { ok: true };
+    } catch (err) {
+      return reply.code(502).send({ error: `Couldn't reach ntfy: ${err instanceof Error ? err.message : "unknown error"}` });
+    }
   });
 
   app.put<{ Params: { id: string }; Body: Partial<ProgressInput> }>("/api/progress/:id", async (req, reply) => {

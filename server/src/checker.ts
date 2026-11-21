@@ -1,0 +1,49 @@
+import type { Config } from "./config.js";
+import type { Notifier } from "./notify.js";
+import type { Store } from "./store.js";
+
+const chapterWord = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+/**
+ * Re-reads every library series from its source and sends a push for each series you were
+ * caught up on that now has a newer chapter. Series are checked one at a time, with a pause
+ * between them, so the source sites aren't hit all at once.
+ */
+export async function checkLibrary(opts: {
+  config: Config;
+  store: Store;
+  loadNumbers: (mangaId: number) => Promise<number[]>;
+  notify: Notifier | null;
+  pauseMs?: number;
+  log?: { info: (o: unknown, m?: string) => void; warn: (o: unknown, m?: string) => void };
+}): Promise<{ checked: number; failed: number[]; alerts: number }> {
+  const { config, store, loadNumbers, notify, pauseMs = 3000, log } = opts;
+  const failed: number[] = [];
+  let alerts = 0;
+  const items = store.library();
+  for (const [i, item] of items.entries()) {
+    if (i > 0 && pauseMs > 0) await new Promise((r) => setTimeout(r, pauseMs));
+    try {
+      const numbers = await loadNumbers(item.mangaId);
+      store.setChapterNumbers(item.mangaId, numbers);
+      const after = store.library().find((x) => x.mangaId === item.mangaId);
+      const wasCaughtUp = item.unread === 0 && item.latestNumber !== null;
+      if (!notify || !wasCaughtUp || !after || after.latestNumber === null || after.latestNumber <= item.latestNumber!) continue;
+      const fresh = numbers.filter((n) => n > item.latestNumber!).length;
+      try {
+        await notify({
+          title: item.title,
+          message: fresh > 1 ? `${fresh} new chapters, latest Ch. ${chapterWord(after.latestNumber)}` : `Chapter ${chapterWord(after.latestNumber)} is out`,
+          click: config.publicUrl ? `${config.publicUrl}/#/series/${item.mangaId}` : undefined,
+        });
+        alerts++;
+      } catch (err) {
+        log?.warn(err, "couldn't send the push notification");
+      }
+    } catch (err) {
+      log?.warn(err, `couldn't check series ${item.mangaId}`);
+      failed.push(item.mangaId);
+    }
+  }
+  return { checked: items.length, failed, alerts };
+}
