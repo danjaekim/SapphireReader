@@ -410,12 +410,19 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  const similarCache = new Map<string, { at: number; groups: unknown[] }>();
   app.get<{ Params: { id: string } }>("/api/manga/:id/similar", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
       const manga = await fetchMangaDetails(config, id, fetchImpl);
-      return { groups: await similarTo(config, manga.title, manga.genre, { fetchImpl, onResult: report, scope: scopeFor(req) }) };
+      const scope = scopeFor(req);
+      const key = `${id}|${scope}`;
+      const cached = similarCache.get(key);
+      if (cached && Date.now() - cached.at < 60 * 60 * 1000) return { groups: cached.groups };
+      const groups = await similarTo(config, manga.title, manga.genre, { fetchImpl, onResult: report, scope });
+      if (groups.length > 0) similarCache.set(key, { at: Date.now(), groups });
+      return { groups };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't find similar series." });

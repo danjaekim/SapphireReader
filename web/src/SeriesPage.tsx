@@ -27,18 +27,22 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
 
   const { states, download } = useSeriesDownloads(mangaId);
   const [similarGroups, setSimilarGroups] = useState<SeriesGroup[] | null>(null);
-  const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [others, setOthers] = useState<Alternative[] | null>(null);
 
+  // Similar series load on their own once the series itself is up, so the page isn't held back.
+  const loaded = data !== null;
   useEffect(() => {
     setSimilarGroups(null);
-  }, [mangaId]);
-
-  async function showSimilar() {
-    setLoadingSimilar(true);
-    setSimilarGroups((await similar(mangaId).catch(() => ({ groups: [] }))).groups);
-    setLoadingSimilar(false);
-  }
+    if (!loaded) return;
+    let cancelled = false;
+    similar(mangaId).then(
+      (r) => !cancelled && setSimilarGroups(r.groups),
+      () => !cancelled && setSimilarGroups([]),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [mangaId, loaded]);
 
   useEffect(() => {
     setOthers(null);
@@ -126,15 +130,10 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
             </div>
           )}
           <TrackerLinkCard mangaId={mangaId} title={data.manga.title} />
-          <div className="card">
-            <h3>Similar series</h3>
-            {similarGroups === null ? (
-              <button type="button" className="button small secondary" onClick={showSimilar} disabled={loadingSimilar}>
-                {loadingSimilar ? "Looking…" : "Find similar"}
-              </button>
-            ) : similarGroups.length === 0 ? (
-              <p className="muted">Nothing similar turned up.</p>
-            ) : (
+          {similarGroups === null && <p className="muted">Finding similar series…</p>}
+          {similarGroups && similarGroups.length > 0 && (
+            <div className="card">
+              <h3>Similar series</h3>
               <ul className="similar">
                 {similarGroups.map((g) => (
                   <li key={g.key}>
@@ -145,8 +144,8 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   </li>
                 ))}
               </ul>
-            )}
-          </div>
+            </div>
+          )}
           <div className="chapterHead">
             <h3>Chapters</h3>
             <button type="button" className="linkish" onClick={() => setNewestFirst((v) => !v)}>

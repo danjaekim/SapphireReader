@@ -1,6 +1,7 @@
 import type { Config } from "./config.js";
 import { engineQuery } from "./engine.js";
 import { browseByGenres } from "./browse.js";
+import { canonKey } from "./genres.js";
 import {
   groupHits,
   listSources,
@@ -76,18 +77,33 @@ export async function discover(
   return { groups, failed, searched: sources.length };
 }
 
-/** Series like this one: the same top genres, minus the series itself. */
+/** Tags that describe the format or status, not the story; they make poor "similar to" seeds. */
+const FORMAT_TAGS = new Set(["manhwa", "manhua", "manga", "webtoon", "webtoons", "comic", "full color", "long strip", "adult", "mature", "ongoing", "completed", "hiatus", "oneshot", "one shot", "doujinshi", "web comic"].map(canonKey));
+
+/**
+ * Series like this one: share the most genres first (up to three, all required), then relax to two,
+ * then one, so there is always something to show. The series itself is left out.
+ */
 export async function similarTo(
   config: Config,
   title: string,
   genres: string[],
   opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope } = {},
 ): Promise<SeriesGroup[]> {
-  if (genres.length === 0) return [];
+  const seeds = genres.filter((g) => !FORMAT_TAGS.has(canonKey(g))).slice(0, 3);
+  if (seeds.length === 0) return [];
   const self = normalizeTitle(title);
-  const picks = genres.slice(0, 2);
-  const result = await browseByGenres(config, picks, opts);
-  return result.groups.filter((g) => g.key !== self).slice(0, 30);
+  const merged: SeriesGroup[] = [];
+  const seen = new Set<string>([self]);
+  for (let n = seeds.length; n >= 1 && merged.length < 12; n--) {
+    const result = await browseByGenres(config, seeds.slice(0, n), opts).catch(() => null);
+    for (const g of result?.groups ?? []) {
+      if (seen.has(g.key)) continue;
+      seen.add(g.key);
+      merged.push(g);
+    }
+  }
+  return merged.slice(0, 30);
 }
 
 /** Picks to try for the "For you" page: your top genres on their own, then the top two together. */

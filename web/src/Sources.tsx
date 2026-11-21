@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { changeExtension, checkSources, extensions, refreshExtensionList, sources, type ExtensionInfo, type SourceRow } from "./api";
+import { changeExtension, checkSources, extensions, genreSupport, refreshExtensionList, sources, type ExtensionInfo, type GenreSupport, type SourceRow } from "./api";
 
 const LANGS: Record<string, string> = { en: "English", all: "Multi-language", multi: "Multi-language" };
 
@@ -58,6 +58,45 @@ function Health() {
           );
         })}
       </ul>
+    </>
+  );
+}
+
+/** Which sources can filter by genre, and what their filters are called (handy when a genre search comes back thin). */
+function GenreSupportPanel() {
+  const [rows, setRows] = useState<GenreSupport[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function load() {
+    setBusy(true);
+    setRows((await genreSupport().catch(() => ({ sources: [] }))).sources);
+    setBusy(false);
+  }
+  return (
+    <>
+      <div className="chapterHead">
+        <h3>Genre filters</h3>
+        <button type="button" className="linkish" onClick={load} disabled={busy}>
+          {busy ? "Checking…" : rows ? "Check again" : "Check which sources support them"}
+        </button>
+      </div>
+      {rows && (
+        <ul className="extList">
+          {rows.map((r) => (
+            <li key={r.id} className="extRow">
+              <div className="info">
+                <span className={`dot ${r.error ? "bad" : r.genres > 0 ? "good" : ""}`} /> <strong>{r.name}</strong>
+                <span className="muted">
+                  {" "}
+                  {r.error ? `couldn't read filters: ${r.error}` : r.genres > 0 ? `${r.genres} genres` : "no genre filter found"}
+                </span>
+                {r.genres === 0 && !r.error && r.filters.length > 0 && (
+                  <div className="muted small">Its filters: {r.filters.slice(0, 8).join(" · ")}</div>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   );
 }
@@ -141,6 +180,7 @@ export function Sources() {
   return (
     <section>
       <Health />
+      <GenreSupportPanel />
       <h3>Extensions</h3>
       <p className="muted">
         Extensions are what let Sapphire read each site. Installed ones show up in search and discovery right away.

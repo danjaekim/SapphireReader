@@ -72,7 +72,8 @@ describe("similar and for you", () => {
     const { groups } = (await app.inject({ url: "/api/manga/10/similar" })).json();
     expect(groups.map((g: { title: string }) => g.title)).not.toContain("Nano Machine");
     expect(groups.map((g: { title: string }) => g.title)).toContain("Shared Hit");
-    expect((log.at(-1)!.filters as unknown[]).length).toBe(2); // Action + Murim
+    // Tries both genres together first, then relaxes to one.
+    expect(log.map((l) => (l.filters as unknown[] | undefined)?.length)).toEqual(expect.arrayContaining([2, 1]));
   });
 
   it("recommends from the genres in your library and skips what you already have", async () => {

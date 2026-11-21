@@ -1,31 +1,23 @@
 import { useEffect, useState } from "react";
 import { library, refreshLibrary, thumbnailUrl, type LibraryItem } from "./api";
 import { readHref, seriesHref } from "./route";
-
-function num(n: number) {
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
-}
+import { chapterText } from "./util";
 
 function Card({ item }: { item: LibraryItem }) {
   const p = item.progress;
+  const pct = p && item.latestNumber ? Math.min(100, Math.round((Math.max(p.chapterNumber, 0) / item.latestNumber) * 100)) : 0;
   return (
-    <li className="libCard">
-      <a href={seriesHref(item.mangaId)}>
-        <img src={thumbnailUrl(item.mangaId)} alt="" width={90} height={130} loading="lazy" />
+    <li className="gridCard">
+      <a href={p ? readHref(item.mangaId, p.chapterId) : seriesHref(item.mangaId)} className="gridCover">
+        <img src={thumbnailUrl(item.mangaId)} alt="" loading="lazy" />
+        {item.unread ? <span className="badge new">{item.unread} unread</span> : null}
       </a>
-      <div className="info">
-        <a href={seriesHref(item.mangaId)} className="libTitle">{item.title}</a>
-        <p className="muted">
-          {item.sourceName ?? ""}
-          {p ? ` · stopped at ${p.chapterNumber >= 0 ? `Ch. ${num(p.chapterNumber)}` : p.chapterName}` : " · not started"}
-        </p>
-        {item.unread ? <p className="unread">{item.unread} unread</p> : item.unread === 0 ? <p className="muted">Caught up</p> : null}
-        {p && (
-          <a className="button small" href={readHref(item.mangaId, p.chapterId)}>
-            Continue
-          </a>
-        )}
-      </div>
+      <a href={seriesHref(item.mangaId)} className="gridTitle" title={item.title}>{item.title}</a>
+      {p && <div className="bar"><i style={{ width: `${pct}%` }} /></div>}
+      <span className="muted gridMeta">
+        {p ? `${p.chapterNumber >= 0 ? chapterText(p.chapterNumber) : p.chapterName}${item.latestNumber ? ` of ${Math.floor(item.latestNumber)}` : ""}` : "not started"}
+        {item.sourceName ? ` · ${item.sourceName}` : ""}
+      </span>
     </li>
   );
 }
@@ -62,9 +54,9 @@ export function Library() {
         {refreshing ? "Checking sources…" : "Check for new chapters"}
       </button>
       {reading.length > 0 && <h3>Continue reading</h3>}
-      <ul className="libList">{reading.map((i) => <Card key={i.mangaId} item={i} />)}</ul>
+      <ul className="grid">{reading.map((i) => <Card key={i.mangaId} item={i} />)}</ul>
       {rest.length > 0 && <h3>{reading.length ? "Everything else" : "Library"}</h3>}
-      <ul className="libList">{rest.map((i) => <Card key={i.mangaId} item={i} />)}</ul>
+      <ul className="grid">{rest.map((i) => <Card key={i.mangaId} item={i} />)}</ul>
     </>
   );
 }

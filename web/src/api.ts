@@ -117,9 +117,12 @@ export const chapterPages = (chapterId: number) =>
 export interface BrowseResult extends SearchResult {
   skipped: string[];
 }
-export const browse = (genres: string[], q: string, page = 1) =>
-  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}&page=${page}`);
-export const genreList = () => getJson<{ genres: { name: string; sources: number }[] }>("/api/genres");
+export type GenreScope = "safe" | "adult";
+const scopeQs = (scope?: GenreScope) => (scope ? `&scope=${scope}` : "");
+export const browse = (genres: string[], q: string, page = 1, scope?: GenreScope) =>
+  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}&page=${page}${scopeQs(scope)}`);
+export const genreList = (scope?: GenreScope) =>
+  getJson<{ genres: { name: string; sources: number }[] }>(`/api/genres?${scopeQs(scope).slice(1)}`);
 
 export interface ExtensionInfo {
   pkgName: string;
@@ -273,3 +276,31 @@ export async function queueDownloads(
   }
   return queued;
 }
+
+export interface UpdateRow {
+  mangaId: number;
+  title: string;
+  sourceName: string | null;
+  adult: boolean;
+  latestNumber: number;
+  newCount: number;
+  caughtUp: boolean;
+  detectedAt: string;
+}
+export const updatesFeed = () => getJson<{ items: UpdateRow[]; lastCheckedAt: string | null }>("/api/updates");
+export interface HomeData {
+  libraryCount: number;
+  continueReading: LibraryItem[];
+  newChapters: UpdateRow[];
+  lastCheckedAt: string | null;
+  alertsOn: boolean;
+}
+export const homeData = () => getJson<HomeData>("/api/home");
+export interface GenreSupport {
+  id: string;
+  name: string;
+  genres: number;
+  filters: string[];
+  error?: string;
+}
+export const genreSupport = () => getJson<{ sources: GenreSupport[] }>("/api/sources/genres");

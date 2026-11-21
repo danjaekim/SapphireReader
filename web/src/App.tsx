@@ -3,13 +3,16 @@ import { AdultLock } from "./AdultLock";
 import { adultState, type AdultState } from "./api";
 import { Discover } from "./Discover";
 import { Downloads } from "./Downloads";
+import { Home } from "./Home";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
 import { Search } from "./Search";
+import { SeriesPage } from "./SeriesPage";
 import { Sources } from "./Sources";
 import { TrackerSettings } from "./Trackers";
-import { SeriesPage } from "./SeriesPage";
-import { useRoute } from "./route";
+import { Updates } from "./Updates";
+import { clearPagedCache } from "./usePaged";
+import { navigate, pageHref, useRoute, type PageName } from "./route";
 
 interface Status {
   server: { ok: boolean; version: string };
@@ -17,48 +20,56 @@ interface Status {
   alerts?: { enabled: boolean; everyHours: number };
 }
 
-const baseTabs = ["Search", "Library", "Discover", "Downloads", "Updates", "Sources", "Status"] as const;
-const adultTabs = ["Search", "Library", "Discover", "Discover (18+)", "Downloads", "Updates", "Sources", "Status"] as const;
-type Tab = (typeof adultTabs)[number];
+const NAV: { page: PageName; label: string; icon: string; adultOnly?: boolean }[] = [
+  { page: "home", label: "Home", icon: "🏠" },
+  { page: "search", label: "Search", icon: "🔍" },
+  { page: "library", label: "Library", icon: "📚" },
+  { page: "discover", label: "Discover", icon: "✨" },
+  { page: "discover-18", label: "Discover (18+)", icon: "🔞", adultOnly: true },
+  { page: "downloads", label: "Downloads", icon: "⬇️" },
+  { page: "updates", label: "Updates", icon: "🔔" },
+  { page: "sources", label: "Sources", icon: "🧩" },
+  { page: "status", label: "Status", icon: "📊" },
+];
 
-const ICONS: Record<Tab, string> = {
-  Search: "🔍",
-  Library: "📚",
-  Discover: "✨",
-  "Discover (18+)": "🔞",
-  Downloads: "⬇️",
-  Updates: "🔔",
-  Sources: "🧩",
-  Status: "📊",
+const TITLES: Record<PageName, string> = {
+  home: "Home",
+  search: "Search",
+  library: "Library",
+  discover: "Discover",
+  "discover-18": "Discover (18+)",
+  downloads: "Downloads",
+  updates: "Updates",
+  sources: "Sources",
+  status: "Status",
 };
 
+/** Pages made of a grid use the full width; the rest are centered in a readable column. */
+const WIDE: PageName[] = ["home", "search", "library", "discover", "discover-18"];
+
 function SideNav({
-  tabs,
   current,
-  onPick,
   adult,
   onAdult,
   overlay = false,
 }: {
-  tabs: readonly Tab[];
-  current: Tab | null;
-  onPick: (t: Tab) => void;
+  current: PageName | null;
   adult: AdultState;
   onAdult: (s: AdultState) => void;
   overlay?: boolean;
 }) {
   return (
     <aside className={`sidenav ${overlay ? "overlay" : ""}`}>
-      <div className="brand">
+      <a className="brand" href={pageHref("home")}>
         <img src="/icon.svg" alt="" width={32} height={32} />
         <h1>Sapphire</h1>
-      </div>
+      </a>
       <nav aria-label="Main">
-        {tabs.map((t) => (
-          <button key={t} className="navItem" aria-current={t === current ? "page" : undefined} onClick={() => onPick(t)} title={t}>
-            <span className="navIcon" aria-hidden="true">{ICONS[t]}</span>
-            <span className="navLabel">{t}</span>
-          </button>
+        {NAV.filter((n) => !n.adultOnly || adult.unlocked).map((n) => (
+          <a key={n.page} className="navItem" href={pageHref(n.page)} aria-current={n.page === current ? "page" : undefined} title={n.label}>
+            <span className="navIcon" aria-hidden="true">{n.icon}</span>
+            <span className="navLabel">{n.label}</span>
+          </a>
         ))}
       </nav>
       <AdultLock state={adult} onChange={onAdult} />
@@ -126,30 +137,25 @@ export function App() {
   useEffect(() => {
     adultState().then(setAdult, () => {});
   }, []);
-  const tabs: readonly Tab[] = adult.unlocked ? adultTabs : baseTabs;
-  const [pickedTab, setTab] = useState<Tab>("Search");
   const route = useRoute();
-  // A genre link opens Search with that genre selected.
-  const genres = route.name === "tab" ? route.genres : [];
-  // If 18+ mode is switched off while its page is open, fall back to Search.
-  const tab: Tab = genres.length > 0 ? "Search" : tabs.includes(pickedTab) ? pickedTab : "Search";
 
-  function pickTab(t: Tab) {
-    setTab(t);
-    // Leaving a series page: go back to the tab view.
-    if (route.name !== "tab" || route.genres.length > 0) window.location.hash = "#/";
+  // Locking or unlocking changes what searches return, so remembered results are dropped.
+  function onAdult(next: AdultState) {
+    clearPagedCache();
+    setAdult(next);
+    if (!next.unlocked && route.name === "page" && route.page === "discover-18") navigate(pageHref("home"));
   }
 
-  const nav = (overlay: boolean) => (
-    <SideNav
-      tabs={tabs}
-      current={!overlay && route.name === "tab" ? tab : null}
-      onPick={pickTab}
-      adult={adult}
-      onAdult={setAdult}
-      overlay={overlay}
-    />
-  );
+  // 18+ page without the lock open: back to home.
+  const page: PageName | null = route.name === "page" ? (route.page === "discover-18" && !adult.unlocked ? "home" : route.page) : null;
+
+  useEffect(() => {
+    document.title = route.name === "page" ? (page === "home" ? "Sapphire" : `${TITLES[page!]} · Sapphire`) : "Sapphire";
+    // Series pages start at the top; remembered result lists restore their own position.
+    if (route.name === "series") window.scrollTo(0, 0);
+  }, [route.name, page, route.name === "series" ? route.mangaId : 0]);
+
+  const nav = (overlay: boolean) => <SideNav current={overlay ? null : page} adult={adult} onAdult={onAdult} overlay={overlay} />;
 
   if (route.name === "read") {
     return (
@@ -159,8 +165,8 @@ export function App() {
     );
   }
 
-  // Search and Discover use the full width for their grids; everything else reads better narrower.
-  const wide = route.name === "tab" && (tab === "Search" || tab === "Discover" || tab === "Discover (18+)");
+  const wide = route.name === "series" ? false : WIDE.includes(page!);
+  const scopeTag = String(adult.unlocked);
 
   return (
     <div className="shell">
@@ -170,12 +176,16 @@ export function App() {
           <SeriesPage mangaId={route.mangaId} />
         ) : (
           <>
-            <h2>{tab}</h2>
-            {tab === "Search" && <Search key={`${genres.join("|")}${adult.unlocked}`} initialGenres={genres} />}
-            {tab === "Discover" && <Discover key={String(adult.unlocked)} />}
-            {tab === "Discover (18+)" && <Discover adult />}
-            {tab === "Sources" && <Sources />}
-            {tab === "Status" && (
+            {page !== "home" && <h2>{TITLES[page!]}</h2>}
+            {page === "home" && <Home key={scopeTag} />}
+            {page === "search" && <Search params={route.params} scopeTag={scopeTag} />}
+            {page === "discover" && <Discover params={route.params} scopeTag={scopeTag} />}
+            {page === "discover-18" && <Discover adult params={route.params} scopeTag={scopeTag} />}
+            {page === "library" && <Library key={scopeTag} />}
+            {page === "downloads" && <Downloads key={scopeTag} />}
+            {page === "updates" && <Updates key={scopeTag} />}
+            {page === "sources" && <Sources key={scopeTag} />}
+            {page === "status" && (
               <>
                 <StatusCard />
                 <TrackerSettings />
@@ -189,9 +199,6 @@ export function App() {
                 </section>
               </>
             )}
-            {tab === "Library" && <Library key={String(adult.unlocked)} />}
-            {tab === "Downloads" && <Downloads key={String(adult.unlocked)} />}
-            {tab === "Updates" && <p className="muted">Coming soon.</p>}
           </>
         )}
       </main>
