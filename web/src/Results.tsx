@@ -166,7 +166,7 @@ export function Results({
   const shownNote = note ?? result.note;
   return (
     <>
-      <p className="muted">
+      <p className="muted resultMeta">
         {result.groups.length} series{result.searched > 0 ? ` from ${result.searched} sources` : ""}.
         {result.failed.length > 0 && <> Didn't answer: {result.failed.map((f) => f.sourceName).join(", ")}.</>}
         {shownNote && <> {shownNote}</>}

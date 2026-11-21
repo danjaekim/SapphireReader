@@ -1,11 +1,11 @@
 import { Loading } from "./Loading";
 import { browse, discoverList, forYou, type SearchResult } from "./api";
-import { GenrePicker } from "./GenrePicker";
+import { FilterBar } from "./FilterBar";
 import { Results } from "./Results";
 import { navigate, pageHref, type PageName } from "./route";
 import { usePaged } from "./usePaged";
 import { useState } from "react";
-import { SortSelect, sortFrom, unsortedNote } from "./SortSelect";
+import { sortFrom, unsortedNote } from "./SortSelect";
 
 type Mode = "for-you" | "popular" | "latest" | "rating" | "newest";
 const MODES: { id: Mode; label: string }[] = [
@@ -58,26 +58,14 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
 
   return (
     <section>
-      <div className="chips" role="tablist" aria-label="Discover">
-        {MODES.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            role="tab"
-            className={`chip ${genres.length === 0 && mode === m.id ? "on" : ""}`}
-            aria-selected={genres.length === 0 && mode === m.id}
-            onClick={() => navigate(pageHref(page, { mode: m.id }))}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-      <div className="toolbar">
-        <GenrePicker selected={genres} scope={adult ? "adult" : "safe"} onChange={(g) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: g, seed, sort: sort === "relevance" ? undefined : sort }))} />
-        {genres.length > 0 && (
-          <SortSelect value={sort} onChange={(next) => navigate(pageHref(page, { genre: genres, seed, sort: next === "relevance" ? undefined : next }))} />
-        )}
-      </div>
+      <FilterBar
+        tabs={{ items: MODES, active: genres.length === 0 ? mode : null, onPick: (id) => navigate(pageHref(page, { mode: id })) }}
+        genres={genres}
+        scope={adult ? "adult" : "safe"}
+        onGenres={(g) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: g, seed, sort: sort === "relevance" ? undefined : sort }))}
+        sort={genres.length > 0 ? sort : undefined}
+        onSort={(next) => navigate(pageHref(page, { genre: genres, seed, sort: next === "relevance" ? undefined : next }))}
+      />
       {error && <p className="bad">{error}</p>}
       {busy && <Loading label="Asking your sources. This can take several seconds." />}
       {result && <Results result={result} empty={empty ?? (genres.length ? "No series have all of those genres. Try removing one." : undefined)} lookups={false} hasMore={more} onMore={loadMore} />}

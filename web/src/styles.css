@@ -223,7 +223,6 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .chip { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 999px; cursor: pointer; color: var(--fg); background: var(--panel); border: 1px solid var(--line); }
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-.genreList input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: inherit; }
 .extList { list-style: none; margin: 8px 0 16px; padding: 0; border: 1px solid var(--line); border-radius: 12px; }
 .extList > li:first-child, .extList > li:first-child > .extRow { border-top-left-radius: 11px; border-top-right-radius: 11px; }
 .extList > li:last-child, .extList > li:last-child > .extRow, .extList > li:last-child .extDetails { border-bottom-left-radius: 11px; border-bottom-right-radius: 11px; }
@@ -684,7 +683,6 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .facetLabel { font-weight: 600; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
 .facet .genres { margin: 0; }
 .facetTag { background: color-mix(in srgb, var(--fg) 10%, transparent); }
-.genrePicker .chips { margin-bottom: 10px; }
 .updateHead { align-items: flex-start; }
 .updateSub { margin: 2px 0 0; }
 .versionValue { font-size: 15px; line-height: 1.4; }
@@ -702,3 +700,89 @@ code.versionValue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 .chipX:hover { background: rgba(255, 255, 255, 0.22); }
 .hiddenTagForm { display: flex; gap: 8px; margin-top: 10px; }
 .hiddenTagForm input { flex: 1; min-width: 0; }
+
+/* Search and Discover: one sticky bar with the search box or list tabs, the filter buttons and the filters in use. */
+.filterBar {
+  position: sticky; top: 0; z-index: 12; margin: -8px -12px 10px; padding: 8px 12px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(10px);
+  display: grid; gap: 8px; transition: transform 0.2s ease;
+}
+.filterSearch { position: relative; display: flex; align-items: center; gap: 8px; }
+.filterSearch input {
+  flex: 1; min-width: 0; height: 44px; box-sizing: border-box; padding: 0 40px 0 36px; font: inherit; color: var(--fg);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+}
+.filterSearch input::-webkit-search-cancel-button { display: none; }
+.filterSearch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.filterSearchIcon { position: absolute; left: 12px; color: var(--muted); font-size: 20px; pointer-events: none; }
+.filterClear {
+  position: absolute; right: 100px; width: 32px; height: 32px; border: 0; border-radius: 999px; cursor: pointer;
+  background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); font-size: 18px; line-height: 1;
+}
+.filterGo { height: 44px; min-width: 92px; padding: 0 16px; font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 12px; cursor: pointer; }
+.filterGo:disabled { opacity: 0.5; cursor: default; }
+.tabRow { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
+.tabRow::-webkit-scrollbar { display: none; }
+.tabRow .chip { flex: none; white-space: nowrap; }
+.filterControls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.filterBtn {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; font: inherit; font-size: 14px; font-weight: 600;
+  color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; cursor: pointer;
+}
+.filterBtn.on { border-color: var(--accent); color: var(--accent); }
+.filterSort { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 14px; }
+.filterSort select { height: 36px; padding: 0 10px; font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
+.appliedRow { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
+.appliedRow::-webkit-scrollbar { display: none; }
+.appliedChip {
+  flex: none; display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 0 4px 0 12px; font-size: 14px;
+  color: #fff; background: var(--accent); border-radius: 999px; white-space: nowrap;
+}
+.appliedChip button {
+  width: 28px; height: 28px; border: 0; border-radius: 999px; background: none; color: inherit; font-size: 18px; line-height: 1; cursor: pointer;
+}
+.appliedChip button:hover { background: rgba(255, 255, 255, 0.2); }
+.clearAll { flex: none; font-size: 14px; white-space: nowrap; }
+.resultMeta { margin-top: 0; }
+
+/* The genre sheet: full height on phones, a tall dialog on bigger screens. */
+.sheet.tall { width: min(560px, 100%); height: min(720px, 92dvh); display: flex; flex-direction: column; text-align: left; padding-bottom: 0; overflow: hidden; }
+.filterSheetHead { display: flex; align-items: center; justify-content: space-between; }
+.filterSheetHead h3 { margin: 0; }
+.filterSheetFind { margin: 8px 0 4px; height: 44px; box-sizing: border-box; padding: 0 12px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
+.filterSheetBody { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0 12px; }
+.tagGroup h4 { margin: 12px 0 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.tagOpts { display: flex; flex-wrap: wrap; gap: 8px; }
+.tagOpt {
+  min-height: 36px; padding: 6px 14px; font: inherit; font-size: 14px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 999px; cursor: pointer;
+}
+.tagOpt.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.filterSheetFoot {
+  display: flex; gap: 10px; padding: 12px 0 calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--panel);
+}
+.filterSheetFoot .button { flex: 1; min-height: 44px; }
+.filterSheetFoot .button:first-child { flex: 0 0 auto; }
+@media (min-width: 721px) {
+  .filterBar { grid-template-columns: 1fr auto; align-items: center; margin: -8px -4px 12px; padding: 8px 4px; }
+  .filterBar > .filterSearch, .filterBar > .tabRow { grid-column: 1; }
+  .filterBar > .filterControls { grid-column: 2; grid-row: 1; }
+  .filterBar > .appliedRow { grid-column: 1 / -1; }
+  .tabRow, .appliedRow { margin: 0; padding: 0; flex-wrap: wrap; }
+}
+@media (max-width: 720px) {
+  /* Below the app's top bar; tucks away while scrolling down. */
+  .filterBar { top: calc(53px + env(safe-area-inset-top)); }
+  .filterBar.tucked { transform: translateY(calc(-100% - 60px)); }
+  .filterGo { display: none; }
+  .filterClear { right: 6px; }
+  .filterBtn, .filterSort select { height: 40px; }
+  .appliedChip { height: 40px; font-size: 15px; }
+  .appliedChip button { width: 36px; height: 36px; }
+  .clearAll { min-height: 40px; }
+  .tabRow .chip { min-height: 40px; }
+  .tagOpt { min-height: 44px; font-size: 15px; padding: 8px 16px; }
+  .sheet.tall { height: 92dvh; border-radius: 18px 18px 0 0; }
+  .resultMeta { font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .filterBar { transition: none; } }
