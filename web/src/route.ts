@@ -51,6 +51,17 @@ export const genreHref = (genre: string, seed?: number, adult = false) =>
 export const seriesHref = (mangaId: number) => `#/series/${mangaId}`;
 export const readHref = (mangaId: number, chapterId: number) => `#/read/${mangaId}/${chapterId}`;
 
+// How many times the address has changed since the app opened. Zero means this page was opened directly
+// (a bookmark, an alert), so there's nowhere "back" to inside Sapphire.
+let moves = 0;
+if (typeof window !== "undefined") window.addEventListener("hashchange", () => void moves++);
+
+/** Goes back like the browser's back button, or to `fallback` if this is the first page that was opened. */
+export function goBack(fallback = "#/home") {
+  if (moves > 0 && window.history.length > 1) window.history.back();
+  else window.location.hash = fallback;
+}
+
 export function navigate(href: string) {
   window.location.hash = href;
 }

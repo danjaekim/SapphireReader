@@ -1,7 +1,7 @@
 import { Loading } from "./Loading";
 import { useEffect, useRef, useState } from "react";
 import { addToLibrary, alternatives, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
-import { genreHref, readHref } from "./route";
+import { genreHref, goBack, readHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
 import { useRating } from "./shared";
@@ -256,9 +256,13 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
           style={{ backgroundImage: `url(${banner ? JSON.stringify(banner) : thumbnailUrl(mangaId)})` }}
         />
       )}
-      <a className="back" href="#/">← Back</a>
+      <a className="back" href="#/" onClick={(e) => { e.preventDefault(); goBack(); }}>← Back</a>
       {error && <p className="bad">{error}</p>}
-      {!data && !error && <Loading label="Loading from the source. This can take several seconds." size="lg" />}
+      {!data && !error && (
+        <div className="pageCenter">
+          <Loading label="Loading from the source. This can take several seconds." size="lg" />
+        </div>
+      )}
       {data && (
         <>
           <div className="seriesLayout">
