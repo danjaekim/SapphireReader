@@ -82,13 +82,13 @@ function engine(sent: unknown[]): typeof fetch {
 }
 
 describe("browse", () => {
-  it("searches sources that support the genres and says which couldn't be searched", async () => {
+  it("filters on sources that support the genres and checks the rest by their own genre lists", async () => {
     const sent: unknown[] = [];
     const out = await browseByGenres(config, ["Action", "Romance"], { fetchImpl: engine(sent), query: "nano" });
-    expect(out.searched).toBe(1);
-    expect(out.skipped).toEqual(["Plain Site"]);
+    expect(out.searched).toBe(2);
+    expect(out.skipped).toEqual([]);
     expect(out.groups[0].title).toBe("Nano Machine");
-    expect(sent.filter((s) => (s as { type: string }).type === "SEARCH")).toHaveLength(1);
+    expect(sent.filter((s) => (s as { type: string; source: string }).type === "SEARCH" && (s as { source: string }).source === "1")).toHaveLength(1);
     const search = sent.find((s) => (s as { type: string }).type === "SEARCH")!;
     expect(search).toMatchObject({ source: "1", type: "SEARCH", query: "nano" });
     expect((search as { filters: unknown[] }).filters).toHaveLength(2);

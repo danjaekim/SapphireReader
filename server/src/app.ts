@@ -258,12 +258,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  app.get<{ Querystring: { genres?: string; q?: string; page?: string; scope?: string } }>("/api/browse", async (req, reply) => {
+  app.get<{ Querystring: { genres?: string; q?: string; page?: string; scope?: string; seed?: string } }>("/api/browse", async (req, reply) => {
     const genres = (req.query.genres ?? "").split(",").map((g) => g.trim()).filter(Boolean).slice(0, 10);
     const q = (req.query.q ?? "").trim();
     if (genres.length === 0) return reply.code(400).send({ error: "Pick at least one genre." });
     try {
-      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: requestedScope(req), page: pageOf(req.query.page) });
+      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: requestedScope(req), page: pageOf(req.query.page), seed: /^\d+$/.test(req.query.seed ?? "") ? Number(req.query.seed) : undefined });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -309,8 +309,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     try {
       const health = new Map(store.sourceHealth().map((h) => [h.sourceId, h]));
       const open = gate.unlocked(req.headers.cookie);
+      const seen = new Set<string>();
       const sources = (await listSources(config, fetchImpl))
-        .filter((s) => open || !s.isNsfw)
+        .filter((s) => (s.lang === "en" || s.lang === "all") && s.name !== "Local source")
+        .filter((s) => (open || !s.isNsfw) && !seen.has(s.id) && !!seen.add(s.id))
         .map((s) => ({ ...s, health: health.get(s.id) ?? null }));
       return { sources };
     } catch (err) {

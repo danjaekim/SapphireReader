@@ -259,9 +259,9 @@ async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Prom
 export async function browseByGenres(
   config: Config,
   genres: string[],
-  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number } = {},
+  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number; seed?: number } = {},
 ): Promise<BrowseResult> {
-  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult, page = 1 } = opts;
+  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult, page = 1, seed } = opts;
   const sources = browsableSources(await listSources(config, fetchImpl), scope);
   const failed: BrowseResult["failed"] = [];
   const skipped: string[] = [];
@@ -269,11 +269,11 @@ export async function browseByGenres(
   const results = await Promise.all(
     sources.map(async (source) => {
       try {
-        const plan = planGenreFilters(await filtersFor(config, source.id, fetchImpl), genres);
-        if (!plan) {
-          skipped.push(source.name);
-          return [];
-        }
+        // A source that can't filter by these genres still gets searched: its list is checked
+        // against each series' own genres instead of being skipped.
+        const plan: GenrePlan =
+          planGenreFilters(await filtersFor(config, source.id, fetchImpl).catch(() => []), genres) ??
+          { changes: [], missing: genres.map(canonKey) };
         searched++;
         const started = Date.now();
         const data = await engineQuery<{
@@ -281,14 +281,22 @@ export async function browseByGenres(
         }>(
           config,
           BROWSE_MUTATION,
-          { input: { source: source.id, type: "SEARCH", page, query: query || null, filters: plan.changes } },
+          {
+            input: {
+              source: source.id,
+              type: plan.changes.length === 0 && !query ? "POPULAR" : "SEARCH",
+              page,
+              query: query || null,
+              filters: plan.changes,
+            },
+          },
           { fetchImpl, timeoutMs },
         );
         onResult?.(source, { ok: true, ms: Date.now() - started });
         let mangas = data.fetchSourceManga.mangas;
         if (plan.missing.length > 0) {
           // Check the rest against each series' own genres (a handful per page, to stay gentle on the site).
-          const checked = await mapLimit(mangas.slice(0, 10), 4, async (m) => {
+          const checked = await mapLimit(mangas.slice(0, 20), 5, async (m) => {
             try {
               const details = await fetchMangaDetails(config, m.id, fetchImpl);
               const have = new Set(details.genre.map(canonKey));
@@ -313,5 +321,18 @@ export async function browseByGenres(
       }
     }),
   );
-  return { groups: groupHits(results.flat()), failed, searched, skipped };
+  const hits = results.flat();
+  // The series the person clicked the genre on always belongs in the answer, as long as it really has them all.
+  if (seed !== undefined && page === 1 && !hits.some((h) => h.mangaId === seed)) {
+    try {
+      const d = await fetchMangaDetails(config, seed, fetchImpl);
+      const have = new Set(d.genre.map(canonKey));
+      if (genres.every((g) => have.has(canonKey(g)))) {
+        hits.unshift({ mangaId: d.id, sourceId: d.sourceId, sourceName: d.sourceName ?? "Source", title: d.title, thumbnailUrl: null });
+      }
+    } catch {
+      // The seed is a bonus; ignore failures.
+    }
+  }
+  return { groups: groupHits(hits), failed, searched, skipped };
 }

@@ -119,8 +119,8 @@ export interface BrowseResult extends SearchResult {
 }
 export type GenreScope = "safe" | "adult";
 const scopeQs = (scope?: GenreScope) => (scope ? `&scope=${scope}` : "");
-export const browse = (genres: string[], q: string, page = 1, scope?: GenreScope) =>
-  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}&page=${page}${scopeQs(scope)}`);
+export const browse = (genres: string[], q: string, page = 1, scope?: GenreScope, seed?: string) =>
+  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}&page=${page}${scopeQs(scope)}${seed ? `&seed=${encodeURIComponent(seed)}` : ""}`);
 export const genreList = (scope?: GenreScope) =>
   getJson<{ genres: { name: string; sources: number }[] }>(`/api/genres?${scopeQs(scope).slice(1)}`);
 

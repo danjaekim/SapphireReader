@@ -13,19 +13,20 @@ import { usePaged } from "./usePaged";
 export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag: string }) {
   const q = (params.get("q") ?? "").trim();
   const genres = params.getAll("genre");
+  const seed = params.get("seed") ?? undefined;
   const [text, setText] = useState(q);
   useEffect(() => setText(q), [q]);
 
   const active = genres.length > 0 || q.length >= 2;
   const { result, busy, error, more, loadMore } = usePaged(
-    (page) => (genres.length > 0 ? browse(genres, q, page) : search(q, page)),
-    active ? `search|${scopeTag}|${q}|${genres.join(",")}` : null,
+    (page) => (genres.length > 0 ? browse(genres, q, page, undefined, seed) : search(q, page)),
+    active ? `search|${scopeTag}|${q}|${genres.join(",")}|${seed ?? ""}` : null,
   );
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     const next = text.trim();
-    if (next.length >= 2 || genres.length > 0) navigate(pageHref("search", { q: next, genre: genres }));
+    if (next.length >= 2 || genres.length > 0) navigate(pageHref("search", { q: next, genre: genres, seed }));
   }
 
   const skipped = (result as { skipped?: string[] } | null)?.skipped ?? [];
@@ -43,7 +44,7 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
           {busy ? "Searching…" : "Search"}
         </button>
       </form>
-      <GenrePicker selected={genres} onChange={(g) => navigate(pageHref("search", { q, genre: g }))} />
+      <GenrePicker selected={genres} onChange={(g) => navigate(pageHref("search", { q, genre: g, seed }))} />
       {error && <p className="bad">{error}</p>}
       {busy && <Loading label="Searching every source. This can take several seconds." />}
       {result && (

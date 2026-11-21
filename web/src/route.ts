@@ -44,7 +44,7 @@ export function pageHref(page: PageName, params: Record<string, ParamValue> = {}
 }
 
 /** Opens Search with these genres already selected. */
-export const genreHref = (...genres: string[]) => pageHref("search", { genre: genres });
+export const genreHref = (genre: string, seed?: number) => pageHref("search", { genre: [genre], seed: seed ? String(seed) : undefined });
 
 export const seriesHref = (mangaId: number) => `#/series/${mangaId}`;
 export const readHref = (mangaId: number, chapterId: number) => `#/read/${mangaId}/${chapterId}`;

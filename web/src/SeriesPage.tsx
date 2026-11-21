@@ -108,7 +108,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
           {data.manga.genre.length > 0 && (
             <ul className="genres">
               {data.manga.genre.map((g) => (
-                <li key={g}><a className="tag" href={genreHref(g)}>{g}</a></li>
+                <li key={g}><a className="tag" href={genreHref(g, data.manga.id)}>{g}</a></li>
               ))}
             </ul>
           )}
