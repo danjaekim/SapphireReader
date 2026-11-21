@@ -57,6 +57,21 @@ describe("switching source", () => {
   });
 });
 
+describe("switch offers", () => {
+  it("asks once, and after a no only asks again when the other source gets even further ahead", () => {
+    const store = new Store(":memory:");
+    store.addToLibrary({ mangaId: 1, sourceId: "a", sourceName: "Slow", title: "Nano" });
+    const offer = { mangaId: 1, toMangaId: 2, toSourceId: "b", toSourceName: "Fast", toLatest: 10, fromLatest: 8 };
+    expect(store.offerSwitch(offer)).toBe(true);
+    expect(store.switchOffers()).toMatchObject([{ title: "Nano", toSourceName: "Fast", toLatest: 10 }]);
+    store.dismissSwitchOffer(1);
+    expect(store.switchOffers()).toEqual([]);
+    expect(store.offerSwitch(offer)).toBe(false);
+    expect(store.offerSwitch({ ...offer, toLatest: 11 })).toBe(true);
+    expect(store.getSwitchOffer(1)?.toLatest).toBe(11);
+  });
+});
+
 describe("AniList ranking", () => {
   it("orders by score in one batched request, unknown titles last, and remembers answers", async () => {
     const store = new Store(":memory:");
@@ -81,8 +96,8 @@ describe("AniList ranking", () => {
 describe("automation settings", () => {
   it("defaults to 3 chapters ahead and auto-switch on, and validates changes", async () => {
     const app = await buildApp(config, { fetchImpl: fakeEngine(), store: new Store(":memory:") });
-    expect((await app.inject({ url: "/api/settings/automation" })).json()).toEqual({ autoDownload: 3, autoSwitch: true });
-    expect((await app.inject({ method: "PUT", url: "/api/settings/automation", payload: { autoDownload: 0 } })).json()).toEqual({ autoDownload: 0, autoSwitch: true });
+    expect((await app.inject({ url: "/api/settings/automation" })).json()).toEqual({ autoDownload: 3, autoSwitch: true, autoDelete: true });
+    expect((await app.inject({ method: "PUT", url: "/api/settings/automation", payload: { autoDownload: 0 } })).json()).toEqual({ autoDownload: 0, autoSwitch: true, autoDelete: true });
     expect((await app.inject({ method: "PUT", url: "/api/settings/automation", payload: { autoDownload: 50 } })).statusCode).toBe(400);
   });
 });

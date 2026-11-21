@@ -58,6 +58,15 @@ export interface Category {
   count: number;
 }
 
+export interface SwitchOffer {
+  mangaId: number;
+  toMangaId: number;
+  toSourceId: string;
+  toSourceName: string | null;
+  toLatest: number;
+  fromLatest: number;
+}
+
 export interface AnilistMeta {
   anilistId: number | null;
   score: number | null;
@@ -214,6 +223,10 @@ export class Store {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS library_categories (manga_id INTEGER NOT NULL, category_id INTEGER NOT NULL, PRIMARY KEY (manga_id, category_id));
+      CREATE TABLE IF NOT EXISTS switch_offers (
+        manga_id INTEGER PRIMARY KEY, to_manga_id INTEGER NOT NULL, to_source_id TEXT NOT NULL, to_source_name TEXT,
+        to_latest REAL NOT NULL, from_latest REAL NOT NULL, created_at TEXT NOT NULL, dismissed_latest REAL
+      );
       CREATE TABLE IF NOT EXISTS anilist_meta (title_key TEXT PRIMARY KEY, anilist_id INTEGER, score INTEGER, popularity INTEGER, fetched_at TEXT NOT NULL);
     `);
     // Tags of every series Sapphire has looked at, so it can tell common tags from telling ones.
@@ -336,6 +349,58 @@ export class Store {
     }
     this.db.prepare("DELETE FROM library_categories WHERE manga_id = ?").run(fromId);
     this.removeFromLibrary(fromId);
+  }
+
+  /** Remembers that another source is further ahead for a library series, unless that was already turned down. */
+  offerSwitch(o: SwitchOffer): boolean {
+    const old = this.db.prepare("SELECT dismissed_latest FROM switch_offers WHERE manga_id = ?").get(o.mangaId) as { dismissed_latest: number | null } | undefined;
+    // Turned down before: only ask again once it's even further ahead than when you said no.
+    if (old?.dismissed_latest != null && o.toLatest <= old.dismissed_latest) return false;
+    this.db
+      .prepare(
+        `INSERT INTO switch_offers (manga_id, to_manga_id, to_source_id, to_source_name, to_latest, from_latest, created_at, dismissed_latest)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+         ON CONFLICT(manga_id) DO UPDATE SET to_manga_id = excluded.to_manga_id, to_source_id = excluded.to_source_id,
+           to_source_name = excluded.to_source_name, to_latest = excluded.to_latest, from_latest = excluded.from_latest,
+           created_at = excluded.created_at, dismissed_latest = NULL`,
+      )
+      .run(o.mangaId, o.toMangaId, o.toSourceId, o.toSourceName, o.toLatest, o.fromLatest, new Date().toISOString());
+    return true;
+  }
+
+  switchOffers(includeAdult = false): (SwitchOffer & { title: string; fromSourceName: string | null; adult: boolean })[] {
+    const rows = this.db
+      .prepare(
+        `SELECT o.*, l.title, l.source_name, l.adult FROM switch_offers o JOIN library l ON l.manga_id = o.manga_id
+         WHERE o.dismissed_latest IS NULL ${includeAdult ? "" : "AND l.adult = 0"} ORDER BY o.created_at DESC`,
+      )
+      .all() as Record<string, unknown>[];
+    return rows.map((r) => ({
+      mangaId: r.manga_id as number,
+      toMangaId: r.to_manga_id as number,
+      toSourceId: r.to_source_id as string,
+      toSourceName: (r.to_source_name as string | null) ?? null,
+      toLatest: r.to_latest as number,
+      fromLatest: r.from_latest as number,
+      title: r.title as string,
+      fromSourceName: (r.source_name as string | null) ?? null,
+      adult: r.adult === 1,
+    }));
+  }
+
+  getSwitchOffer(mangaId: number): SwitchOffer | null {
+    const r = this.db.prepare("SELECT * FROM switch_offers WHERE manga_id = ? AND dismissed_latest IS NULL").get(mangaId) as Record<string, unknown> | undefined;
+    return r
+      ? { mangaId, toMangaId: r.to_manga_id as number, toSourceId: r.to_source_id as string, toSourceName: (r.to_source_name as string | null) ?? null, toLatest: r.to_latest as number, fromLatest: r.from_latest as number }
+      : null;
+  }
+
+  dismissSwitchOffer(mangaId: number): void {
+    this.db.prepare("UPDATE switch_offers SET dismissed_latest = to_latest WHERE manga_id = ?").run(mangaId);
+  }
+
+  clearSwitchOffer(mangaId: number): void {
+    this.db.prepare("DELETE FROM switch_offers WHERE manga_id = ?").run(mangaId);
   }
 
   recordSeriesTags(mangaId: number, tags: string[]): void {

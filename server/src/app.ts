@@ -732,25 +732,26 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   };
 
   // --- Automation: auto-download and auto-switch -------------------------------------------------
-  type Automation = { autoDownload: number; autoSwitch: boolean };
+  type Automation = { autoDownload: number; autoSwitch: boolean; autoDelete: boolean };
   function automation(): Automation {
     try {
       const v = JSON.parse(store.getSetting("automation") ?? "{}") as Partial<Automation>;
       return {
         autoDownload: Number.isInteger(v.autoDownload) ? Math.min(10, Math.max(0, v.autoDownload!)) : 3,
         autoSwitch: v.autoSwitch !== false,
+        autoDelete: v.autoDelete !== false,
       };
     } catch {
-      return { autoDownload: 3, autoSwitch: true };
+      return { autoDownload: 3, autoSwitch: true, autoDelete: true };
     }
   }
   app.get("/api/settings/automation", async () => automation());
   app.put<{ Body: Partial<Automation> }>("/api/settings/automation", async (req, reply) => {
     const next = { ...automation(), ...req.body };
-    if (!Number.isInteger(next.autoDownload) || next.autoDownload < 0 || next.autoDownload > 10 || typeof next.autoSwitch !== "boolean") {
-      return reply.code(400).send({ error: "autoDownload is 0 to 10; autoSwitch is true or false." });
+    if (!Number.isInteger(next.autoDownload) || next.autoDownload < 0 || next.autoDownload > 10 || typeof next.autoSwitch !== "boolean" || typeof next.autoDelete !== "boolean") {
+      return reply.code(400).send({ error: "autoDownload is 0 to 10; autoSwitch and autoDelete are true or false." });
     }
-    store.setSetting("automation", JSON.stringify({ autoDownload: next.autoDownload, autoSwitch: next.autoSwitch }));
+    store.setSetting("automation", JSON.stringify({ autoDownload: next.autoDownload, autoSwitch: next.autoSwitch, autoDelete: next.autoDelete }));
     return next;
   });
 
@@ -775,6 +776,24 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     );
     downloader.kick();
     return queued;
+  }
+
+  /**
+   * Frees NAS space: removes downloaded chapters of a series that you've read, except the one you
+   * finished last (so flipping back a page still works offline).
+   */
+  function autoDeleteFor(mangaId: number): number {
+    if (!automation().autoDelete) return 0;
+    const read = new Set(store.readChapterIds(mangaId));
+    const keep = store.getProgress(mangaId)?.chapterId;
+    let removed = 0;
+    for (const d of store.downloads(true, mangaId)) {
+      if (d.status === "done" && read.has(d.chapterId) && d.chapterId !== keep) {
+        downloader.remove(d.chapterId);
+        removed++;
+      }
+    }
+    return removed;
   }
 
   /**
@@ -807,13 +826,16 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       }
     }
     if (!best) return null;
-    store.switchSource(
+    // Asks first: the move happens when you accept it on the Updates page.
+    const offered = store.offerSwitch({
       mangaId,
-      { mangaId: best.hit.mangaId, sourceId: best.hit.sourceId, sourceName: best.hit.sourceName, title: item.title },
-      { from: mine, to: best.chapters.map((c) => ({ id: c.id, chapterNumber: c.chapterNumber, name: c.name })) },
-    );
-    store.recordSeriesMeta(best.hit.mangaId, item.title, best.hit.sourceName, item.adult);
-    return { from: item.sourceName, to: best.hit.sourceName, latest: best.latest };
+      toMangaId: best.hit.mangaId,
+      toSourceId: best.hit.sourceId,
+      toSourceName: best.hit.sourceName,
+      toLatest: best.latest,
+      fromLatest: item.latestNumber,
+    });
+    return offered ? { from: item.sourceName, to: best.hit.sourceName, latest: best.latest } : null;
   }
 
   async function afterCheck(): Promise<void> {
@@ -823,22 +845,50 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         try {
           const moved = await autoSwitchFor(item.mangaId);
           if (moved) {
-            app.log.info(moved, `moved ${item.mangaId} to a source that's further ahead`);
+            app.log.info(moved, `${item.mangaId} is further ahead on another source`);
             const latest = Number.isInteger(moved.latest) ? moved.latest : moved.latest.toFixed(1);
             await notify?.({
               title: item.adult ? "Sapphire" : item.title,
-              message: item.adult ? "A series in your 18+ library moved to a source that's further ahead" : `Moved to ${moved.to}, which has up to chapter ${latest}`,
-              click: config.publicUrl ? `${config.publicUrl}/#/library` : undefined,
+              message: item.adult ? "A series in your 18+ library is further ahead on another source" : `${moved.to} has up to chapter ${latest}. Tap to move it there.`,
+              click: config.publicUrl ? `${config.publicUrl}/#/updates` : undefined,
             }).catch(() => {});
-            continue;
           }
         } catch (err) {
           app.log.warn(err, `auto-switch failed for ${item.mangaId}`);
         }
       }
       await autoDownloadFor(item.mangaId).catch(() => 0);
+      autoDeleteFor(item.mangaId);
     }
   }
+
+  // "Further ahead elsewhere" suggestions, shown on the Updates page.
+  app.get("/api/switch-offers", async (req) => ({ offers: store.switchOffers(gate.unlocked(req.headers.cookie)) }));
+  app.post<{ Params: { id: string } }>("/api/switch-offers/:id/dismiss", async (req) => {
+    store.dismissSwitchOffer(Number(req.params.id));
+    return { ok: true };
+  });
+  app.post<{ Params: { id: string } }>("/api/switch-offers/:id/accept", async (req, reply) => {
+    const id = Number(req.params.id);
+    const offer = store.getSwitchOffer(id);
+    const item = store.library(true).find((i) => i.mangaId === id);
+    if (!offer || !item) return reply.code(404).send({ error: "That suggestion is gone." });
+    if (item.adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    try {
+      const [from, to] = await Promise.all([chaptersFor(id), chaptersFor(offer.toMangaId)]);
+      store.switchSource(
+        id,
+        { mangaId: offer.toMangaId, sourceId: offer.toSourceId, sourceName: offer.toSourceName, title: item.title },
+        { from, to: to.map((c) => ({ id: c.id, chapterNumber: c.chapterNumber, name: c.name })) },
+      );
+      store.recordSeriesMeta(offer.toMangaId, item.title, offer.toSourceName, item.adult);
+      store.clearSwitchOffer(id);
+      return { mangaId: offer.toMangaId };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "Couldn't load the chapters from the other source." });
+    }
+  });
   app.decorate("runCheck", runCheck);
 
   app.post("/api/library/refresh", async (req) => {
@@ -879,7 +929,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     });
     if (b.finished === true) {
       void syncTrackers(id, b.chapterNumber!);
-      if (store.inLibrary(id)) void autoDownloadFor(id).catch(() => 0);
+      if (store.inLibrary(id)) {
+        autoDeleteFor(id);
+        void autoDownloadFor(id).catch(() => 0);
+      }
     }
     return { ok: true };
   });
