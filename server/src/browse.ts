@@ -5,7 +5,7 @@ import {
   fetchMangaDetails,
   groupHits,
   interleaveGroups,
-  inScope,
+  scopedSources,
   listSources,
   type EngineSource,
   type Scope,
@@ -245,7 +245,7 @@ async function filtersFor(config: Config, sourceId: string, fetchImpl?: FetchLik
 }
 
 function browsableSources(all: EngineSource[], scope: Scope) {
-  return all.filter((s) => inScope(s, scope));
+  return scopedSources(all, scope);
 }
 
 /** Every genre any of your sources can filter by (similar spellings merged), with how many sources offer it. */

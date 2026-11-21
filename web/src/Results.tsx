@@ -28,6 +28,7 @@ function useNearScreen<T extends Element>(margin = "300px") {
 
 function Card({ group, queue, lookups }: { group: SeriesGroup; queue: Queue; lookups: boolean }) {
   const [ref, near] = useNearScreen<HTMLLIElement>();
+  const sourceNames = [...new Set(group.hits.map((h) => h.sourceName))];
   const [chapters, setChapters] = useState<Record<number, Chapter>>({});
 
   // Only cards you can almost see look up their chapters; the sites would otherwise be asked for hundreds at once.
@@ -66,7 +67,7 @@ function Card({ group, queue, lookups }: { group: SeriesGroup; queue: Queue; loo
     <li className="gridCard" ref={ref}>
       <a href={seriesHref(target)} className="gridCover">
         <img src={thumbnailUrl(target)} alt="" loading="lazy" />
-        {group.hits.length > 1 && <span className="badge">{group.hits.length} sources</span>}
+        {sourceNames.length > 1 && <span className="badge">{sourceNames.length} sources</span>}
         {rating && <span className="badge score" title={`${rating.source} rating`}>★ {rating.value.toFixed(1)}</span>}
       </a>
       {lib.ready && (
@@ -91,7 +92,7 @@ function Card({ group, queue, lookups }: { group: SeriesGroup; queue: Queue; loo
             ? loading
               ? "checking sources…"
               : "unavailable"
-            : group.hits.map((h) => h.sourceName).join(", ")}
+            : sourceNames.join(", ")}
       </span>
     </li>
   );

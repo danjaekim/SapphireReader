@@ -10,11 +10,35 @@ export function inScope(s: EngineSource, scope: Scope): boolean {
   return (s.lang === "en" || s.lang === "all") && (scope === "all" || (scope === "adult" ? s.isNsfw : !s.isNsfw));
 }
 
+/**
+ * Sources to search for a scope. The same site can be installed twice under one name (say an
+ * English and a multi-language build); asking both just shows the same site twice, so keep one,
+ * preferring English.
+ */
+export function scopedSources(all: EngineSource[], scope: Scope): EngineSource[] {
+  const best = new Map<string, EngineSource>();
+  for (const s of all.filter((x) => inScope(x, scope))) {
+    const key = s.name.trim().toLowerCase();
+    const have = best.get(key);
+    if (!have || (have.lang !== "en" && s.lang === "en")) best.set(key, s);
+  }
+  return [...best.values()];
+}
+
+/** Sources Dan has marked 18+ (or not) by hand, overriding what the extension says. */
+let adultOverrides: Record<string, boolean> = {};
+export function setAdultOverrides(map: Record<string, boolean>): void {
+  adultOverrides = { ...map };
+}
+export const adultOverrideFor = (id: string): boolean | null => (id in adultOverrides ? adultOverrides[id] : null);
+
 export interface EngineSource {
   id: string;
   name: string;
   lang: string;
   isNsfw: boolean;
+  /** What the extension itself says, before any manual override. */
+  flaggedNsfw?: boolean;
 }
 
 /** Called once per source with how it answered, for health tracking. */
@@ -94,8 +118,9 @@ export async function listSources(config: Config, fetchImpl?: FetchLike): Promis
     {},
     { fetchImpl },
   );
-  return data.sources.nodes;
+  return data.sources.nodes.map((n) => ({ ...n, flaggedNsfw: n.isNsfw, isNsfw: id_in(adultOverrides, n.id) ? adultOverrides[n.id] : n.isNsfw }));
 }
+const id_in = (o: Record<string, boolean>, id: string) => Object.prototype.hasOwnProperty.call(o, id);
 
 const SEARCH_MUTATION = `
   mutation ($input: FetchSourceMangaInput!) {
@@ -112,7 +137,7 @@ export async function searchAll(
   const { fetchImpl, scope = "safe", timeoutMs = 8000, onResult, page = 1 } = opts;
   const all = await listSources(config, fetchImpl);
   // English and multi-language sources only; 18+ sources are used only when 18+ mode is unlocked.
-  const sources = all.filter((s) => inScope(s, scope));
+  const sources = scopedSources(all, scope);
 
   const failed: SearchResult["failed"] = [];
   const results = await Promise.all(

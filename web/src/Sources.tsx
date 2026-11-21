@@ -1,6 +1,6 @@
 import { Loading } from "./Loading";
 import { useEffect, useMemo, useState } from "react";
-import { changeExtension, checkSources, extensions, genreSupport, refreshExtensionList, sources, type ExtensionInfo, type GenreSupport, type SourceRow } from "./api";
+import { changeExtension, checkSources, setSourceAdult, extensions, genreSupport, refreshExtensionList, sources, type ExtensionInfo, type GenreSupport, type SourceRow } from "./api";
 
 const LANGS: Record<string, string> = { en: "English", all: "Multi-language", multi: "Multi-language" };
 
@@ -17,6 +17,17 @@ function ago(iso: string | null) {
 function Health() {
   const [rows, setRows] = useState<SourceRow[] | null>(null);
   const [checking, setChecking] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  async function setAdult(r: SourceRow, adult: boolean) {
+    setNote(null);
+    try {
+      // Back to "whatever the extension says" when the choice matches its own flag.
+      await setSourceAdult(r.id, adult === (r.flaggedNsfw ?? r.isNsfw) ? null : adult);
+      await load();
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "That didn't work.");
+    }
+  }
   const load = () => sources().then((r) => setRows(r.sources), () => setRows([]));
   useEffect(() => void load(), []);
 
@@ -36,6 +47,7 @@ function Health() {
           {checking ? "Checking every source…" : "Check now"}
         </button>
       </div>
+      {note && <p className="bad">{note}</p>}
       <ul className="extList">
         {rows.map((r) => {
           const h = r.health;
@@ -54,6 +66,10 @@ function Health() {
                     : "not checked yet"}
                 </span>
               </div>
+              <label className="muted small adultFlag" title="Where this source's series show up: the 18+ pages (checked) or the ordinary ones. Turn on 18+ mode to change it.">
+                <input type="checkbox" checked={r.isNsfw} onChange={(e) => void setAdult(r, e.target.checked)} /> 18+
+                {r.adultOverride != null && " (set by you)"}
+              </label>
               <span className="muted">{h ? `seen ${ago(h.lastOk ?? h.lastFail)}` : ""}</span>
             </li>
           );

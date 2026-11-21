@@ -249,9 +249,13 @@ export interface SourceRow {
   name: string;
   lang: string;
   isNsfw: boolean;
+  /** What the extension says, and any manual choice (true/false) that overrides it. */
+  flaggedNsfw?: boolean;
+  adultOverride?: boolean | null;
   health: SourceHealth | null;
 }
 export const sources = () => getJson<{ sources: SourceRow[] }>("/api/sources");
+export const setSourceAdult = (id: string, adult: boolean | null) => send("PUT", `/api/sources/${encodeURIComponent(id)}/adult`, { adult });
 export const checkSources = () => send("POST", "/api/sources/check");
 
 export interface Alternative {

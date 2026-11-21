@@ -5,7 +5,7 @@ import { canonKey } from "./genres.js";
 import {
   interleaveGroups,
   listSources,
-  inScope,
+  scopedSources,
   normalizeTitle,
   type Scope,
   type SearchResult,
@@ -35,7 +35,7 @@ export async function discover(
   opts: { fetchImpl?: FetchLike; scope?: Scope; onResult?: SourceReport; timeoutMs?: number; page?: number } = {},
 ): Promise<SearchResult> {
   const { fetchImpl, scope = "safe", onResult, timeoutMs = 10000, page = 1 } = opts;
-  const sources = (await listSources(config, fetchImpl)).filter((s) => inScope(s, scope));
+  const sources = scopedSources(await listSources(config, fetchImpl), scope);
   const failed: SearchResult["failed"] = [];
   const lists = await Promise.all(
     sources.map(async (source) => {

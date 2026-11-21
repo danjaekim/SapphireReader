@@ -28,6 +28,8 @@ import {
   onSeriesTags,
   fetchPageUrls,
   listSources,
+  setAdultOverrides,
+  adultOverrideFor,
   groupKey,
   latestFromChapters,
   searchAll,
@@ -383,6 +385,16 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   });
 
   // Installed sources with how reliably each has answered lately.
+  function loadAdultOverrides(): Record<string, boolean> {
+    try {
+      const v = JSON.parse(store.getSetting("source_adult") ?? "{}") as Record<string, unknown>;
+      return Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === "boolean")) as Record<string, boolean>;
+    } catch {
+      return {};
+    }
+  }
+  setAdultOverrides(loadAdultOverrides());
+
   app.get("/api/sources", async (req, reply) => {
     try {
       const health = new Map(store.sourceHealth().map((h) => [h.sourceId, h]));
@@ -391,12 +403,25 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const sources = (await listSources(config, fetchImpl))
         .filter((s) => (s.lang === "en" || s.lang === "all") && s.name !== "Local source")
         .filter((s) => (open || !s.isNsfw) && !seen.has(s.id) && !!seen.add(s.id))
-        .map((s) => ({ ...s, health: health.get(s.id) ?? null }));
+        .map((s) => ({ ...s, adultOverride: adultOverrideFor(s.id), health: health.get(s.id) ?? null }));
       return { sources };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
     }
+  });
+
+  // Mark a source as 18+ (or not) by hand, when the extension's own flag is wrong. null goes back to the extension's flag.
+  app.put<{ Params: { id: string }; Body: { adult?: unknown } }>("/api/sources/:id/adult", async (req, reply) => {
+    if (!gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "Turn on 18+ mode to change this." });
+    const adult = req.body?.adult;
+    if (adult !== true && adult !== false && adult !== null) return reply.code(400).send({ error: "Bad request." });
+    const map = loadAdultOverrides();
+    if (adult === null) delete map[req.params.id];
+    else map[req.params.id] = adult;
+    store.setSetting("source_adult", JSON.stringify(map));
+    setAdultOverrides(map);
+    return { ok: true };
   });
 
   // Asks each source for its popular list, timing the answer, so health is current.

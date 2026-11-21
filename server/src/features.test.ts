@@ -148,3 +148,23 @@ describe("automation settings", () => {
     expect((await app.inject({ method: "PUT", url: "/api/settings/automation", payload: { autoDownload: 50 } })).statusCode).toBe(400);
   });
 });
+
+describe("source scoping", () => {
+  it("keeps one source per name, preferring English", async () => {
+    const { scopedSources } = await import("./search.js");
+    const src = (id: string, name: string, lang: string, isNsfw: boolean) => ({ id, name, lang, isNsfw });
+    const all = [src("1", "NHentai.xxx", "all", true), src("2", "NHentai.xxx", "en", true), src("3", "Asura", "en", false), src("4", "Other", "fr", true)];
+    expect(scopedSources(all, "adult").map((s) => s.id)).toEqual(["2"]);
+    expect(scopedSources(all, "safe").map((s) => s.id)).toEqual(["3"]);
+  });
+
+  it("lets you re-flag a source by hand, but only with 18+ mode on", async () => {
+    const { adultOverrideFor, setAdultOverrides } = await import("./search.js");
+    setAdultOverrides({});
+    const app = await buildApp(config, { fetchImpl: fakeEngine(), store: new Store(":memory:") });
+    const denied = await app.inject({ method: "PUT", url: "/api/sources/9/adult", payload: { adult: false } });
+    expect(denied.statusCode).toBe(403);
+    expect(adultOverrideFor("9")).toBeNull();
+    setAdultOverrides({});
+  });
+});

@@ -584,3 +584,4 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .content.withBackdrop { position: relative; isolation: isolate; overflow-x: clip; overflow-y: visible; }
 .content.withBackdrop .seriesPage { position: static; isolation: auto; }
 .content.withBackdrop .seriesBackdrop, .content.withBackdrop .seriesBackdrop.banner { left: -48px; right: -48px; top: -48px; }
+.adultFlag { display: inline-flex; align-items: center; gap: 4px; margin: 0 10px; white-space: nowrap; }
