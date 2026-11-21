@@ -692,3 +692,5 @@ code.versionValue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 .statusSlot { min-height: 36px; display: flex; flex-direction: column; justify-content: center; margin: 4px 0 8px; }
 .statusSlot p { margin: 0; }
 .statusSlot > * { margin-top: 0; margin-bottom: 0; }
+.updateCard .loading { justify-content: flex-start; text-align: left; }
+.updateCard .loading.block { align-items: flex-start; padding: 8px 0; }
