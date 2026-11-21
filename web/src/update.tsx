@@ -110,6 +110,11 @@ const PROBLEMS: Record<string, string> = {
   build: "The new version's build failed on GitHub, so there's nothing to install yet. Check the Actions tab.",
 };
 
+/** A version as the update cards show it: monospace when known, a muted dash-style note when not. */
+function Version({ v }: { v: string | null | undefined }) {
+  return v ? <code className="versionValue">{v}</code> : <span className="versionValue muted">unknown</span>;
+}
+
 /** The "Software update" card in Settings. */
 export function UpdateCard() {
   const u = useUpdate();
@@ -141,8 +146,8 @@ export function UpdateCard() {
       ) : (
         <>
           <dl className="versionList">
-            <div><dt>Installed</dt><dd><code>{info.current ?? "unknown"}</code></dd></div>
-            <div><dt>Latest</dt><dd>{info.latest ? <code>{info.latest}</code> : <span className="muted">unknown</span>}</dd></div>
+            <div><dt>Installed</dt><dd><Version v={info.current} /></dd></div>
+            <div><dt>Latest</dt><dd><Version v={info.latest} /></dd></div>
           </dl>
           {checking && <Loading label="Checking for a newer version…" size="sm" block={false} />}
           {building && (
@@ -188,6 +193,7 @@ interface EngineInfo {
   available: boolean | null;
   enabled: boolean;
   problem: "engine" | "github" | null;
+  detail?: string;
 }
 
 /** The "Source engine" card: the engine's version, the newest release, and a button to update it. */
@@ -245,12 +251,14 @@ export function EngineUpdateCard() {
   return (
     <section className={`card updateCard ${available ? "hasUpdate" : ""}`}>
       <div className="updateHead">
-        <h3>Source engine</h3>
+        <div>
+          <h3>Source engine</h3>
+          <p className="muted small updateSub">The engine (Suwayomi) is what reads each site. Keeping it current keeps sources working.</p>
+        </div>
         <button type="button" className="button small secondary" onClick={() => void check(true)} disabled={checking || busy}>
           {checking ? "Checking…" : "Check for updates"}
         </button>
       </div>
-      <p className="muted small">The engine (Suwayomi) is what reads each site. Keeping it current keeps sources working.</p>
       {busy ? (
         <div className="updateBusy">
           <Loading label={message ?? "Updating…"} size="md" />
@@ -261,13 +269,13 @@ export function EngineUpdateCard() {
       ) : (
         <>
           <dl className="versionList">
-            <div><dt>Running</dt><dd>{info.current ? <code>{info.current}</code> : <span className="muted">unknown</span>}</dd></div>
-            <div><dt>Newest</dt><dd>{info.latest ? <code>{info.latest}</code> : <span className="muted">unknown</span>}</dd></div>
+            <div><dt>Installed</dt><dd><Version v={info.current} /></dd></div>
+            <div><dt>Latest</dt><dd><Version v={info.latest} /></dd></div>
           </dl>
           {!checking && available && <p className="updateAvail"><span className="dot bad" /> A newer engine is available.</p>}
           {!checking && info.available === false && <p><span className="dot good" /> The engine is up to date.</p>}
           {!checking && info.problem === "engine" && <p className="bad">The engine isn't answering, so its version can't be read.</p>}
-          {!checking && info.problem === "github" && <p className="bad">Couldn't check GitHub for the newest engine. Try again in a moment.</p>}
+          {!checking && info.problem === "github" && <p className="bad">Couldn't check GitHub for the newest engine{info.detail ? ` (${info.detail})` : ""}. Try again in a moment.</p>}
           {phase === "failed" && message && <p className="bad">{message}</p>}
           {available && !checking &&
             (info.enabled ? (

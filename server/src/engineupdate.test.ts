@@ -27,3 +27,13 @@ describe("engine update", () => {
     expect(await engineUpdateInfo(loadConfig({}), "v2.1.1799", github(null))).toMatchObject({ available: null, problem: "github", enabled: false });
   });
 });
+
+describe("engine update without GitHub's API", () => {
+  it("falls back to the releases/latest redirect when the API refuses", async () => {
+    const f = (async (url: string) => {
+      if (String(url).startsWith("https://api.github.com")) return new Response("{}", { status: 403 });
+      return new Response(null, { status: 302, headers: { location: "https://github.com/Suwayomi/Suwayomi-Server/releases/tag/v2.4.2400" } });
+    }) as unknown as typeof fetch;
+    expect(await engineUpdateInfo(config, "v2.4.2373", f)).toMatchObject({ available: true, latest: "v2.4.2400", problem: null });
+  });
+});

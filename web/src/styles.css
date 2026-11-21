@@ -685,3 +685,7 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .facet .genres { margin: 0; }
 .facetTag { background: color-mix(in srgb, var(--fg) 10%, transparent); }
 .genrePicker .chips { margin-bottom: 10px; }
+.updateHead { align-items: flex-start; }
+.updateSub { margin: 2px 0 0; }
+.versionValue { font-size: 15px; line-height: 1.4; }
+code.versionValue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
