@@ -4,6 +4,7 @@ import { canonKey, canonLabel } from "./genres.js";
 import {
   fetchMangaDetails,
   groupHits,
+  interleaveGroups,
   inScope,
   listSources,
   type EngineSource,
@@ -22,6 +23,7 @@ export type EngineFilter =
   | { __typename: "SelectFilter"; name: string; values: string[] }
   | { __typename: "GroupFilter"; name: string; filters: EngineFilter[] }
   | { __typename: "TextFilter"; name: string }
+  | { __typename: "SortFilter"; name: string; values: string[] }
   | { __typename: string; name?: string };
 
 export interface FilterChange {
@@ -31,6 +33,37 @@ export interface FilterChange {
   selectState?: number;
   groupChange?: FilterChange;
   textState?: string;
+  sortState?: { index: number; ascending: boolean };
+}
+
+/** Orders Sapphire can ask for. "relevance" means each site's own default order. */
+export type SortKey = "relevance" | "popular" | "latest" | "rating" | "newest" | "az";
+export const SORT_KEYS: SortKey[] = ["relevance", "popular", "latest", "rating", "newest", "az"];
+
+// How sites label each order, best match first. Sites word these very differently.
+const SORT_WORDS: Record<Exclude<SortKey, "relevance">, RegExp[]> = {
+  popular: [/^\s*(most\s+)?popular(ity)?\b/i, /popular|views?|most read|trending|hot\b|follow|bookmark|favou?rite/i],
+  latest: [/latest|last\s+updated?|updated?|recent/i],
+  rating: [/rating|rated|score/i, /^\s*top\b/i],
+  newest: [/newest|^\s*new\b|added|created|release|date/i],
+  az: [/a\s*-\s*z|alphabet|^\s*(title|name)\b/i],
+};
+
+/** The filter change that asks this source for `key` order, or null if it has no such order. */
+export function sortChange(filters: EngineFilter[], key: SortKey): FilterChange | null {
+  if (key === "relevance") return null;
+  for (const re of SORT_WORDS[key]) {
+    for (const [position, f] of filters.entries()) {
+      const isSort = f.__typename === "SortFilter";
+      const isSelect = f.__typename === "SelectFilter" && /sort|order/i.test(f.name ?? "") && !CONDITION_NAME.test(f.name ?? "");
+      if (!isSort && !isSelect) continue;
+      const values = (f as { values: string[] }).values ?? [];
+      const index = values.findIndex((v) => re.test(v) && !/z\s*-\s*a|oldest|least|lowest|asc(ending)?\b/i.test(v));
+      if (index < 0) continue;
+      return isSort ? { position, sortState: { index, ascending: key === "az" } } : { position, selectState: index };
+    }
+  }
+  return null;
 }
 
 // Sources call the same idea "genre", "tag", "category", "theme", "content" and so on.
@@ -154,6 +187,7 @@ const filtersQuery = (id: string) => `
         ... on TriStateFilter { name }
         ... on SelectFilter { name values }
         ... on TextFilter { name }
+        ... on SortFilter { name values }
         ... on GroupFilter {
           name
           filters {
@@ -275,6 +309,8 @@ export interface BrowseResult extends SearchResult {
   skipped: string[];
   /** True when nothing matched the genres, so these are plain text-search results instead. */
   textFallback: boolean;
+  /** Sources that have no such order, so their results are in their own default order. */
+  unsorted: string[];
 }
 
 /** Runs `task` over `items`, a few at a time. */
@@ -297,9 +333,10 @@ async function mapLimit<T, R>(items: T[], limit: number, task: (item: T) => Prom
 export async function browseByGenres(
   config: Config,
   genres: string[],
-  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number; seed?: number } = {},
+  opts: { query?: string; fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number; seed?: number; sort?: SortKey } = {},
 ): Promise<BrowseResult> {
-  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult, page = 1, seed } = opts;
+  const { query, fetchImpl, scope = "safe", timeoutMs = 10000, onResult, page = 1, seed, sort = "relevance" } = opts;
+  const unsorted: string[] = [];
   const sources = browsableSources(await listSources(config, fetchImpl), scope);
   const failed: BrowseResult["failed"] = [];
   const skipped: string[] = [];
@@ -309,13 +346,16 @@ export async function browseByGenres(
       try {
         // A source that can't filter by these genres still gets searched: its list is checked
         // against each series' own genres instead of being skipped.
+        const filters = await filtersFor(config, source.id, fetchImpl).catch(() => [] as EngineFilter[]);
         const plan: GenrePlan =
-          planGenreFilters(await filtersFor(config, source.id, fetchImpl).catch(() => []), genres) ??
-          { changes: [], missing: genres.map(canonKey) };
+          (genres.length > 0 ? planGenreFilters(filters, genres) : null) ?? { changes: [], missing: genres.map(canonKey) };
+        const order = sortChange(filters, sort);
+        if (sort !== "relevance" && !order) unsorted.push(source.name);
+        const changes = order ? [...plan.changes, order] : plan.changes;
         // Sites like NHentai have no tag filter but take tags in the search box (tag:"glasses").
         // Only 18+ sources get this, and results are still checked against the series' own tags.
         const tagQuery =
-          plan.changes.length === 0 && source.isNsfw ? [query, ...genres.map((g) => `tag:"${canonLabel(g).toLowerCase()}"`)].filter(Boolean).join(" ") : null;
+          genres.length > 0 && plan.changes.length === 0 && source.isNsfw ? [query, ...genres.map((g) => `tag:"${canonLabel(g).toLowerCase()}"`)].filter(Boolean).join(" ") : null;
         searched++;
         const started = Date.now();
         const data = await engineQuery<{
@@ -326,10 +366,10 @@ export async function browseByGenres(
           {
             input: {
               source: source.id,
-              type: plan.changes.length === 0 && !query && !tagQuery ? "POPULAR" : "SEARCH",
+              type: changes.length === 0 && !query && !tagQuery ? (sort === "latest" ? "LATEST" : "POPULAR") : "SEARCH",
               page,
               query: tagQuery ?? (query || null),
-              filters: plan.changes,
+              filters: changes,
             },
           },
           { fetchImpl, timeoutMs },
@@ -364,9 +404,10 @@ export async function browseByGenres(
     }),
   );
   let hits = results.flat();
+  let lists: SourceHit[][] = results;
   // Last resort: nothing matched by genre anywhere, so search the genre names as plain text.
   let textFallback = false;
-  if (hits.length === 0) {
+  if (hits.length === 0 && genres.length > 0) {
     const text = [query, ...genres.map((g) => canonLabel(g))].filter(Boolean).join(" ");
     const loose = await Promise.all(
       sources.map(async (source) => {
@@ -388,6 +429,7 @@ export async function browseByGenres(
     );
     hits = loose.flat();
     textFallback = hits.length > 0;
+    lists = loose;
   }
   // The series the person clicked the genre on always belongs in the answer, as long as it really has them all.
   if (seed !== undefined && page === 1 && !hits.some((h) => h.mangaId === seed)) {
@@ -401,5 +443,14 @@ export async function browseByGenres(
       // The seed is a bonus; ignore failures.
     }
   }
-  return { groups: groupHits(hits), failed, searched, skipped, textFallback };
+  const groups = sort === "relevance" ? groupHits(hits) : orderGroups(lists, hits, sort);
+  return { groups, failed, searched, skipped, textFallback, unsorted };
+}
+
+/** Each site already sorted its own list; merge them rank by rank (A–Z is simply sorted by title). */
+function orderGroups(lists: SourceHit[][], hits: SourceHit[], sort: SortKey) {
+  const extra = hits.filter((h) => !lists.some((l) => l.includes(h)));
+  const groups = interleaveGroups([...extra.map((h) => [h]), ...lists]);
+  if (sort === "az") groups.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+  return groups;
 }

@@ -186,6 +186,34 @@ export class Store {
       }
     }
     this.db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    // Tags of every series Sapphire has looked at, so it can tell common tags from telling ones.
+    this.db.exec("CREATE TABLE IF NOT EXISTS series_tags (manga_id INTEGER PRIMARY KEY, tags TEXT NOT NULL, seen_at TEXT NOT NULL)");
+  }
+
+  recordSeriesTags(mangaId: number, tags: string[]): void {
+    this.db
+      .prepare("INSERT INTO series_tags (manga_id, tags, seen_at) VALUES (?, ?, ?) ON CONFLICT(manga_id) DO UPDATE SET tags = excluded.tags, seen_at = excluded.seen_at")
+      .run(mangaId, JSON.stringify(tags), new Date().toISOString());
+    this.tagStatsCache = null;
+  }
+
+  seriesTags(mangaId: number): string[] | null {
+    const row = this.db.prepare("SELECT tags FROM series_tags WHERE manga_id = ?").get(mangaId) as { tags: string } | undefined;
+    return row ? (JSON.parse(row.tags) as string[]) : null;
+  }
+
+  private tagStatsCache: { total: number; counts: Map<string, number> } | null = null;
+
+  /** How many known series carry each tag (keys are whatever `key` maps a tag to). */
+  tagStats(key: (tag: string) => string): { total: number; counts: Map<string, number> } {
+    if (this.tagStatsCache) return this.tagStatsCache;
+    const counts = new Map<string, number>();
+    const rows = this.db.prepare("SELECT tags FROM series_tags").all() as { tags: string }[];
+    for (const r of rows) {
+      for (const k of new Set((JSON.parse(r.tags) as string[]).map(key))) counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    this.tagStatsCache = { total: rows.length, counts };
+    return this.tagStatsCache;
   }
 
   close(): void {

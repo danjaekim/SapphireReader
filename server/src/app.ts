@@ -8,9 +8,10 @@ import type { Config } from "./config.js";
 import { checkEngine, engineFile, engineQuery } from "./engine.js";
 import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
 import { requestUpdate, updateInfo } from "./updater.js";
-import { browseByGenres, genreSupport, listGenres } from "./browse.js";
+import { canonKey } from "./genres.js";
+import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
-import { discover, recommendFor, similarTo, type DiscoverSort } from "./discover.js";
+import { discover, recommendFor, similarTo, tagWeights, type DiscoverSort } from "./discover.js";
 import { Downloader, mimeForFile } from "./downloader.js";
 import { backupName, snapshot } from "./backup.js";
 import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
@@ -20,6 +21,7 @@ import { Store, type ProgressInput } from "./store.js";
 import {
   fetchChapterList,
   fetchMangaDetails,
+  onSeriesTags,
   fetchPageUrls,
   listSources,
   groupKey,
@@ -59,6 +61,14 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const app = Fastify({ logger: true });
   const { fetchImpl } = options;
   const store = options.store ?? new Store(":memory:");
+  // Remember the tags of every series looked at, so Similar can learn which tags are telling.
+  onSeriesTags((mangaId, tags) => {
+    try {
+      store.recordSeriesTags(mangaId, tags);
+    } catch {
+      // Best effort.
+    }
+  });
   const notify = createNotifier(config, fetchImpl);
   const gate = new AdultGate(store);
   const downloader = new Downloader(config, store, join(config.dataDir, "downloads"), fetchImpl, app.log);
@@ -97,10 +107,16 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  app.get<{ Querystring: { q?: string; page?: string } }>("/api/search", async (req, reply) => {
+  const sortOf = (v: string | undefined): SortKey => (SORT_KEYS.includes(v as SortKey) ? (v as SortKey) : "relevance");
+
+  app.get<{ Querystring: { q?: string; page?: string; sort?: string } }>("/api/search", async (req, reply) => {
     const q = (req.query.q ?? "").trim();
     if (q.length < 2) return reply.code(400).send({ error: "Type at least 2 characters." });
+    const sort = sortOf(req.query.sort);
     try {
+      if (sort !== "relevance") {
+        return await browseByGenres(config, [], { query: q, sort, fetchImpl, onResult: report, scope: scopeFor(req), page: pageOf(req.query.page) });
+      }
       return await searchAll(config, q, { fetchImpl, onResult: report, scope: scopeFor(req), page: pageOf(req.query.page) });
     } catch (err) {
       req.log.error(err);
@@ -270,12 +286,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  app.get<{ Querystring: { genres?: string; q?: string; page?: string; scope?: string; seed?: string } }>("/api/browse", async (req, reply) => {
+  app.get<{ Querystring: { genres?: string; q?: string; page?: string; scope?: string; seed?: string; sort?: string } }>("/api/browse", async (req, reply) => {
     const genres = (req.query.genres ?? "").split(",").map((g) => g.trim()).filter(Boolean).slice(0, 10);
     const q = (req.query.q ?? "").trim();
     if (genres.length === 0) return reply.code(400).send({ error: "Pick at least one genre." });
     try {
-      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: requestedScope(req), page: pageOf(req.query.page), seed: /^\d+$/.test(req.query.seed ?? "") ? Number(req.query.seed) : undefined });
+      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: requestedScope(req), sort: sortOf(req.query.sort), page: pageOf(req.query.page), seed: /^\d+$/.test(req.query.seed ?? "") ? Number(req.query.seed) : undefined });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -395,7 +411,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const sort: DiscoverSort = req.query.sort === "latest" ? "latest" : "popular";
     const adult = req.query.adult === "1";
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    const other = sortOf(req.query.sort);
     try {
+      // Popular and Latest use each site's own lists; other orders go through each site's sort filter.
+      if (other === "rating" || other === "newest" || other === "az") {
+        return await browseByGenres(config, [], { sort: other, fetchImpl, onResult: report, scope: adult ? "adult" : "safe", page: pageOf(req.query.page) });
+      }
       return await discover(config, sort, { fetchImpl, onResult: report, scope: adult ? "adult" : "safe", page: pageOf(req.query.page) });
     } catch (err) {
       req.log.error(err);
@@ -424,7 +445,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  const similarCache = new Map<string, { at: number; groups: unknown[] }>();
+  const similarCache = new Map<string, { at: number; groups: unknown[]; basedOn: string[] }>();
   app.get<{ Params: { id: string } }>("/api/manga/:id/similar", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
@@ -433,10 +454,16 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const scope = scopeFor(req);
       const key = `${id}|${scope}`;
       const cached = similarCache.get(key);
-      if (cached && Date.now() - cached.at < 60 * 60 * 1000) return { groups: cached.groups };
-      const groups = await similarTo(config, manga.title, manga.genre, { fetchImpl, onResult: report, scope });
-      if (groups.length > 0) similarCache.set(key, { at: Date.now(), groups });
-      return { groups };
+      if (cached && Date.now() - cached.at < 60 * 60 * 1000) return { groups: cached.groups, basedOn: cached.basedOn };
+      const { groups, basedOn } = await similarTo(config, manga.title, manga.genre, {
+        fetchImpl,
+        onResult: report,
+        scope,
+        selfId: id,
+        knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
+      });
+      if (groups.length > 0) similarCache.set(key, { at: Date.now(), groups, basedOn });
+      return { groups, basedOn };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't find similar series." });

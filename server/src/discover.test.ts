@@ -96,3 +96,35 @@ describe("similar and for you", () => {
     expect(recommendationQueries([{ genre: "A" }, { genre: "B" }, { genre: "C" }])).toEqual([["A", "B"], ["A"], ["B"], ["C"]]);
   });
 });
+
+describe("similar scoring", () => {
+  it("searches the most telling tags first and ranks series sharing more of them higher", async () => {
+    const { similarTo } = await import("./discover.js");
+    (await import("./browse.js")).clearFilterCache();
+    const filterSets: string[][] = [];
+    const fake = (async (_u: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      const q: string = body.query;
+      const json = (data: unknown) => new Response(JSON.stringify({ data }));
+      if (q.includes("sources {")) return json({ sources: { nodes: [{ id: "1", name: "Site", lang: "en", isNsfw: false }] } });
+      if (q.includes("source(id")) return json({ source: { filters: [{ __typename: "GroupFilter", name: "Genres", filters: ["Action", "Murim", "Glasses"].map((name) => ({ __typename: "CheckBoxFilter", name })) }] } });
+      if (q.includes("fetchSourceManga")) {
+        const picked = (body.variables.input.filters as { groupChange: { position: number } }[]).map((f) => ["Action", "Murim", "Glasses"][f.groupChange.position]);
+        filterSets.push(picked);
+        const has = (t: string) => picked.includes(t);
+        const titles = has("Glasses") && has("Murim") ? ["Best Match"] : has("Glasses") ? ["Best Match", "Glasses Only"] : ["Action Thing"];
+        return json({ fetchSourceManga: { mangas: titles.map((t, i) => ({ id: 50 + i + (t === "Action Thing" ? 10 : 0), title: t, thumbnailUrl: null })) } });
+      }
+      return new Response("?", { status: 500 });
+    }) as unknown as typeof fetch;
+    const weights: Record<string, number> = { action: 0.1, murim: 0.6, glass: 0.9 };
+    const out = await similarTo(config, "Me", ["Action", "Murim", "Glasses"], {
+      fetchImpl: fake,
+      knowledge: { weight: (t) => weights[t.toLowerCase().replace(/es$/, "")] ?? 1, tagsOf: () => null },
+    });
+    expect(out.basedOn).toEqual(["Glasses", "Murim", "Action"]);
+    expect(filterSets[0].sort()).toEqual(["Glasses", "Murim"]);
+    expect(out.groups[0].title).toBe("Best Match");
+    expect(out.groups.map((g) => g.title).indexOf("Glasses Only")).toBeLessThan(out.groups.map((g) => g.title).indexOf("Action Thing"));
+  });
+});

@@ -118,11 +118,13 @@ export const chapterPages = (chapterId: number) =>
 export interface BrowseResult extends SearchResult {
   skipped: string[];
   textFallback?: boolean;
+  unsorted?: string[];
 }
 export type GenreScope = "safe" | "adult";
 const scopeQs = (scope?: GenreScope) => (scope ? `&scope=${scope}` : "");
-export const browse = (genres: string[], q: string, page = 1, scope?: GenreScope, seed?: string) =>
-  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}&page=${page}${scopeQs(scope)}${seed ? `&seed=${encodeURIComponent(seed)}` : ""}`);
+const sortQs = (sort?: string) => (sort && sort !== "relevance" ? `&sort=${sort}` : "");
+export const browse = (genres: string[], q: string, page = 1, scope?: GenreScope, seed?: string, sort?: string) =>
+  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}&page=${page}${scopeQs(scope)}${seed ? `&seed=${encodeURIComponent(seed)}` : ""}${sortQs(sort)}`);
 export const genreList = (scope?: GenreScope) =>
   getJson<{ genres: { name: string; sources: number }[] }>(`/api/genres?${scopeQs(scope).slice(1)}`);
 
@@ -140,8 +142,8 @@ export const refreshExtensionList = () =>
 export const changeExtension = (pkg: string, action: "install" | "update" | "uninstall") =>
   send("POST", `/api/extensions/${pkg}/${action}`) as Promise<{ extension: ExtensionInfo }>;
 
-export const discoverList = (sort: "popular" | "latest", adult = false, page = 1) =>
-  getJson<SearchResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}&page=${page}`);
+export const discoverList = (sort: "popular" | "latest" | "rating" | "newest" | "az", adult = false, page = 1) =>
+  getJson<BrowseResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}&page=${page}`);
 export const forYou = (adult = false) =>
   getJson<{ groups: SeriesGroup[]; because: string[] }>(`/api/for-you${adult ? "?adult=1" : ""}`);
 
@@ -154,9 +156,10 @@ export const setAdultPin = (pin: string, currentPin?: string) =>
   send("POST", "/api/adult/pin", { pin, currentPin }) as Promise<AdultState>;
 export const unlockAdult = (pin: string) => send("POST", "/api/adult/unlock", { pin }) as Promise<AdultState>;
 export const lockAdult = () => send("POST", "/api/adult/lock") as Promise<AdultState>;
-export const similar = (mangaId: number) => getJson<{ groups: SeriesGroup[] }>(`/api/manga/${mangaId}/similar`);
+export const similar = (mangaId: number) => getJson<{ groups: SeriesGroup[]; basedOn?: string[] }>(`/api/manga/${mangaId}/similar`);
 
-export const search = (q: string, page = 1) => getJson<SearchResult>(`/api/search?q=${encodeURIComponent(q)}&page=${page}`);
+export const search = (q: string, page = 1, sort?: string) =>
+  getJson<BrowseResult>(`/api/search?q=${encodeURIComponent(q)}&page=${page}${sortQs(sort)}`);
 export const latest = (mangaId: number) => getJson<LatestChapter>(`/api/manga/${mangaId}/latest`);
 export const thumbnailUrl = (mangaId: number) => `/api/manga/${mangaId}/thumbnail`;
 

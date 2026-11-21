@@ -28,6 +28,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
 
   const { states, download } = useSeriesDownloads(mangaId);
   const [similarGroups, setSimilarGroups] = useState<SeriesGroup[] | null>(null);
+  const [basedOn, setBasedOn] = useState<string[]>([]);
   const [others, setOthers] = useState<Alternative[] | null>(null);
 
   // Similar series load on their own once the series itself is up, so the page isn't held back.
@@ -37,7 +38,11 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     if (!loaded) return;
     let cancelled = false;
     similar(mangaId).then(
-      (r) => !cancelled && setSimilarGroups(r.groups),
+      (r) => {
+        if (cancelled) return;
+        setSimilarGroups(r.groups);
+        setBasedOn(r.basedOn ?? []);
+      },
       () => !cancelled && setSimilarGroups([]),
     );
     return () => {
@@ -135,6 +140,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
           {similarGroups && similarGroups.length > 0 && (
             <div className="card">
               <h3>Similar series</h3>
+              {basedOn.length > 0 && <p className="muted small">Matched mostly on {basedOn.join(", ")}.</p>}
               <ul className="similar">
                 {similarGroups.map((g) => (
                   <li key={g.key}>

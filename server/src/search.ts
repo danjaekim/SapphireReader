@@ -67,6 +67,24 @@ export function groupHits(hits: SourceHit[]): SeriesGroup[] {
   return [...groups.values()].sort((a, b) => b.hits.length - a.hits.length);
 }
 
+/**
+ * Merges each source's list rank by rank (every site's #1, then every #2...), so each site's own
+ * order is kept and no single site fills the page. Groups keep that order.
+ */
+export function interleaveGroups(lists: SourceHit[][]): SeriesGroup[] {
+  const interleaved: SourceHit[] = [];
+  for (let rank = 0; lists.some((l) => rank < l.length); rank++) {
+    for (const l of lists) if (rank < l.length) interleaved.push(l[rank]);
+  }
+  const groups = groupHits(interleaved);
+  const order = new Map<string, number>();
+  interleaved.forEach((h, i) => {
+    const k = normalizeTitle(h.title);
+    if (!order.has(k)) order.set(k, i);
+  });
+  return groups.sort((a, b) => (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0));
+}
+
 const SOURCES_QUERY = `{ sources { nodes { id name lang isNsfw } } }`;
 
 export async function listSources(config: Config, fetchImpl?: FetchLike): Promise<EngineSource[]> {
@@ -234,6 +252,12 @@ export interface MangaDetails {
   status: string;
 }
 
+let detailsHook: ((mangaId: number, tags: string[]) => void) | null = null;
+/** Lets the app remember every series' tags it sees, to learn which tags are common and which are telling. */
+export function onSeriesTags(hook: ((mangaId: number, tags: string[]) => void) | null): void {
+  detailsHook = hook;
+}
+
 export async function fetchMangaDetails(
   config: Config,
   mangaId: number,
@@ -249,6 +273,7 @@ export async function fetchMangaDetails(
   ]);
   const { manga } = data;
   const sourceId = String(manga.sourceId);
+  if (manga.genre?.length) detailsHook?.(manga.id, manga.genre);
   return {
     id: manga.id,
     sourceId,

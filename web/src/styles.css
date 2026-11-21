@@ -245,3 +245,11 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
   .catHead, .catEyes, .catWhiskersL, .catWhiskersR { animation: none; }
 }
 .reader .loading { padding: 48px 16px; }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.toolbar .chips { margin-bottom: 0; }
+.sort-select { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.9rem; margin-left: auto; }
+.sort-select select {
+  background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 8px; font: inherit;
+}

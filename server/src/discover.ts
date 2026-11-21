@@ -3,7 +3,7 @@ import { engineQuery } from "./engine.js";
 import { browseByGenres } from "./browse.js";
 import { canonKey } from "./genres.js";
 import {
-  groupHits,
+  interleaveGroups,
   listSources,
   inScope,
   normalizeTitle,
@@ -65,45 +65,109 @@ export async function discover(
       }
     }),
   );
-  const interleaved: SourceHit[] = [];
-  for (let rank = 0; lists.some((l) => rank < l.length); rank++) {
-    for (const l of lists) if (rank < l.length) interleaved.push(l[rank]);
-  }
-  // Keep the interleaved order; groupHits would move multi-source series first, which is fine
-  // for search but would bury "latest" ordering here.
-  const groups = groupHits(interleaved);
-  const order = new Map(interleaved.map((h, i) => [normalizeTitle(h.title), i]));
-  groups.sort((a, b) => (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0));
-  return { groups, failed, searched: sources.length };
+  // Keep each site's order; groupHits alone would move multi-source series first and bury "latest".
+  return { groups: interleaveGroups(lists), failed, searched: sources.length };
 }
 
-/** Tags that describe the format or status, not the story; they make poor "similar to" seeds. */
-const FORMAT_TAGS = new Set(["manhwa", "manhua", "manga", "webtoon", "webtoons", "comic", "full color", "long strip", "adult", "mature", "ongoing", "completed", "hiatus", "oneshot", "one shot", "doujinshi", "web comic"].map(canonKey));
+/** Tags that describe the format, status or language, not the story; they make poor "similar to" seeds. */
+const FORMAT_TAGS = new Set(
+  [
+    "manhwa", "manhua", "manga", "webtoon", "webtoons", "comic", "full color", "long strip", "adult", "mature",
+    "ongoing", "completed", "hiatus", "oneshot", "one shot", "doujinshi", "web comic", "translated", "english",
+    "japanese", "chinese", "korean", "rough translation", "full censorship", "mosaic censorship", "uncensored",
+    "multi-work series", "artbook", "anthology",
+  ].map(canonKey),
+);
+
+// Before Sapphire has seen enough series to learn which tags are common, these are known to be on a
+// big share of everything, so they say little about what makes a series what it is.
+const VERY_COMMON = new Set(
+  [
+    "action", "romance", "comedy", "drama", "fantasy", "adventure", "school life", "slice of life", "supernatural",
+    "shounen", "seinen", "shoujo", "josei", "harem", "sole female", "sole male", "big breasts", "nakadashi",
+    "blowjob", "group", "stockings", "schoolgirl uniform", "kissing",
+  ].map(canonKey),
+);
+
+/** What Sapphire knows about tags: how telling each is, and the tags of series it has already seen. */
+export interface TagKnowledge {
+  weight(tag: string): number;
+  tagsOf(mangaId: number): string[] | null;
+}
 
 /**
- * Series like this one: share the most genres first (up to three, all required), then relax to two,
- * then one, so there is always something to show. The series itself is left out.
+ * Turns "how many known series carry each tag" into how telling a tag is: a tag on nearly every
+ * series (sites usually list those first, because they have the biggest counts) is worth little,
+ * a rare one a lot. Falls back to a built-in list of common tags until enough series have been seen.
+ */
+export function tagWeights(stats: { total: number; counts: Map<string, number> }): (tag: string) => number {
+  return (tag) => {
+    const key = canonKey(tag);
+    const fallback = VERY_COMMON.has(key) ? 0.4 : 1;
+    if (stats.total < 30) return fallback;
+    const count = stats.counts.get(key) ?? 0;
+    const idf = Math.log((stats.total + 1) / (count + 1));
+    return Math.max(0.02, idf / Math.log(stats.total + 1)) * (VERY_COMMON.has(key) ? 0.7 : 1);
+  };
+}
+
+const plainKnowledge: TagKnowledge = { weight: tagWeights({ total: 0, counts: new Map() }), tagsOf: () => null };
+
+/**
+ * Series like this one. Its tags are ranked by how telling they are (rare tags first), the best few
+ * are searched in pairs (and alone if that finds too little), and every candidate is scored by the
+ * weight of the tags it shares with this series, using its full tag list when Sapphire has seen it.
  */
 export async function similarTo(
   config: Config,
   title: string,
   genres: string[],
-  opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope } = {},
-): Promise<SeriesGroup[]> {
-  const seeds = genres.filter((g) => !FORMAT_TAGS.has(canonKey(g))).slice(0, 3);
-  if (seeds.length === 0) return [];
+  opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope; knowledge?: TagKnowledge; selfId?: number } = {},
+): Promise<{ groups: SeriesGroup[]; basedOn: string[] }> {
+  const { knowledge = plainKnowledge, selfId, ...browseOpts } = opts;
+  const seen = new Set<string>();
+  const tags = genres.filter((g) => {
+    const k = canonKey(g);
+    if (!k || FORMAT_TAGS.has(k) || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  // Stable sort, so equally telling tags keep the site's order.
+  const ranked = tags.map((t, i) => ({ t, w: knowledge.weight(t), i })).sort((a, b) => b.w - a.w || a.i - b.i);
+  const seeds = ranked.slice(0, 3).map((r) => r.t);
+  if (seeds.length === 0) return { groups: [], basedOn: [] };
+  const own = new Map(ranked.map((r) => [canonKey(r.t), r.w]));
   const self = normalizeTitle(title);
-  const merged: SeriesGroup[] = [];
-  const seen = new Set<string>([self]);
-  for (let n = seeds.length; n >= 1 && merged.length < 12; n--) {
-    const result = await browseByGenres(config, seeds.slice(0, n), opts).catch(() => null);
-    for (const g of result?.groups ?? []) {
-      if (seen.has(g.key)) continue;
-      seen.add(g.key);
-      merged.push(g);
-    }
-  }
-  return merged.slice(0, 30);
+
+  const candidates = new Map<string, { group: SeriesGroup; matched: Set<string>; hits: number; first: number }>();
+  let order = 0;
+  const run = async (queries: string[][]) => {
+    const results = await Promise.all(queries.map((q) => browseByGenres(config, q, browseOpts).catch(() => null)));
+    results.forEach((r, qi) => {
+      for (const g of r?.groups ?? []) {
+        if (g.key === self || g.hits.some((h) => h.mangaId === selfId)) continue;
+        const c = candidates.get(g.key) ?? { group: g, matched: new Set<string>(), hits: 0, first: order++ };
+        for (const t of queries[qi]) c.matched.add(canonKey(t));
+        c.hits++;
+        candidates.set(g.key, c);
+      }
+    });
+  };
+  const pairs: string[][] = [];
+  for (let a = 0; a < seeds.length; a++) for (let b = a + 1; b < seeds.length; b++) pairs.push([seeds[a], seeds[b]]);
+  await run(pairs.length > 0 ? pairs : [[seeds[0]]]);
+  if (candidates.size < 12 && pairs.length > 0) await run(seeds.slice(0, 2).map((t) => [t]));
+
+  const score = (c: { group: SeriesGroup; matched: Set<string> }) => {
+    const known = c.group.hits.map((h) => knowledge.tagsOf(h.mangaId)).find((t) => t !== null);
+    const shared = known ? new Set(known.map(canonKey)) : c.matched;
+    let total = 0;
+    for (const k of shared) total += own.get(k) ?? 0;
+    return total;
+  };
+  const scored = [...candidates.values()].map((c) => ({ c, s: score(c) }));
+  scored.sort((a, b) => b.s - a.s || b.c.hits - a.c.hits || a.c.first - b.c.first);
+  return { groups: scored.slice(0, 30).map((x) => x.c.group), basedOn: seeds };
 }
 
 /** Picks to try for the "For you" page: your top genres on their own, then the top two together. */
