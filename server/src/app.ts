@@ -9,6 +9,7 @@ import type { Config } from "./config.js";
 import { checkEngine, engineFile, engineQuery } from "./engine.js";
 import { AdultGate, clearedCookie, sessionCookie } from "./adult.js";
 import { requestUpdate, updateInfo } from "./updater.js";
+import { rankByAnilist } from "./ratings.js";
 import { canonKey } from "./genres.js";
 import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
@@ -32,6 +33,7 @@ import {
   type Scope,
   type SourceReport,
   type ChapterInfo,
+  type SeriesGroup,
 } from "./search.js";
 
 const rawVersion = process.env.APP_VERSION ?? "dev";
@@ -123,6 +125,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  // "Top rated" and "Most popular" use AniList's numbers, the same yardstick for every site
+  // (each site's own order is the fallback for series AniList doesn't know).
+  async function ranked<T extends { groups: SeriesGroup[] }>(result: T, sort: string): Promise<T> {
+    if (sort !== "rating" && sort !== "popular") return result;
+    return { ...result, groups: await rankByAnilist(store, result.groups, sort, fetchImpl) };
+  }
+
   const sortOf = (v: string | undefined): SortKey => (SORT_KEYS.includes(v as SortKey) ? (v as SortKey) : "relevance");
 
   app.get<{ Querystring: { q?: string; page?: string; sort?: string } }>("/api/search", async (req, reply) => {
@@ -131,7 +140,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const sort = sortOf(req.query.sort);
     try {
       if (sort !== "relevance") {
-        return await browseByGenres(config, [], { query: q, sort, fetchImpl, onResult: report, scope: scopeFor(req), page: pageOf(req.query.page) });
+        return await ranked(await browseByGenres(config, [], { query: q, sort, fetchImpl, onResult: report, scope: scopeFor(req), page: pageOf(req.query.page) }), sort);
       }
       return await searchAll(config, q, { fetchImpl, onResult: report, scope: scopeFor(req), page: pageOf(req.query.page) });
     } catch (err) {
@@ -307,7 +316,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const q = (req.query.q ?? "").trim();
     if (genres.length === 0) return reply.code(400).send({ error: "Pick at least one genre." });
     try {
-      return await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: requestedScope(req), sort: sortOf(req.query.sort), page: pageOf(req.query.page), seed: /^\d+$/.test(req.query.seed ?? "") ? Number(req.query.seed) : undefined });
+      const sort = sortOf(req.query.sort);
+      return await ranked(await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: requestedScope(req), sort, page: pageOf(req.query.page), seed: /^\d+$/.test(req.query.seed ?? "") ? Number(req.query.seed) : undefined }), sort);
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -431,9 +441,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     try {
       // Popular and Latest use each site's own lists; other orders go through each site's sort filter.
       if (other === "rating" || other === "newest" || other === "az") {
-        return await browseByGenres(config, [], { sort: other, fetchImpl, onResult: report, scope: adult ? "adult" : "safe", page: pageOf(req.query.page) });
+        return await ranked(await browseByGenres(config, [], { sort: other, fetchImpl, onResult: report, scope: adult ? "adult" : "safe", page: pageOf(req.query.page) }), other);
       }
-      return await discover(config, sort, { fetchImpl, onResult: report, scope: adult ? "adult" : "safe", page: pageOf(req.query.page) });
+      return await ranked(await discover(config, sort, { fetchImpl, onResult: report, scope: adult ? "adult" : "safe", page: pageOf(req.query.page) }), sort);
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -507,14 +517,17 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         store.setGenres(id, manga.genre);
       }
       const adult = (await listSources(config, fetchImpl).catch(() => [])).find((x) => x.id === manga.sourceId)?.isNsfw === true;
+      store.recordSeriesMeta(id, manga.title, manga.sourceName, adult);
       return {
         manga,
         adult,
+        reader: readerPrefs(id),
         chapters,
         latest: latestFromChapters(chapters),
         inLibrary: store.inLibrary(id),
         progress: store.getProgress(id),
         readChapterIds: store.readChapterIds(id),
+        categories: store.seriesCategories(id),
       };
     } catch (err) {
       req.log.error(err);
@@ -623,6 +636,41 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     },
   );
 
+  app.get("/api/history", async (req) => ({ items: store.history(gate.unlocked(req.headers.cookie)) }));
+  app.delete<{ Params: { id: string } }>("/api/history/:id", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: "Bad id." });
+    store.removeHistory(id);
+    return { ok: true };
+  });
+
+  // Library categories (shelves such as Reading, Plan to read, Dropped).
+  const categoryName = (v: unknown) => (typeof v === "string" && v.trim().length > 0 && v.trim().length <= 40 ? v.trim() : null);
+  app.get("/api/categories", async (req) => ({ categories: store.categories(gate.unlocked(req.headers.cookie)) }));
+  app.post<{ Body: { name?: unknown } }>("/api/categories", async (req, reply) => {
+    const name = categoryName(req.body?.name);
+    if (!name) return reply.code(400).send({ error: "A name of 1 to 40 characters." });
+    return { id: store.createCategory(name), categories: store.categories(gate.unlocked(req.headers.cookie)) };
+  });
+  app.patch<{ Params: { id: string }; Body: { name?: unknown } }>("/api/categories/:id", async (req, reply) => {
+    const name = categoryName(req.body?.name);
+    if (!name) return reply.code(400).send({ error: "A name of 1 to 40 characters." });
+    store.renameCategory(Number(req.params.id), name);
+    return { categories: store.categories(gate.unlocked(req.headers.cookie)) };
+  });
+  app.delete<{ Params: { id: string } }>("/api/categories/:id", async (req) => {
+    store.deleteCategory(Number(req.params.id));
+    return { categories: store.categories(gate.unlocked(req.headers.cookie)) };
+  });
+  app.put<{ Params: { id: string }; Body: { ids?: unknown } }>("/api/library/:id/categories", async (req, reply) => {
+    const id = Number(req.params.id);
+    const ids = req.body?.ids;
+    if (!Number.isInteger(id) || !Array.isArray(ids) || !ids.every(Number.isInteger)) return reply.code(400).send({ error: "Send ids." });
+    if (!store.inLibrary(id)) return reply.code(404).send({ error: "Add the series to your library first." });
+    store.setSeriesCategories(id, ids as number[]);
+    return { categories: store.seriesCategories(id) };
+  });
+
   app.get("/api/library", async (req) => ({ items: store.library(gate.unlocked(req.headers.cookie)) }));
 
   app.put<{ Params: { id: string }; Body: { sourceId?: string; sourceName?: string | null; title?: string } }>(
@@ -670,11 +718,127 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         }
         return numbers;
       },
-    }).finally(() => {
-      checking = null;
-    });
+    })
+      .then((r) => {
+        // After the check: keep reading series a few chapters ahead, and move caught-up series to
+        // whichever source is furthest ahead. Runs in the background so a manual refresh isn't held up.
+        void afterCheck().catch((err) => app.log.warn(err, "after-check tasks failed"));
+        return r;
+      })
+      .finally(() => {
+        checking = null;
+      });
     return checking as ReturnType<typeof checkLibrary>;
   };
+
+  // --- Automation: auto-download and auto-switch -------------------------------------------------
+  type Automation = { autoDownload: number; autoSwitch: boolean };
+  function automation(): Automation {
+    try {
+      const v = JSON.parse(store.getSetting("automation") ?? "{}") as Partial<Automation>;
+      return {
+        autoDownload: Number.isInteger(v.autoDownload) ? Math.min(10, Math.max(0, v.autoDownload!)) : 3,
+        autoSwitch: v.autoSwitch !== false,
+      };
+    } catch {
+      return { autoDownload: 3, autoSwitch: true };
+    }
+  }
+  app.get("/api/settings/automation", async () => automation());
+  app.put<{ Body: Partial<Automation> }>("/api/settings/automation", async (req, reply) => {
+    const next = { ...automation(), ...req.body };
+    if (!Number.isInteger(next.autoDownload) || next.autoDownload < 0 || next.autoDownload > 10 || typeof next.autoSwitch !== "boolean") {
+      return reply.code(400).send({ error: "autoDownload is 0 to 10; autoSwitch is true or false." });
+    }
+    store.setSetting("automation", JSON.stringify({ autoDownload: next.autoDownload, autoSwitch: next.autoSwitch }));
+    return next;
+  });
+
+  /** Queues the next few unread chapters of a series you're reading, so they're on the NAS before you get there. */
+  async function autoDownloadFor(mangaId: number): Promise<number> {
+    const n = automation().autoDownload;
+    if (n === 0) return 0;
+    const item = store.library(true).find((i) => i.mangaId === mangaId);
+    if (!item?.progress) return 0;
+    const chapters = await chaptersFor(mangaId);
+    const read = new Set(store.readChapterIds(mangaId));
+    const at = chapters.findIndex((c) => c.id === item.progress!.chapterId);
+    const ahead = chapters
+      .slice(Math.max(0, at))
+      .filter((c) => !read.has(c.id))
+      .slice(0, n)
+      .filter((c) => !store.getDownload(c.id) || store.getDownload(c.id)!.status === "failed");
+    if (ahead.length === 0) return 0;
+    const queued = store.queueDownloads(
+      { mangaId, title: item.title, sourceName: item.sourceName, adult: item.adult },
+      ahead.map((c) => ({ id: c.id, name: c.name, number: c.chapterNumber })),
+    );
+    downloader.kick();
+    return queued;
+  }
+
+  /**
+   * For a series you're caught up on, looks for the same series on your other sources and, if one is
+   * further ahead (and clearly the same series: it has most of the same chapter numbers), moves the
+   * library entry there, carrying over read chapters, your place and categories.
+   */
+  async function autoSwitchFor(mangaId: number): Promise<{ from: string | null; to: string; latest: number } | null> {
+    const item = store.library(true).find((i) => i.mangaId === mangaId);
+    if (!item || item.unread !== 0 || item.latestNumber === null) return null;
+    const key = `autoswitch.checked.${mangaId}`;
+    if (Date.now() - Date.parse(store.getSetting(key) ?? "0") < 20 * 3600 * 1000) return null;
+    store.setSetting(key, new Date().toISOString());
+    const found = await searchAll(config, item.title, { fetchImpl, onResult: report, scope: item.adult ? "all" : "safe" });
+    const hits = (found.groups.find((g) => g.key === groupKey(item.title))?.hits ?? [])
+      .filter((h) => h.mangaId !== mangaId && h.sourceId !== item.sourceId)
+      .slice(0, 4);
+    const mine = (await chaptersFor(mangaId)).filter((c) => c.chapterNumber >= 0);
+    const mineNumbers = new Set(mine.map((c) => c.chapterNumber));
+    let best: { hit: (typeof hits)[number]; chapters: ChapterInfo[]; latest: number } | null = null;
+    for (const hit of hits) {
+      try {
+        const chapters = await chaptersFor(hit.mangaId);
+        const numbers = new Set(chapters.filter((c) => c.chapterNumber >= 0).map((c) => c.chapterNumber));
+        const latest = Math.max(-1, ...numbers);
+        const overlap = [...mineNumbers].filter((n) => numbers.has(n)).length / Math.max(1, mineNumbers.size);
+        if (latest > item.latestNumber && overlap >= 0.7 && (!best || latest > best.latest)) best = { hit, chapters, latest };
+      } catch {
+        // That source is having a bad day.
+      }
+    }
+    if (!best) return null;
+    store.switchSource(
+      mangaId,
+      { mangaId: best.hit.mangaId, sourceId: best.hit.sourceId, sourceName: best.hit.sourceName, title: item.title },
+      { from: mine, to: best.chapters.map((c) => ({ id: c.id, chapterNumber: c.chapterNumber, name: c.name })) },
+    );
+    store.recordSeriesMeta(best.hit.mangaId, item.title, best.hit.sourceName, item.adult);
+    return { from: item.sourceName, to: best.hit.sourceName, latest: best.latest };
+  }
+
+  async function afterCheck(): Promise<void> {
+    const { autoSwitch } = automation();
+    for (const item of store.library(true)) {
+      if (autoSwitch) {
+        try {
+          const moved = await autoSwitchFor(item.mangaId);
+          if (moved) {
+            app.log.info(moved, `moved ${item.mangaId} to a source that's further ahead`);
+            const latest = Number.isInteger(moved.latest) ? moved.latest : moved.latest.toFixed(1);
+            await notify?.({
+              title: item.adult ? "Sapphire" : item.title,
+              message: item.adult ? "A series in your 18+ library moved to a source that's further ahead" : `Moved to ${moved.to}, which has up to chapter ${latest}`,
+              click: config.publicUrl ? `${config.publicUrl}/#/library` : undefined,
+            }).catch(() => {});
+            continue;
+          }
+        } catch (err) {
+          app.log.warn(err, `auto-switch failed for ${item.mangaId}`);
+        }
+      }
+      await autoDownloadFor(item.mangaId).catch(() => 0);
+    }
+  }
   app.decorate("runCheck", runCheck);
 
   app.post("/api/library/refresh", async (req) => {
@@ -713,7 +877,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       pageOffset: Math.min(1, Math.max(0, b.pageOffset!)),
       finished: b.finished === true,
     });
-    if (b.finished === true) void syncTrackers(id, b.chapterNumber!);
+    if (b.finished === true) {
+      void syncTrackers(id, b.chapterNumber!);
+      if (store.inLibrary(id)) void autoDownloadFor(id).catch(() => 0);
+    }
     return { ok: true };
   });
 
@@ -737,6 +904,32 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       req.log.error(err);
       return reply.code(502).send({ error: "Cover unavailable." });
     }
+  });
+
+  // How a series is read: scrolling (webtoons) or one page at a time, left-to-right or right-to-left.
+  // Each series can have its own; otherwise the default (which the person can also set) applies.
+  type ReaderPrefs = { mode: "scroll" | "paged"; direction: "ltr" | "rtl" };
+  const validPrefs = (v: unknown): v is ReaderPrefs =>
+    typeof v === "object" && v !== null &&
+    ["scroll", "paged"].includes((v as ReaderPrefs).mode) && ["ltr", "rtl"].includes((v as ReaderPrefs).direction);
+  function readerPrefs(mangaId: number): ReaderPrefs & { custom: boolean } {
+    for (const [key, custom] of [[`reader.${mangaId}`, true], ["reader.default", false]] as const) {
+      try {
+        const v = JSON.parse(store.getSetting(key) ?? "null");
+        if (validPrefs(v)) return { mode: v.mode, direction: v.direction, custom };
+      } catch {
+        // Ignore a bad value.
+      }
+    }
+    return { mode: "scroll", direction: "ltr", custom: false };
+  }
+  app.put<{ Params: { id: string }; Body: { mode?: unknown; direction?: unknown; everywhere?: unknown } }>("/api/manga/:id/reader", async (req, reply) => {
+    const id = Number(req.params.id);
+    const prefs = { mode: req.body?.mode, direction: req.body?.direction };
+    if (!Number.isInteger(id) || !validPrefs(prefs)) return reply.code(400).send({ error: "mode is scroll or paged; direction is ltr or rtl." });
+    store.setSetting(req.body?.everywhere === true ? "reader.default" : `reader.${id}`, JSON.stringify(prefs));
+    if (req.body?.everywhere === true) store.deleteSetting(`reader.${id}`);
+    return readerPrefs(id);
   });
 
   // Mark chapters read or unread by hand (e.g. ones read elsewhere). Marking ahead of where you are

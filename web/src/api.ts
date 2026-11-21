@@ -62,9 +62,17 @@ export interface Progress {
   updatedAt: string;
 }
 
+export interface ReaderPrefs {
+  mode: "scroll" | "paged";
+  direction: "ltr" | "rtl";
+}
+export const setReaderPrefs = (mangaId: number, p: ReaderPrefs, everywhere = false) =>
+  send("PUT", `/api/manga/${mangaId}/reader`, { ...p, everywhere }) as Promise<ReaderPrefs & { custom: boolean }>;
+
 export interface SeriesData {
   manga: MangaDetails;
   adult?: boolean;
+  reader?: ReaderPrefs & { custom: boolean };
   chapters: ChapterInfo[]; // oldest first
   latest: LatestChapter;
   inLibrary: boolean;

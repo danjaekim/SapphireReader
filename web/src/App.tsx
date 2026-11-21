@@ -1,6 +1,6 @@
 import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
-import { AdultLock } from "./AdultLock";
+import { AdultButton, AdultDialog } from "./AdultLock";
 import { adultState, type AdultState } from "./api";
 import { Discover } from "./Discover";
 import { Downloads } from "./Downloads";
@@ -58,29 +58,51 @@ function SideNav({
   current,
   adult,
   onAdult,
-  overlay = false,
+  open,
+  onClose,
 }: {
   current: PageName | null;
   adult: AdultState;
-  onAdult: (s: AdultState) => void;
-  overlay?: boolean;
+  onAdult: () => void;
+  /** On phones (and in the reader) the menu is a drawer that slides in. */
+  open: boolean;
+  onClose: () => void;
 }) {
   return (
-    <aside className={`sidenav ${overlay ? "overlay" : ""}`}>
-      <a className="brand" href={pageHref("home")}>
-        <img src="/icon.svg" alt="" width={32} height={32} />
-        <h1>Sapphire</h1>
+    <>
+      {open && <div className="drawerBackdrop" onClick={onClose} aria-hidden="true" />}
+      <aside className={`sidenav ${open ? "open" : ""}`} aria-label="Menu">
+        <a className="brand" href={pageHref("home")} onClick={onClose}>
+          <img src="/icon.svg" alt="" width={32} height={32} />
+          <h1>Sapphire</h1>
+        </a>
+        <nav aria-label="Main">
+          {NAV.filter((n) => !n.adultOnly || adult.unlocked).map((n) => (
+            <a key={n.page} className="navItem" href={pageHref(n.page)} onClick={onClose} aria-current={n.page === current ? "page" : undefined} title={n.label}>
+              <span className="navIcon" aria-hidden="true">{n.icon}</span>
+              <span className="navLabel">{n.label}</span>
+            </a>
+          ))}
+        </nav>
+        <AdultButton state={adult} onOpen={onAdult} />
+      </aside>
+    </>
+  );
+}
+
+/** Phones: a top bar with the menu button, the name of the page, and a search shortcut. */
+function TopBar({ title, onMenu }: { title: string; onMenu: () => void }) {
+  return (
+    <header className="topbar">
+      <button type="button" className="iconBtn" onClick={onMenu} aria-label="Open menu">
+        <span className="burger" aria-hidden="true"><i /><i /><i /></span>
+      </button>
+      <a className="topbarBrand" href={pageHref("home")}>
+        <img src="/icon.svg" alt="" width={26} height={26} />
+        <span>{title}</span>
       </a>
-      <nav aria-label="Main">
-        {NAV.filter((n) => !n.adultOnly || adult.unlocked).map((n) => (
-          <a key={n.page} className="navItem" href={pageHref(n.page)} aria-current={n.page === current ? "page" : undefined} title={n.label}>
-            <span className="navIcon" aria-hidden="true">{n.icon}</span>
-            <span className="navLabel">{n.label}</span>
-          </a>
-        ))}
-      </nav>
-      <AdultLock state={adult} onChange={onAdult} />
-    </aside>
+      <a className="iconBtn" href={pageHref("search")} aria-label="Search">🔍</a>
+    </header>
   );
 }
 
@@ -210,12 +232,39 @@ export function App() {
     if (route.name === "series") window.scrollTo(0, 0);
   }, [route.name, page, route.name === "series" ? route.mangaId : 0]);
 
-  const nav = (overlay: boolean) => <SideNav current={overlay ? null : page} adult={adult} onAdult={onAdult} overlay={overlay} />;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [adultOpen, setAdultOpen] = useState(false);
+  // Any navigation closes the menu.
+  useEffect(() => {
+    setMenuOpen(false);
+    setAdultOpen(false);
+  }, [window.location.hash]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+
+  const reading = route.name === "read";
+  const nav = (
+    <>
+      <SideNav
+        current={reading ? null : page}
+        adult={adult}
+        onAdult={() => { setMenuOpen(false); setAdultOpen(true); }}
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+      />
+      {adultOpen && <AdultDialog state={adult} onChange={onAdult} onClose={() => setAdultOpen(false)} />}
+    </>
+  );
 
   if (route.name === "read") {
     return (
       <div className="reading">
-        <Reader mangaId={route.mangaId} chapterId={route.chapterId} nav={nav(true)} />
+        <div className="readerMenu">{nav}</div>
+        <Reader mangaId={route.mangaId} chapterId={route.chapterId} onMenu={() => setMenuOpen(true)} />
       </div>
     );
   }
@@ -225,7 +274,8 @@ export function App() {
 
   return (
     <div className="shell">
-      {nav(false)}
+      <TopBar title={route.name === "series" ? "Sapphire" : page === "home" ? "Sapphire" : TITLES[page!]} onMenu={() => setMenuOpen(true)} />
+      {nav}
       <main className={`content ${wide ? "" : "narrow"}`}>
         {route.name === "series" ? (
           <SeriesPage mangaId={route.mangaId} />

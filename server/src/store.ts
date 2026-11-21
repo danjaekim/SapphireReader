@@ -39,6 +39,29 @@ export interface LibraryItem extends LibraryEntry {
   chapterCount: number;
   /** Chapters newer than the last one you finished; null if the chapter list hasn't been loaded yet. */
   unread: number | null;
+  /** Library categories (shelves) this series is on. */
+  categories: number[];
+}
+
+export interface HistoryRow {
+  mangaId: number;
+  title: string;
+  sourceName: string | null;
+  adult: boolean;
+  inLibrary: boolean;
+  progress: Progress;
+}
+
+export interface Category {
+  id: number;
+  name: string;
+  count: number;
+}
+
+export interface AnilistMeta {
+  anilistId: number | null;
+  score: number | null;
+  popularity: number | null;
 }
 
 export interface UpdateRow {
@@ -186,8 +209,133 @@ export class Store {
       }
     }
     this.db.exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    // Title and source of every series opened, so History can list series that aren't in the library.
+    this.db.exec("CREATE TABLE IF NOT EXISTS series_meta (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, source_name TEXT, adult INTEGER NOT NULL DEFAULT 0)");
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS library_categories (manga_id INTEGER NOT NULL, category_id INTEGER NOT NULL, PRIMARY KEY (manga_id, category_id));
+      CREATE TABLE IF NOT EXISTS anilist_meta (title_key TEXT PRIMARY KEY, anilist_id INTEGER, score INTEGER, popularity INTEGER, fetched_at TEXT NOT NULL);
+    `);
     // Tags of every series Sapphire has looked at, so it can tell common tags from telling ones.
     this.db.exec("CREATE TABLE IF NOT EXISTS series_tags (manga_id INTEGER PRIMARY KEY, tags TEXT NOT NULL, seen_at TEXT NOT NULL)");
+  }
+
+  recordSeriesMeta(mangaId: number, title: string, sourceName: string | null, adult: boolean): void {
+    this.db
+      .prepare("INSERT INTO series_meta (manga_id, title, source_name, adult) VALUES (?, ?, ?, ?) ON CONFLICT(manga_id) DO UPDATE SET title = excluded.title, source_name = excluded.source_name, adult = excluded.adult")
+      .run(mangaId, title, sourceName, adult ? 1 : 0);
+  }
+
+  /** Every series you've read, most recent first, with where you are in it. */
+  history(includeAdult = false, limit = 200): HistoryRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.*, COALESCE(l.title, m.title) AS title, COALESCE(l.source_name, m.source_name) AS source_name,
+                COALESCE(l.adult, m.adult, 0) AS adult, l.manga_id IS NOT NULL AS in_library
+         FROM progress p
+         LEFT JOIN library l ON l.manga_id = p.manga_id
+         LEFT JOIN series_meta m ON m.manga_id = p.manga_id
+         WHERE COALESCE(l.title, m.title) IS NOT NULL ${includeAdult ? "" : "AND COALESCE(l.adult, m.adult, 0) = 0"}
+         ORDER BY p.updated_at DESC LIMIT ?`,
+      )
+      .all(limit) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      mangaId: r.manga_id as number,
+      title: r.title as string,
+      sourceName: (r.source_name as string | null) ?? null,
+      adult: r.adult === 1,
+      inLibrary: r.in_library === 1,
+      progress: toProgress(r),
+    }));
+  }
+
+  removeHistory(mangaId: number): void {
+    this.db.prepare("DELETE FROM progress WHERE manga_id = ?").run(mangaId);
+  }
+
+  categories(includeAdult = false): Category[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT c.id, c.name, COUNT(l.manga_id) AS count FROM categories c
+           LEFT JOIN library_categories lc ON lc.category_id = c.id
+           LEFT JOIN library l ON l.manga_id = lc.manga_id ${includeAdult ? "" : "AND l.adult = 0"}
+           GROUP BY c.id ORDER BY c.position, c.id`,
+        )
+        .all() as { id: number; name: string; count: number }[]
+    ).map((c) => ({ id: c.id, name: c.name, count: c.count }));
+  }
+
+  createCategory(name: string): number {
+    const pos = (this.db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS p FROM categories").get() as { p: number }).p;
+    return Number(this.db.prepare("INSERT INTO categories (name, position) VALUES (?, ?)").run(name, pos).lastInsertRowid);
+  }
+
+  renameCategory(id: number, name: string): void {
+    this.db.prepare("UPDATE categories SET name = ? WHERE id = ?").run(name, id);
+  }
+
+  deleteCategory(id: number): void {
+    this.db.prepare("DELETE FROM library_categories WHERE category_id = ?").run(id);
+    this.db.prepare("DELETE FROM categories WHERE id = ?").run(id);
+  }
+
+  setSeriesCategories(mangaId: number, ids: number[]): void {
+    this.db.prepare("DELETE FROM library_categories WHERE manga_id = ?").run(mangaId);
+    const add = this.db.prepare("INSERT OR IGNORE INTO library_categories (manga_id, category_id) SELECT ?, id FROM categories WHERE id = ?");
+    for (const id of ids) add.run(mangaId, id);
+  }
+
+  seriesCategories(mangaId: number): number[] {
+    return (this.db.prepare("SELECT category_id FROM library_categories WHERE manga_id = ?").all(mangaId) as { category_id: number }[]).map((r) => r.category_id);
+  }
+
+  anilistMeta(keys: string[]): Map<string, AnilistMeta & { fetchedAt: string }> {
+    const get = this.db.prepare("SELECT * FROM anilist_meta WHERE title_key = ?");
+    const out = new Map<string, AnilistMeta & { fetchedAt: string }>();
+    for (const k of keys) {
+      const r = get.get(k) as Record<string, unknown> | undefined;
+      if (r) out.set(k, { anilistId: (r.anilist_id as number | null) ?? null, score: (r.score as number | null) ?? null, popularity: (r.popularity as number | null) ?? null, fetchedAt: r.fetched_at as string });
+    }
+    return out;
+  }
+
+  putAnilistMeta(key: string, m: AnilistMeta): void {
+    this.db
+      .prepare(
+        `INSERT INTO anilist_meta (title_key, anilist_id, score, popularity, fetched_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(title_key) DO UPDATE SET anilist_id = excluded.anilist_id, score = excluded.score, popularity = excluded.popularity, fetched_at = excluded.fetched_at`,
+      )
+      .run(key, m.anilistId, m.score, m.popularity, new Date().toISOString());
+  }
+
+  /**
+   * Moves a library series to the same series on another source: the library entry, categories,
+   * read chapters (matched by chapter number) and your place all follow.
+   */
+  switchSource(
+    fromId: number,
+    to: { mangaId: number; sourceId: string; sourceName: string | null; title: string },
+    chapters: { from: { id: number; chapterNumber: number }[]; to: { id: number; chapterNumber: number; name: string }[] },
+  ): void {
+    const row = this.db.prepare("SELECT * FROM library WHERE manga_id = ?").get(fromId) as Record<string, unknown> | undefined;
+    if (!row) return;
+    const byNumber = new Map(chapters.to.filter((c) => c.chapterNumber >= 0).map((c) => [c.chapterNumber, c]));
+    const readNumbers = new Set(
+      chapters.from.filter((c) => this.readChapterIds(fromId).includes(c.id)).map((c) => c.chapterNumber),
+    );
+    this.addToLibrary({ mangaId: to.mangaId, sourceId: to.sourceId, sourceName: to.sourceName, title: to.title, adult: row.adult === 1 });
+    this.db.prepare("UPDATE library SET added_at = ?, genres = ? WHERE manga_id = ?").run(row.added_at as string, row.genres as string, to.mangaId);
+    this.setChapterNumbers(to.mangaId, chapters.to.map((c) => c.chapterNumber));
+    this.setSeriesCategories(to.mangaId, this.seriesCategories(fromId));
+    this.setChaptersRead(to.mangaId, [...readNumbers].map((n) => byNumber.get(n)?.id).filter((x): x is number => x !== undefined), true);
+    const p = this.getProgress(fromId);
+    const match = p ? byNumber.get(p.chapterNumber) : undefined;
+    if (p && match) {
+      this.saveProgress(to.mangaId, { chapterId: match.id, chapterNumber: match.chapterNumber, chapterName: match.name, pageIndex: p.pageIndex, pageOffset: p.pageOffset, finished: readNumbers.has(match.chapterNumber) });
+    }
+    this.db.prepare("DELETE FROM library_categories WHERE manga_id = ?").run(fromId);
+    this.removeFromLibrary(fromId);
   }
 
   recordSeriesTags(mangaId: number, tags: string[]): void {
@@ -361,6 +509,7 @@ export class Store {
   /** Removes a series from the library but keeps its reading history. */
   removeFromLibrary(mangaId: number): void {
     this.db.prepare("DELETE FROM library WHERE manga_id = ?").run(mangaId);
+    this.db.prepare("DELETE FROM library_categories WHERE manga_id = ?").run(mangaId);
   }
 
   /** Remembers a series' genres so "For you" can learn what you like. */
@@ -521,6 +670,7 @@ export class Store {
         latestNumber: numbered.length ? Math.max(...numbered) : null,
         chapterCount: numbers.length,
         unread: row.checked_at ? numbered.filter((n) => n > lastDone).length : null,
+        categories: this.seriesCategories(mangaId),
       };
     });
     // Most recently read first; never-read series after those, newest addition first.

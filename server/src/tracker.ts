@@ -10,7 +10,7 @@ export interface TrackerMatch {
   cover: string | null;
 }
 
-async function anilist<T>(
+export async function anilist<T>(
   query: string,
   variables: Record<string, unknown>,
   token: string | null,

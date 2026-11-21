@@ -38,17 +38,79 @@ body {
 .navItem[aria-current="page"] { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--fg); }
 .navItem:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .navIcon { width: 22px; text-align: center; }
-.sidenav .adultLock { margin: 0; }
-.sidenav .adultPanel { position: static; width: auto; margin-top: 8px; }
-.sidenav.overlay { box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5); }
-@media (max-width: 720px) {
-  .shell { padding-left: 60px; }
-  .sidenav { width: 60px; padding-left: 6px; padding-right: 6px; }
-  .sidenav .brand h1, .navLabel { display: none; }
-  .sidenav .brand { justify-content: center; padding-left: 0; padding-right: 0; }
-  .navItem { justify-content: center; padding: 12px 0; }
-  .sidenav .adultPanel { position: fixed; left: 66px; bottom: 12px; width: min(300px, calc(100vw - 80px)); z-index: 30; }
+.sidenav.open { box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5); }
+.adultItem { margin-top: 8px; border-top: 1px solid var(--line); border-radius: 0 0 10px 10px; padding-top: 14px; }
+.navBadge { margin-left: auto; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--line); color: var(--muted); }
+.navBadge.on { background: var(--accent); color: #fff; }
+.drawerBackdrop { position: fixed; inset: 0; z-index: 19; background: rgba(0, 0, 0, 0.5); animation: fadeIn 0.15s; }
+@keyframes fadeIn { from { opacity: 0; } }
+.topbar { display: none; }
+.iconBtn {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 44px; padding: 0 8px;
+  border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; font-size: 18px; cursor: pointer; text-decoration: none;
 }
+.iconBtn:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.iconBtn:disabled { opacity: 0.35; cursor: default; }
+.burger { display: inline-grid; gap: 4px; width: 20px; }
+.burger i { display: block; height: 2px; border-radius: 1px; background: currentColor; }
+/* Phones: a top bar with a menu button; the menu slides in from the left. */
+@media (max-width: 720px) {
+  .shell { padding-left: 0; padding-top: 0; }
+  .topbar {
+    display: flex; align-items: center; gap: 4px; position: sticky; top: 0; z-index: 15;
+    padding: calc(4px + env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) 4px max(6px, env(safe-area-inset-left));
+    background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
+  }
+  .topbarBrand { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; color: var(--fg); text-decoration: none; font-weight: 700; font-size: 17px; }
+  .topbarBrand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sidenav { width: min(280px, 84vw); transform: translateX(-105%); transition: transform 0.2s ease; }
+  .sidenav.open { transform: none; }
+  .navItem { padding: 12px 14px; }
+}
+/* While reading, the menu is always a drawer. */
+.readerMenu .sidenav { width: min(280px, 84vw); transform: translateX(-105%); transition: transform 0.2s ease; z-index: 40; }
+.readerMenu .sidenav.open { transform: none; }
+.readerMenu .drawerBackdrop { z-index: 39; }
+@media (prefers-reduced-motion: reduce) { .sidenav, .readerMenu .sidenav { transition: none; } }
+
+/* Bottom sheets (dialogs): slide up on phones, centered on bigger screens. */
+.sheetBackdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; animation: fadeIn 0.15s; cursor: default; }
+.sheet {
+  width: min(420px, 100%); max-height: 92dvh; overflow-y: auto; background: var(--panel); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 18px; padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+  outline: none; text-align: center;
+}
+.sheet h3 { margin: 4px 0 12px; font-size: 17px; }
+.sheetHandle { display: none; width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto 10px; }
+.sheetActions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+.sheetClose { display: block; margin: 12px auto 0; }
+@media (max-width: 720px) {
+  .sheetBackdrop { align-items: flex-end; }
+  .sheet { border-radius: 18px 18px 0 0; border-bottom: 0; animation: slideUp 0.2s ease; }
+  .sheetHandle { display: block; }
+}
+@keyframes slideUp { from { transform: translateY(40%); opacity: 0.5; } }
+.pinDots { display: flex; justify-content: center; gap: 14px; margin: 8px 0 4px; }
+.pinDots span { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); }
+.pinDots span.filled { background: var(--accent); border-color: var(--accent); }
+.pinDots.shake { animation: shake 0.3s; }
+@keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+.pinMsg { min-height: 1.5em; margin: 4px 0 8px; font-size: 14px; }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 300px; margin: 0 auto; }
+.keypad button {
+  height: 60px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  font: inherit; font-size: 24px; cursor: pointer; touch-action: manipulation;
+}
+.keypad button:active { background: var(--line); }
+.keypad button.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+.keypad button:disabled { opacity: 0.4; }
+.segmented { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.segmented button {
+  display: grid; gap: 2px; padding: 10px 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg);
+  color: var(--fg); font: inherit; cursor: pointer;
+}
+.segmented button span { font-size: 11px; color: var(--muted); }
+.segmented button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--bg)); }
 .content {
   padding: 16px max(16px, env(safe-area-inset-right)) 32px 20px;
   width: 100%;
@@ -115,14 +177,8 @@ a { color: var(--fg); }
 .chapters .date { margin-left: auto; white-space: nowrap; }
 .reading { background: #000; padding-top: 0; }
 .reader { max-width: 800px; width: 100%; margin: 0 auto; }
-.readerTop {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: none; justify-content: space-between; gap: 12px;
-  padding: 10px max(16px, env(safe-area-inset-left)); background: rgba(11, 18, 32, 0.92);
-  padding-top: calc(10px + env(safe-area-inset-top));
-}
-.readerTop.show { display: flex; }
 .reader { cursor: pointer; }
-.readerTop a { color: var(--fg); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .strip { display: flex; flex-direction: column; }
 .strip img { display: block; width: 100%; height: auto; background: #0a0a0a; }
 /* Until a page arrives it holds a screen's worth of space, so lazy loading only fetches what's near. */
@@ -179,8 +235,6 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .gridTitle { font-weight: 600; font-size: 14px; line-height: 1.3; text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .gridMeta { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gridEnd { text-align: center; padding: 24px 0; font-size: 13px; min-height: 60px; }
-.readerTop.show { padding-left: 224px; }
-@media (max-width: 720px) { .readerTop.show { padding-left: 76px; } }
 @media (max-width: 720px) { .grid, .row { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px 10px; } .content { padding-left: 14px; } }
 
 .dlBtn, .dlState { flex: none; min-width: 44px; padding: 0 12px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
@@ -267,3 +321,43 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .jump { width: 9.5rem; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; }
 .offer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; }
 .readerEnd .readerNav { background: none; border: 0; gap: 28px; justify-content: center; width: auto; position: static; padding: 0; }
+
+/* Reader bars: hidden while reading, shown by tapping the middle of the page. */
+.readerBar {
+  position: fixed; left: 0; right: 0; z-index: 30; color: #fff;
+  background: rgba(12, 16, 26, 0.94); backdrop-filter: blur(10px);
+  transition: transform 0.2s ease, opacity 0.2s ease; opacity: 0; pointer-events: none; cursor: default;
+}
+.readerBar.show { opacity: 1; pointer-events: auto; transform: none; }
+.readerTop {
+  top: 0; display: flex; align-items: center; gap: 4px; transform: translateY(-100%);
+  padding: calc(4px + env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) 4px max(6px, env(safe-area-inset-left));
+}
+.readerTop.show { display: flex; }
+.readerHeading { flex: 1; min-width: 0; display: grid; line-height: 1.25; }
+.readerSeries { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.readerSub { font-size: 12.5px; color: #b6c0d6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.readerActions { display: flex; align-items: center; flex: none; }
+.readerActions .dlBtn, .readerActions .dlState { color: #fff; min-height: 44px; border-radius: 10px; }
+.readerBottom {
+  bottom: 0; transform: translateY(100%); display: grid; gap: 4px;
+  padding: 8px max(10px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+}
+.readerBarRow { display: flex; align-items: center; gap: 8px; max-width: 640px; width: 100%; margin: 0 auto; }
+.chapterPick {
+  flex: 1; min-width: 0; height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06); color: #fff; font: inherit; font-size: 15px;
+}
+.chapterPick option { color: #000; }
+.pageSlider { display: flex; align-items: center; gap: 10px; max-width: 640px; width: 100%; margin: 0 auto; font-size: 12px; color: #b6c0d6; }
+.pageSlider input { flex: 1; accent-color: var(--accent); height: 28px; }
+.pageSlider span { min-width: 2.5ch; text-align: center; }
+.offlineBtn { font-size: 14px; white-space: nowrap; }
+.offlineBtn.on { color: var(--good); }
+@media (prefers-reduced-motion: reduce) { .readerBar { transition: none; } }
+/* Paged mode: one page fills the screen. */
+.reader.paged { max-width: none; user-select: none; -webkit-user-select: none; }
+.pageView { min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
+.pageView img { max-width: 100vw; max-height: 100dvh; width: auto; height: auto; object-fit: contain; display: block; }
+.pageView img.pending { min-height: 60dvh; min-width: 40vw; background: #0a0a0a; }
+.pageView .readerEnd { min-height: 60dvh; align-content: center; }

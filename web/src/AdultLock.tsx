@@ -1,95 +1,142 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { lockAdult, setAdultPin, unlockAdult, type AdultState } from "./api";
 
-/** The 18+ switch: set a PIN once, then unlock with it. Locking applies to every device. */
-export function AdultLock({ state, onChange }: { state: AdultState; onChange: (s: AdultState) => void }) {
-  const [open, setOpen] = useState(false);
+/** The 18+ row in the menu: shows whether 18+ mode is on and opens the PIN dialog. */
+export function AdultButton({ state, onOpen }: { state: AdultState; onOpen: () => void }) {
+  return (
+    <button type="button" className={`navItem adultItem ${state.unlocked ? "on" : ""}`} onClick={onOpen} aria-haspopup="dialog">
+      <span className="navIcon" aria-hidden="true">{state.unlocked ? "🔓" : "🔒"}</span>
+      <span className="navLabel">18+ mode</span>
+      <span className={`navBadge ${state.unlocked ? "on" : ""}`}>{state.unlocked ? "On" : "Off"}</span>
+    </button>
+  );
+}
+
+type Step = "unlock" | "create" | "confirm" | "current" | "change" | "changeConfirm" | "on";
+
+/**
+ * Set a PIN once, then unlock with it. A big on-screen keypad (so phones don't need the keyboard),
+ * and typing works too. Locking applies to every device.
+ */
+export function AdultDialog({ state, onChange, onClose }: { state: AdultState; onChange: (s: AdultState) => void; onClose: () => void }) {
+  const [step, setStep] = useState<Step>(state.unlocked ? "on" : state.pinSet ? "unlock" : "create");
   const [pin, setPin] = useState("");
-  const [oldPin, setOldPin] = useState("");
-  const [changing, setChanging] = useState(false);
+  const [first, setFirst] = useState("");
+  const [current, setCurrent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const dialog = useRef<HTMLDivElement>(null);
 
-  function done(next: AdultState) {
-    setPin("");
-    setOldPin("");
-    setChanging(false);
-    setOpen(false);
-    onChange(next);
-  }
+  const prompts: Record<Step, string> = {
+    unlock: "Enter your PIN to turn on 18+ mode",
+    create: "Choose a PIN (4 to 8 digits) to protect 18+ mode",
+    confirm: "Enter the same PIN again",
+    current: "Enter your current PIN",
+    change: "Choose a new PIN (4 to 8 digits)",
+    changeConfirm: "Enter the new PIN again",
+    on: "18+ mode is on",
+  };
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  async function submit() {
+    if (pin.length < 4 || busy) return;
     setError(null);
+    if (step === "create" || step === "change") {
+      setFirst(pin);
+      setPin("");
+      setStep(step === "create" ? "confirm" : "changeConfirm");
+      return;
+    }
+    if (step === "current") {
+      setCurrent(pin);
+      setPin("");
+      setStep("change");
+      return;
+    }
+    if ((step === "confirm" || step === "changeConfirm") && pin !== first) {
+      setError("Those didn't match. Start again.");
+      setPin("");
+      setFirst("");
+      setStep(step === "confirm" ? "create" : "change");
+      return;
+    }
+    setBusy(true);
     try {
-      if (changing) done(await setAdultPin(pin, oldPin));
-      else if (!state.pinSet) done(await setAdultPin(pin));
-      else done(await unlockAdult(pin));
+      const next =
+        step === "unlock" ? await unlockAdult(pin) : step === "confirm" ? await setAdultPin(pin) : await setAdultPin(pin, current);
+      onChange(next);
+      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "That didn't work.");
       setPin("");
+      if (step === "changeConfirm") setStep("current");
     } finally {
       setBusy(false);
     }
   }
 
-  async function lock() {
-    done(await lockAdult().catch(() => state));
-  }
+  // Typing works as well as tapping; Esc closes.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (step === "on") return;
+      if (/^\d$/.test(e.key)) setPin((p) => (p.length < 8 ? p + e.key : p));
+      else if (e.key === "Backspace") setPin((p) => p.slice(0, -1));
+      else if (e.key === "Enter") void submit();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  useEffect(() => dialog.current?.focus(), []);
+
+  const press = (d: string) => setPin((p) => (p.length < 8 ? p + d : p));
 
   return (
-    <div className="adultLock">
-      <button
-        type="button"
-        className={`chip ${state.unlocked ? "on" : ""}`}
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-label={state.unlocked ? "18+ mode is on" : "18+ mode is off"}
-      >
-        {state.unlocked ? "18+ on" : "18+"}
-      </button>
-      {open && (
-        <div className="adultPanel card">
-          {state.unlocked && !changing ? (
-            <>
-              <p className="muted">18+ sources, library and Discover (18+) are showing. Locking hides them on every device.</p>
-              <div className="actions">
-                <button type="button" className="button small" onClick={lock}>Turn off 18+ mode</button>
-                <button type="button" className="button small secondary" onClick={() => setChanging(true)}>Change PIN</button>
-              </div>
-            </>
-          ) : (
-            <form onSubmit={submit}>
-              <p className="muted">
-                {changing ? "Enter your current PIN, then a new one." : state.pinSet ? "Enter your PIN to turn on 18+ mode." : "Choose a PIN (4 to 8 digits) to protect 18+ mode."}
-              </p>
-              {changing && (
-                <input type="password" inputMode="numeric" autoComplete="off" value={oldPin} onChange={(e) => setOldPin(e.target.value)} placeholder="Current PIN" aria-label="Current PIN" />
-              )}
-              <input
-                type="password"
-                inputMode="numeric"
-                autoComplete="off"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                placeholder={changing || !state.pinSet ? "New PIN" : "PIN"}
-                aria-label="PIN"
-                autoFocus
-              />
-              {error && <p className="bad">{error}</p>}
-              <div className="actions">
-                <button type="submit" className="button small" disabled={busy || pin.length < 4}>
-                  {changing ? "Change PIN" : state.pinSet ? "Unlock" : "Set PIN and unlock"}
-                </button>
-                {changing && (
-                  <button type="button" className="button small secondary" onClick={() => setChanging(false)}>Cancel</button>
-                )}
-              </div>
-            </form>
-          )}
-        </div>
-      )}
+    <div className="sheetBackdrop" onClick={onClose}>
+      <div className="sheet pinSheet" role="dialog" aria-modal="true" aria-label="18+ mode" ref={dialog} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+        <div className="sheetHandle" aria-hidden="true" />
+        <h3>{prompts[step]}</h3>
+        {step === "on" ? (
+          <>
+            <p className="muted">18+ sources, your 18+ library and Discover (18+) are showing. Turning it off hides them on every device.</p>
+            <div className="sheetActions">
+              <button
+                type="button"
+                className="button"
+                onClick={async () => {
+                  onChange(await lockAdult().catch(() => state));
+                  onClose();
+                }}
+              >
+                Turn off 18+ mode
+              </button>
+              <button type="button" className="button secondary" onClick={() => { setStep("current"); setPin(""); }}>
+                Change PIN
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={`pinDots ${error ? "shake" : ""}`} aria-live="polite" aria-label={`${pin.length} digits entered`}>
+              {Array.from({ length: Math.max(4, pin.length) }, (_, i) => (
+                <span key={i} className={i < pin.length ? "filled" : ""} />
+              ))}
+            </div>
+            {error ? <p className="bad pinMsg">{error}</p> : <p className="muted pinMsg">&nbsp;</p>}
+            <div className="keypad">
+              {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
+                <button key={d} type="button" onClick={() => press(d)}>{d}</button>
+              ))}
+              <button type="button" aria-label="Delete" onClick={() => setPin((p) => p.slice(0, -1))}>⌫</button>
+              <button type="button" onClick={() => press("0")}>0</button>
+              <button type="button" className="go" aria-label="Done" disabled={pin.length < 4 || busy} onClick={() => void submit()}>
+                {busy ? "…" : "✓"}
+              </button>
+            </div>
+          </>
+        )}
+        <button type="button" className="linkish sheetClose" onClick={onClose}>Cancel</button>
+      </div>
     </div>
   );
 }
