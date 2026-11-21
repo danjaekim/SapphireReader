@@ -94,6 +94,12 @@ export class Store {
         PRIMARY KEY (manga_id, chapter_id)
       );
     `);
+    // Added after the first release; older databases get the column on startup.
+    try {
+      this.db.exec("ALTER TABLE library ADD COLUMN genres TEXT NOT NULL DEFAULT '[]'");
+    } catch {
+      /* column already exists */
+    }
   }
 
   close(): void {
@@ -113,6 +119,40 @@ export class Store {
   /** Removes a series from the library but keeps its reading history. */
   removeFromLibrary(mangaId: number): void {
     this.db.prepare("DELETE FROM library WHERE manga_id = ?").run(mangaId);
+  }
+
+  /** Remembers a series' genres so "For you" can learn what you like. */
+  setGenres(mangaId: number, genres: string[]): void {
+    this.db.prepare("UPDATE library SET genres = ? WHERE manga_id = ?").run(JSON.stringify(genres), mangaId);
+  }
+
+  genresKnown(mangaId: number): boolean {
+    const r = this.db.prepare("SELECT genres FROM library WHERE manga_id = ?").get(mangaId) as { genres: string } | undefined;
+    return !!r && r.genres !== "[]";
+  }
+
+  /** Genres across the library, weighted: series you've read count double. Most liked first. */
+  tasteProfile(): { genre: string; weight: number }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT l.genres AS genres, EXISTS (SELECT 1 FROM progress p WHERE p.manga_id = l.manga_id) AS started FROM library l`,
+      )
+      .all() as { genres: string; started: number }[];
+    const weights = new Map<string, { genre: string; weight: number }>();
+    for (const r of rows) {
+      for (const g of JSON.parse(r.genres) as string[]) {
+        const key = g.toLowerCase();
+        const entry = weights.get(key) ?? { genre: g, weight: 0 };
+        entry.weight += r.started ? 2 : 1;
+        weights.set(key, entry);
+      }
+    }
+    return [...weights.values()].sort((a, b) => b.weight - a.weight || a.genre.localeCompare(b.genre));
+  }
+
+  /** Normalized titles you already have, so recommendations skip them. */
+  libraryTitles(): string[] {
+    return (this.db.prepare("SELECT title FROM library").all() as { title: string }[]).map((r) => r.title);
   }
 
   inLibrary(mangaId: number): boolean {

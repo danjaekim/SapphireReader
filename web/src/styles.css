@@ -151,3 +151,8 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .extRow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; background: var(--panel); }
 .extRow + .extRow { border-top: 1px solid var(--line); }
 .extActions { display: flex; gap: 6px; }
+
+.similar { display: flex !important; gap: 10px; overflow-x: auto; padding-bottom: 6px !important; }
+.similar li { flex: 0 0 80px; }
+.similar a { display: block; text-decoration: none; color: var(--fg); font-size: 12px; }
+.similar img { border-radius: 8px; object-fit: cover; display: block; margin-bottom: 4px; }

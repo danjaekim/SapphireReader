@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Discover } from "./Discover";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
 import { Search } from "./Search";
@@ -104,7 +105,7 @@ export function App() {
           <>
             <h2>{tab}</h2>
             {tab === "Search" && <Search key={genres.join("|")} initialGenres={genres} />}
-            {tab === "Discover" && <Search key="discover" discover />}
+            {tab === "Discover" && <Discover />}
             {tab === "Sources" && <Sources />}
             {tab === "Status" && <StatusCard />}
             {tab === "Library" && <Library />}

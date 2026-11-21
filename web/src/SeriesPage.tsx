@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { addToLibrary, alternatives, removeFromLibrary, series, thumbnailUrl, type Alternative, type SeriesData } from "./api";
+import { addToLibrary, alternatives, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, readHref } from "./route";
 
 function chapterLabel(c: { name: string; chapterNumber: number }): string {
@@ -11,7 +11,19 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [newestFirst, setNewestFirst] = useState(true);
 
+  const [similarGroups, setSimilarGroups] = useState<SeriesGroup[] | null>(null);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [others, setOthers] = useState<Alternative[] | null>(null);
+
+  useEffect(() => {
+    setSimilarGroups(null);
+  }, [mangaId]);
+
+  async function showSimilar() {
+    setLoadingSimilar(true);
+    setSimilarGroups((await similar(mangaId).catch(() => ({ groups: [] }))).groups);
+    setLoadingSimilar(false);
+  }
 
   useEffect(() => {
     setOthers(null);
@@ -95,6 +107,27 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
               </ul>
             </div>
           )}
+          <div className="card">
+            <h3>Similar series</h3>
+            {similarGroups === null ? (
+              <button type="button" className="button small secondary" onClick={showSimilar} disabled={loadingSimilar}>
+                {loadingSimilar ? "Looking…" : "Find similar"}
+              </button>
+            ) : similarGroups.length === 0 ? (
+              <p className="muted">Nothing similar turned up.</p>
+            ) : (
+              <ul className="similar">
+                {similarGroups.map((g) => (
+                  <li key={g.key}>
+                    <a href={`#/series/${g.hits[0].mangaId}`}>
+                      <img src={thumbnailUrl(g.hits[0].mangaId)} alt="" loading="lazy" width={80} height={116} />
+                      <span>{g.title}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <div className="chapterHead">
             <h3>Chapters</h3>
             <button type="button" className="linkish" onClick={() => setNewestFirst((v) => !v)}>

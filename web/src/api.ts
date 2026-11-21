@@ -133,6 +133,10 @@ export const refreshExtensionList = () =>
 export const changeExtension = (pkg: string, action: "install" | "update" | "uninstall") =>
   send("POST", `/api/extensions/${pkg}/${action}`) as Promise<{ extension: ExtensionInfo }>;
 
+export const discoverList = (sort: "popular" | "latest") => getJson<SearchResult>(`/api/discover?sort=${sort}`);
+export const forYou = () => getJson<{ groups: SeriesGroup[]; because: string[] }>("/api/for-you");
+export const similar = (mangaId: number) => getJson<{ groups: SeriesGroup[] }>(`/api/manga/${mangaId}/similar`);
+
 export const search = (q: string) => getJson<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`);
 export const latest = (mangaId: number) => getJson<LatestChapter>(`/api/manga/${mangaId}/latest`);
 export const thumbnailUrl = (mangaId: number) => `/api/manga/${mangaId}/thumbnail`;

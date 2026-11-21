@@ -6,6 +6,7 @@ import type { Config } from "./config.js";
 import { checkEngine, engineFile, engineQuery } from "./engine.js";
 import { browseByGenres, listGenres } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
+import { discover, recommendFor, similarTo, type DiscoverSort } from "./discover.js";
 import { checkLibrary } from "./checker.js";
 import { createNotifier } from "./notify.js";
 import { Store, type ProgressInput } from "./store.js";
@@ -199,6 +200,44 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  app.get<{ Querystring: { sort?: string } }>("/api/discover", async (req, reply) => {
+    const sort: DiscoverSort = req.query.sort === "latest" ? "latest" : "popular";
+    try {
+      return await discover(config, sort, { fetchImpl, onResult: report });
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "The source engine isn't answering." });
+    }
+  });
+
+  // "For you" learns from the genres of what's in your library; cached so the page opens fast.
+  let forYouCache: { at: number; key: string; value: unknown } | null = null;
+  app.get("/api/for-you", async (req, reply) => {
+    const profile = store.tasteProfile();
+    const key = JSON.stringify([profile.slice(0, 3), store.libraryTitles().length]);
+    if (forYouCache && forYouCache.key === key && Date.now() - forYouCache.at < 60 * 60 * 1000) return forYouCache.value;
+    try {
+      const value = await recommendFor(config, profile, store.libraryTitles(), { fetchImpl, onResult: report });
+      forYouCache = { at: Date.now(), key, value };
+      return value;
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "The source engine isn't answering." });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>("/api/manga/:id/similar", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    try {
+      const manga = await fetchMangaDetails(config, id, fetchImpl);
+      return { groups: await similarTo(config, manga.title, manga.genre, { fetchImpl, onResult: report }) };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "Couldn't find similar series." });
+    }
+  });
+
   app.get<{ Params: { id: string } }>("/api/manga/:id/latest", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
@@ -215,7 +254,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
       const [manga, chapters] = await Promise.all([fetchMangaDetails(config, id, fetchImpl), chaptersFor(id)]);
-      if (store.inLibrary(id)) store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
+      if (store.inLibrary(id)) {
+        store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
+        store.setGenres(id, manga.genre);
+      }
       return {
         manga,
         chapters,
@@ -273,6 +315,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       try {
         const chapters = await chaptersFor(id);
         store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
+        store.setGenres(id, (await fetchMangaDetails(config, id, fetchImpl)).genre);
       } catch (err) {
         req.log.warn(err); // Added anyway; the chapter counts fill in next time the series loads.
       }
@@ -298,7 +341,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       log: app.log,
       loadNumbers: async (id) => {
         chapterCache.delete(id);
-        return (await chaptersFor(id)).map((c) => c.chapterNumber);
+        const numbers = (await chaptersFor(id)).map((c) => c.chapterNumber);
+        // Older library entries have no genres yet; fill them in so "For you" can learn from them.
+        if (!store.genresKnown(id)) {
+          await fetchMangaDetails(config, id, fetchImpl).then((m) => store.setGenres(id, m.genre), () => {});
+        }
+        return numbers;
       },
     }).finally(() => {
       checking = null;
