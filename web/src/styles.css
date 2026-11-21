@@ -633,3 +633,9 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 /* A loading state centered in the space left on the page. */
 .pageCenter { display: grid; place-items: center; min-height: calc(100dvh - 220px); }
 @media (max-width: 720px) { .pageCenter { min-height: calc(100dvh - 300px); } }
+
+/* System status rows: a dot and a line of text, evenly spaced. */
+.card h3 + .statusList { margin-top: 10px; }
+.statusList li { display: flex; align-items: flex-start; gap: 10px; padding: 5px 0; line-height: 1.45; }
+.statusList .dot { flex: none; margin: calc((1.45em - 10px) / 2) 0 0; align-self: flex-start; }
+.statusList .linkish { padding: 0; min-height: 0; display: inline; line-height: inherit; vertical-align: baseline; }

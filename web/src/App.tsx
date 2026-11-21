@@ -277,28 +277,36 @@ function StatusCard() {
       {failed && <p className="bad">Can't reach the Sapphire server.</p>}
       {!status && !failed && <Loading label="Checking…" size="sm" />}
       {status && (
-        <ul>
+        <ul className="statusList">
           <li>
-            <span className="dot good" /> Server, version {status.server.version}
+            <span className="dot good" />
+            <span>Server, version {status.server.version}</span>
           </li>
           <li>
-            <span className={`dot ${status.engine.reachable ? "good" : "bad"}`} />{" "}
-            {status.engine.reachable
-              ? `Source engine${status.engine.version ? `, version ${status.engine.version}` : ""}`
-              : `Source engine unreachable${status.engine.error ? `: ${status.engine.error}` : ""}`}
+            <span className={`dot ${status.engine.reachable ? "good" : "bad"}`} />
+            <span>
+              {status.engine.reachable
+                ? `Source engine${status.engine.version ? `, version ${status.engine.version}` : ""}`
+                : `Source engine unreachable${status.engine.error ? `: ${status.engine.error}` : ""}`}
+            </span>
           </li>
           {status.alerts && (
             <li>
-              <span className={`dot ${status.alerts.enabled ? "good" : "bad"}`} />{" "}
-              {status.alerts.enabled
-                ? `New-chapter alerts on, checking every ${status.alerts.everyHours} hours `
-                : "New-chapter alerts off (NTFY_URL isn't set) "}
-              {status.alerts.enabled && (
-                <button type="button" className="linkish" onClick={sendTest}>
-                  Send test alert
-                </button>
-              )}
-              {testResult && <span className="muted"> {testResult}</span>}
+              <span className={`dot ${status.alerts.enabled ? "good" : "bad"}`} />
+              <span>
+                {status.alerts.enabled
+                  ? `New-chapter alerts on, checking every ${status.alerts.everyHours} hours`
+                  : "New-chapter alerts off (NTFY_URL isn't set)"}
+                {status.alerts.enabled && (
+                  <>
+                    {" "}
+                    <button type="button" className="linkish" onClick={sendTest}>
+                      Send test alert
+                    </button>
+                  </>
+                )}
+                {testResult && <span className="muted"> {testResult}</span>}
+              </span>
             </li>
           )}
         </ul>
