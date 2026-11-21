@@ -9,7 +9,7 @@ beforeEach(clearUpdateCache);
 describe("updater", () => {
   it("says an update is available when main moved on", async () => {
     const f = (async () => new Response(JSON.stringify({ sha: "abcdef1234567" }))) as unknown as typeof fetch;
-    expect(await updateInfo(config, "1111111", f)).toEqual({ enabled: true, available: true, latest: "abcdef1", problem: null });
+    expect(await updateInfo(config, "1111111", f)).toMatchObject({ enabled: true, available: true, latest: "abcdef1", problem: null });
     clearUpdateCache();
     expect((await updateInfo(config, "abcdef1", f)).available).toBe(false);
   });
@@ -20,6 +20,16 @@ describe("updater", () => {
     clearUpdateCache();
     const f = (async () => new Response(JSON.stringify({ sha: "abcdef1234567" }))) as unknown as typeof fetch;
     expect((await updateInfo(config, "dev", f)).available).toBeNull();
+  });
+
+  it("says the new version is still building until its workflow finishes", async () => {
+    const runs = { workflow_runs: [{ status: "in_progress", conclusion: null }] };
+    const f = (async (u: string) => (String(u).includes("/actions/runs") ? new Response(JSON.stringify(runs)) : new Response(JSON.stringify({ sha: "abcdef1234567" })))) as unknown as typeof fetch;
+    expect(await updateInfo(config, "1111111", f)).toMatchObject({ available: true, building: true });
+    runs.workflow_runs = [{ status: "completed", conclusion: "success" }];
+    expect(await updateInfo(config, "1111111", f)).toMatchObject({ available: true, building: false, problem: null });
+    runs.workflow_runs = [{ status: "completed", conclusion: "failure" }];
+    expect(await updateInfo(config, "1111111", f)).toMatchObject({ building: false, problem: "build" });
   });
 
   it("explains a private repo and sends the token when one is set", async () => {
