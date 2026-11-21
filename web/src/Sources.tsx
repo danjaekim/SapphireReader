@@ -197,8 +197,8 @@ export function Sources() {
           <div className="info">
             <strong>{displayName(e)}</strong>
             <span className="muted"> {LANGS[e.lang] ?? e.lang} · v{e.versionName}</span>
-            {e.hasUpdate && <span className="tag"> update available</span>}
-            {adultRows.length > 0 && <span className="tag adultTag"> 18+</span>}
+            {e.hasUpdate && <span className="tag">update available</span>}
+            {adultRows.length > 0 && <span className="tag adultTag">18+</span>}
             {e.isInstalled && mine.length === 0 && <div className="small muted">No status yet. Press “Check all now”.</div>}
             {e.isInstalled && first && mine.length === 1 && <div className={`small ${worst === "bad" ? "bad" : "muted"}`}>{first.text}</div>}
             {e.isInstalled && mine.length > 1 && (

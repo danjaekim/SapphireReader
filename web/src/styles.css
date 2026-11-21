@@ -654,3 +654,4 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .extMenu summary::-webkit-details-marker { display: none; }
 .extMenu[open] summary, .extMenu summary:hover { background: var(--line); color: var(--fg); }
 .extMenuBody { position: absolute; right: 0; top: 100%; z-index: 5; min-width: 220px; margin-top: 4px; padding: 10px 12px; display: grid; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.extRow .info > .tag { display: inline-block; margin-left: 8px; line-height: 18px; vertical-align: middle; position: relative; top: -1px; }
