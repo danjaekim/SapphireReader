@@ -80,12 +80,19 @@ compose file itself (new services, ports, env vars) still need a redeploy from t
 
 ## HTTPS (for offline reading on your phone)
 
-Browsers only let a site save things for offline use when it's opened over https. Tailscale can give
-Sapphire an https address on your tailnet. On the NAS, with Tailscale running:
+Browsers only let a site save things for offline use (and install it as an app) when it's opened
+over https. Tailscale can give Sapphire an https address on your tailnet:
 
-```
-sudo tailscale serve --bg --https=443 http://localhost:8080
-```
+1. In the Tailscale admin console, open **DNS**, make sure **MagicDNS** is on, and turn on
+   **HTTPS Certificates**.
+2. On the NAS, tell the Tailscale container to serve Sapphire over https (over SSH, or the
+   container's terminal in the Docker app, where you drop `sudo docker exec sapphire-tailscale`):
 
-Then open `https://<nas-name>.<your-tailnet>.ts.net` on your phone (Tailscale shows the exact name).
-Turn on HTTPS certificates in the Tailscale admin console under DNS if it asks.
+   ```
+   sudo docker exec sapphire-tailscale tailscale serve --bg --https=443 http://localhost:8080
+   ```
+
+   This is remembered in `data/tailscale`, so it survives restarts. `tailscale serve status`
+   shows it; `tailscale serve --https=443 off` undoes it.
+3. Open `https://sapphire.<your-tailnet>.ts.net` on your phone (the admin console shows the exact
+   name). The first visit can take a few seconds while the certificate is issued.
