@@ -4,6 +4,8 @@ import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
 import { checkEngine, engineFile } from "./engine.js";
+import { browseByGenres, listGenres } from "./browse.js";
+import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { checkLibrary } from "./checker.js";
 import { createNotifier } from "./notify.js";
 import { Store, type ProgressInput } from "./store.js";
@@ -65,6 +67,61 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
+    }
+  });
+
+  app.get("/api/genres", async (req, reply) => {
+    try {
+      return { genres: await listGenres(config, { fetchImpl }) };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "The source engine isn't answering." });
+    }
+  });
+
+  app.get<{ Querystring: { genres?: string; q?: string } }>("/api/browse", async (req, reply) => {
+    const genres = (req.query.genres ?? "").split(",").map((g) => g.trim()).filter(Boolean).slice(0, 10);
+    const q = (req.query.q ?? "").trim();
+    if (genres.length === 0) return reply.code(400).send({ error: "Pick at least one genre." });
+    try {
+      return await browseByGenres(config, genres, { query: q, fetchImpl });
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "The source engine isn't answering." });
+    }
+  });
+
+  app.get("/api/extensions", async (req, reply) => {
+    try {
+      let list = await listExtensions(config, fetchImpl);
+      // First visit: the engine hasn't downloaded the repository index yet.
+      if (list.length === 0) list = await refreshExtensions(config, fetchImpl);
+      return { extensions: list };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "The source engine isn't answering." });
+    }
+  });
+
+  app.post("/api/extensions/refresh", async (req, reply) => {
+    try {
+      return { extensions: await refreshExtensions(config, fetchImpl) };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "Couldn't refresh the extension list." });
+    }
+  });
+
+  app.post<{ Params: { pkg: string; action: string } }>("/api/extensions/:pkg/:action", async (req, reply) => {
+    const { pkg, action } = req.params;
+    if (!/^[A-Za-z0-9_.]+$/.test(pkg) || !["install", "update", "uninstall"].includes(action)) {
+      return reply.code(400).send({ error: "Bad request." });
+    }
+    try {
+      return { extension: await changeExtension(config, pkg, action as ExtensionAction, fetchImpl) };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: `Couldn't ${action} that extension: ${err instanceof Error ? err.message : "engine error"}` });
     }
   });
 

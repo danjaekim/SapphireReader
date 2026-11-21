@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
 import { Search } from "./Search";
+import { Sources } from "./Sources";
 import { SeriesPage } from "./SeriesPage";
 import { useRoute } from "./route";
 
@@ -11,7 +12,7 @@ interface Status {
   alerts?: { enabled: boolean; everyHours: number };
 }
 
-const tabs = ["Search", "Library", "Discover", "Updates", "Status"] as const;
+const tabs = ["Search", "Library", "Discover", "Updates", "Sources", "Status"] as const;
 type Tab = (typeof tabs)[number];
 
 function StatusCard() {
@@ -70,8 +71,11 @@ function StatusCard() {
 }
 
 export function App() {
-  const [tab, setTab] = useState<Tab>("Search");
+  const [pickedTab, setTab] = useState<Tab>("Search");
   const route = useRoute();
+  // A genre link opens Search with that genre selected.
+  const genres = route.name === "tab" ? route.genres : [];
+  const tab: Tab = genres.length > 0 ? "Search" : pickedTab;
 
   if (route.name === "read") {
     return (
@@ -84,7 +88,7 @@ export function App() {
   function pickTab(t: Tab) {
     setTab(t);
     // Leaving a series page: go back to the tab view.
-    if (route.name !== "tab") window.location.hash = "#/";
+    if (route.name !== "tab" || route.genres.length > 0) window.location.hash = "#/";
   }
 
   return (
@@ -99,10 +103,12 @@ export function App() {
         ) : (
           <>
             <h2>{tab}</h2>
-            {tab === "Search" && <Search />}
+            {tab === "Search" && <Search key={genres.join("|")} initialGenres={genres} />}
+            {tab === "Discover" && <Search key="discover" discover />}
+            {tab === "Sources" && <Sources />}
             {tab === "Status" && <StatusCard />}
             {tab === "Library" && <Library />}
-            {tab !== "Search" && tab !== "Status" && tab !== "Library" && <p className="muted">Coming soon.</p>}
+            {tab === "Updates" && <p className="muted">Coming soon.</p>}
           </>
         )}
       </main>

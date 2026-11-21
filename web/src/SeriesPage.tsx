@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { addToLibrary, removeFromLibrary, series, thumbnailUrl, type SeriesData } from "./api";
-import { readHref } from "./route";
+import { genreHref, readHref } from "./route";
 
 function chapterLabel(c: { name: string; chapterNumber: number }): string {
   return c.chapterNumber >= 0 ? `Ch. ${Number.isInteger(c.chapterNumber) ? c.chapterNumber : c.chapterNumber.toFixed(1)}` : c.name;
@@ -66,7 +66,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
           {data.manga.genre.length > 0 && (
             <ul className="genres">
               {data.manga.genre.map((g) => (
-                <li key={g} className="tag">{g}</li>
+                <li key={g}><a className="tag" href={genreHref(g)}>{g}</a></li>
               ))}
             </ul>
           )}

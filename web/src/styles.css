@@ -140,3 +140,14 @@ button.button { border: 0; cursor: pointer; font: inherit; }
 .libCard img { border-radius: 8px; object-fit: cover; }
 .libTitle { font-weight: 600; color: var(--fg); text-decoration: none; }
 .unread { color: var(--accent); margin: 2px 0 6px; }
+
+a.tag { text-decoration: none; }
+a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chip { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 999px; cursor: pointer; color: var(--fg); background: var(--panel); border: 1px solid var(--line); }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.genreList input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: inherit; }
+.extList { list-style: none; margin: 8px 0 16px; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.extRow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; background: var(--panel); }
+.extRow + .extRow { border-top: 1px solid var(--line); }
+.extActions { display: flex; gap: 6px; }

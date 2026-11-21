@@ -112,6 +112,27 @@ export const series = (mangaId: number) => getJson<SeriesData>(`/api/manga/${man
 export const chapterPages = (chapterId: number) =>
   getJson<{ pages: string[] }>(`/api/chapters/${chapterId}/pages`);
 
+export interface BrowseResult extends SearchResult {
+  skipped: string[];
+}
+export const browse = (genres: string[], q: string) =>
+  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}`);
+export const genreList = () => getJson<{ genres: { name: string; sources: number }[] }>("/api/genres");
+
+export interface ExtensionInfo {
+  pkgName: string;
+  name: string;
+  lang: string;
+  versionName: string;
+  isInstalled: boolean;
+  hasUpdate: boolean;
+}
+export const extensions = () => getJson<{ extensions: ExtensionInfo[] }>("/api/extensions");
+export const refreshExtensionList = () =>
+  send("POST", "/api/extensions/refresh") as Promise<{ extensions: ExtensionInfo[] }>;
+export const changeExtension = (pkg: string, action: "install" | "update" | "uninstall") =>
+  send("POST", `/api/extensions/${pkg}/${action}`) as Promise<{ extension: ExtensionInfo }>;
+
 export const search = (q: string) => getJson<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`);
 export const latest = (mangaId: number) => getJson<LatestChapter>(`/api/manga/${mangaId}/latest`);
 export const thumbnailUrl = (mangaId: number) => `/api/manga/${mangaId}/thumbnail`;
