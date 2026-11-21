@@ -1,6 +1,6 @@
 import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
-import { addToLibrary, alternatives, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, alternatives, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, readHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -31,6 +31,19 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [jump, setJump] = useState("");
   const score = useScore(data?.manga.title ?? null);
   const [fullAlt, setFullAlt] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [anchor, setAnchor] = useState<number | null>(null);
+  useEffect(() => {
+    setSelected(new Set());
+    setAnchor(null);
+  }, [mangaId]);
+  // Esc clears the selection.
+  useEffect(() => {
+    if (selected.size === 0) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && (setSelected(new Set()), setAnchor(null));
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected.size]);
   // After marking one chapter read, offer to mark the unread ones before it too (handy when you read them elsewhere).
   const [shelves, setShelves] = useState<Category[]>([]);
   useEffect(() => {
@@ -119,131 +132,304 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const next = resume && resumeDone ? data!.chapters[data!.chapters.indexOf(resume) + 1] : undefined;
   const caughtUp = resumeDone && !next;
 
+  // The chapters as listed (order and "Find chapter" filter applied).
+  const listed = data
+    ? (newestFirst ? [...data.chapters].reverse() : data.chapters).filter(
+        (c) => !jump.trim() || chapterLabel(c).toLowerCase().includes(jump.trim().toLowerCase()) || c.name.toLowerCase().includes(jump.trim().toLowerCase()),
+      )
+    : [];
+  const picked = data ? data.chapters.filter((c) => selected.has(c.id)) : [];
+  const allPicked = listed.length > 0 && listed.every((c) => selected.has(c.id));
+
+  /** Click toggles one chapter; shift-click selects everything between the last one you clicked and this one. */
+  function pick(c: ChapterInfo, range: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const from = anchor === null ? -1 : listed.findIndex((x) => x.id === anchor);
+      const to = listed.findIndex((x) => x.id === c.id);
+      if (range && from >= 0 && to >= 0) {
+        for (let i = Math.min(from, to); i <= Math.max(from, to); i++) next.add(listed[i].id);
+      } else if (next.has(c.id)) next.delete(c.id);
+      else next.add(c.id);
+      return next;
+    });
+    setAnchor(c.id);
+  }
+  const clearPicks = () => {
+    setSelected(new Set());
+    setAnchor(null);
+  };
+  const siteStats = about.stats.filter((st) => !/^rank$/i.test(st.label));
+  const rank = about.stats.find((st) => /^rank$/i.test(st.label));
+
   return (
-    <section>
+    <section className="seriesPage">
+      {data && <div className="seriesBackdrop" aria-hidden="true" style={{ backgroundImage: `url(${thumbnailUrl(mangaId)})` }} />}
       <a className="back" href="#/">← Back</a>
       {error && <p className="bad">{error}</p>}
       {!data && !error && <Loading label="Loading from the source. This can take several seconds." size="lg" />}
       {data && (
         <>
-          <div className="seriesHead">
-            <img src={thumbnailUrl(mangaId)} alt="" width={120} height={173} />
-            <div className="info">
-              <h2>{data.manga.title}</h2>
-              {about.altTitles.length > 0 && (
-                <p className={`altTitles ${fullAlt ? "open" : ""}`}>
-                  {(fullAlt ? about.altTitles : about.altTitles.slice(0, 3)).join(" · ")}
-                  {about.altTitles.length > 3 && (
-                    <button type="button" className="linkish" onClick={() => setFullAlt((v) => !v)}>
-                      {fullAlt ? " less" : ` +${about.altTitles.length - 3} more`}
-                    </button>
-                  )}
-                </p>
-              )}
-              <p className="muted">
-                {[data.manga.sourceName, data.manga.status.toLowerCase(), data.manga.author].filter(Boolean).join(" · ")}
-              </p>
-              {(score != null || about.stats.length > 0) && (
-                <ul className="statChips">
-                  {about.stats.map((st) => (
-                    <li key={st.label} title={`From ${data.manga.sourceName ?? "the source"}`}>
-                      <span className="muted">{st.label}</span> <strong>{st.value}</strong>
+          <div className="seriesLayout">
+            <div className="seriesLeft">
+              <img className="seriesCover" src={thumbnailUrl(mangaId)} alt="" width={300} height={450} />
+              <aside className="seriesSide">
+                {(siteStats.length > 0 || score != null || data.chapters.length > 0) && (
+                  <ul className="statGrid">
+                    {score != null && (
+                      <li title="AniList average score">
+                        <strong className="seriesScore">★ {(score / 10).toFixed(1)}</strong>
+                        <span>AniList</span>
+                      </li>
+                    )}
+                    {siteStats.map((st) => (
+                      <li key={st.label} title={`From ${data.manga.sourceName ?? "the source"}`}>
+                        <strong>{st.value}</strong>
+                        <span>{st.label}</span>
+                      </li>
+                    ))}
+                    <li>
+                      <strong>{data.latest.latestNumber !== null ? Math.floor(data.latest.latestNumber) : data.latest.chapterCount}</strong>
+                      <span>Chapters</span>
                     </li>
-                  ))}
-                  {score != null && (
-                    <li title="AniList average score">
-                      <span className="muted">AniList</span> <strong className="seriesScore">★ {(score / 10).toFixed(1)}</strong>
-                    </li>
+                  </ul>
+                )}
+                <dl className="infoList">
+                  <div><dt>Status</dt><dd className="cap">{data.manga.status.toLowerCase()}</dd></div>
+                  {data.manga.sourceName && <div><dt>Source</dt><dd>{data.manga.sourceName}</dd></div>}
+                  {data.manga.author && <div><dt>Author</dt><dd>{data.manga.author}</dd></div>}
+                  {data.manga.artist && data.manga.artist !== data.manga.author && <div><dt>Artist</dt><dd>{data.manga.artist}</dd></div>}
+                  {data.latest.latestNumber !== null && (
+                    <div><dt>Latest</dt><dd>{chapterLabel({ name: "", chapterNumber: data.latest.latestNumber })}</dd></div>
                   )}
-                </ul>
-              )}
-              <p className="muted">
-                {data.latest.latestNumber !== null
-                  ? `${data.latest.chapterCount} chapters, latest ${chapterLabel({ name: "", chapterNumber: data.latest.latestNumber })}`
-                  : `${data.latest.chapterCount} chapters`}
-              </p>
-              <div className="actions">
-                {data.chapters.length > 0 &&
-                  (caughtUp ? (
-                    <span className="button caughtUp" title={`You've read up to ${chapterLabel(resume!)}, the newest chapter.`}>Caught up ✓</span>
-                  ) : (
-                    <a className="button" href={readHref(mangaId, (next ?? resume ?? data.chapters[0]).id)}>
-                      {next ? `Next: ${chapterLabel(next)}` : resume ? `Continue ${chapterLabel(resume)}` : "Start reading"}
-                    </a>
-                  ))}
-                <button type="button" className="button secondary" onClick={toggleLibrary}>
-                  {data.inLibrary ? "In library ✓" : "Add to library"}
-                </button>
-              </div>
-              {data.inLibrary && shelves.length > 0 && (
-                <div className="chips shelfPick" aria-label="Shelves">
-                  {shelves.map((c) => {
-                    const on = (data.categories ?? []).includes(c.id);
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={`chip small ${on ? "on" : ""}`}
-                        aria-pressed={on}
-                        onClick={() => {
-                          const ids = on ? (data.categories ?? []).filter((x) => x !== c.id) : [...(data.categories ?? []), c.id];
-                          setData({ ...data, categories: ids });
-                          setSeriesCategories(mangaId, ids).catch(() => setData(data));
-                        }}
-                      >
-                        {on ? "✓ " : ""}{c.name}
+                </dl>
+                {data.manga.genre.length > 0 && (
+                  <ul className="genres">
+                    {data.manga.genre.map((g) => (
+                      <li key={g}><a className="tag" href={genreHref(g, data.manga.id, data.adult)}>{g}</a></li>
+                    ))}
+                  </ul>
+                )}
+                {others && others.length > 0 && (
+                  <div className="card">
+                    <h3>Also on</h3>
+                    <ul className="sources">
+                      {others.map((o) => {
+                        const ahead = o.latestNumber !== null && data.latest.latestNumber !== null && o.latestNumber > data.latest.latestNumber;
+                        return (
+                          <li key={o.mangaId} className={ahead ? "best" : undefined}>
+                            <a href={`#/series/${o.mangaId}`}>{o.sourceName}</a>
+                            <span className="muted">{o.latestNumber !== null ? chapterLabel({ name: "", chapterNumber: o.latestNumber }) : "no numbered chapters"}</span>
+                            {ahead && <span className="tag">further ahead</span>}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+                <TrackerLinkCard mangaId={mangaId} title={data.manga.title} />
+              </aside>
+            </div>
+
+            <div className="seriesRight">
+              <div className="card seriesIntro">
+                <h2>{data.manga.title}</h2>
+                {rank && <span className="rankBadge" title={`From ${data.manga.sourceName ?? "the source"}`}>★ Rank {rank.value}</span>}
+                {about.altTitles.length > 0 && (
+                  <p className={`altTitles ${fullAlt ? "open" : ""}`}>
+                    {(fullAlt ? about.altTitles : about.altTitles.slice(0, 3)).join(" · ")}
+                    {about.altTitles.length > 3 && (
+                      <button type="button" className="linkish" onClick={() => setFullAlt((v) => !v)}>
+                        {fullAlt ? " less" : ` +${about.altTitles.length - 3} more`}
                       </button>
+                    )}
+                  </p>
+                )}
+                {about.body && (
+                  <div className="descWrap">
+                    <p className={`desc ${fullDesc ? "" : "clamped"}`}>{about.body}</p>
+                    {about.body.length > 280 && (
+                      <button type="button" className="linkish" onClick={() => setFullDesc((v) => !v)}>
+                        {fullDesc ? "Show less" : "Show more"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="seriesActions">
+                <div className="actions">
+                  {data.chapters.length > 0 &&
+                    (caughtUp ? (
+                      <span className="button caughtUp" title={`You've read up to ${chapterLabel(resume!)}, the newest chapter.`}>Caught up ✓</span>
+                    ) : (
+                      <a className="button" href={readHref(mangaId, (next ?? resume ?? data.chapters[0]).id)}>
+                        {next ? `Next: ${chapterLabel(next)}` : resume ? `Continue ${chapterLabel(resume)}` : "Start reading"}
+                      </a>
+                    ))}
+                  <button type="button" className="button secondary" onClick={toggleLibrary}>
+                    {data.inLibrary ? "In library ✓" : "Add to library"}
+                  </button>
+                </div>
+                {data.inLibrary && shelves.length > 0 && (
+                  <div className="chips shelfPick" aria-label="Shelves">
+                    {shelves.map((c) => {
+                      const on = (data.categories ?? []).includes(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className={`chip small ${on ? "on" : ""}`}
+                          aria-pressed={on}
+                          onClick={() => {
+                            const ids = on ? (data.categories ?? []).filter((x) => x !== c.id) : [...(data.categories ?? []), c.id];
+                            setData({ ...data, categories: ids });
+                            setSeriesCategories(mangaId, ids).catch(() => setData(data));
+                          }}
+                        >
+                          {on ? "✓ " : ""}{c.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="seriesChapters">
+                <div className="chapterHead">
+                  <h3>
+                    Chapters{" "}
+                    {data.chapters.length > 0 && (
+                      <span className="muted small">
+                        {data.chapters.filter((c) => !readIds.has(c.id)).length} unread of {data.chapters.length}
+                      </span>
+                    )}
+                  </h3>
+                  <div className="chapterTools">
+                    {data.chapters.length > 30 && (
+                      <input
+                        type="search"
+                        inputMode="decimal"
+                        className="jump"
+                        placeholder="Find chapter"
+                        value={jump}
+                        onChange={(e) => setJump(e.target.value)}
+                        aria-label="Find a chapter by number or name"
+                      />
+                    )}
+                    <button type="button" className="linkish" onClick={() => setNewestFirst((v) => !v)}>
+                      {newestFirst ? "Newest first" : "Oldest first"}
+                    </button>
+                  </div>
+                </div>
+                {selected.size > 0 ? (
+                  <div className="selBar" role="toolbar" aria-label="Selected chapters">
+                    <strong>{selected.size} selected</strong>
+                    {!allPicked && (
+                      <button type="button" className="linkish" onClick={() => setSelected(new Set([...selected, ...listed.map((c) => c.id)]))}>
+                        Select all {listed.length}
+                      </button>
+                    )}
+                    <span className="selActions">
+                      <button type="button" className="button small" onClick={() => { void mark([...selected], true); clearPicks(); }}>Mark read</button>
+                      <button type="button" className="button small secondary" onClick={() => { void mark([...selected], false); clearPicks(); }}>Mark unread</button>
+                      <button
+                        type="button"
+                        className="button small secondary"
+                        disabled={picked.every((c) => states[c.id] && states[c.id].status !== "failed")}
+                        onClick={() => { download(data.manga, picked.filter((c) => !states[c.id] || states[c.id].status === "failed")); clearPicks(); }}
+                      >
+                        Download
+                      </button>
+                      <button type="button" className="iconBtn selClose" aria-label="Clear selection" title="Clear selection (Esc)" onClick={clearPicks}>✕</button>
+                    </span>
+                  </div>
+                ) : (
+                  <div className="actions dlActions">
+                    <button type="button" className="button small secondary" disabled={notSaved.length === 0} onClick={() => download(data.manga, notSaved)}>
+                      Download all{notSaved.length ? ` (${notSaved.length})` : ""}
+                    </button>
+                    <button
+                      type="button"
+                      className="button small secondary"
+                      disabled={unread.filter((c) => !states[c.id]).length === 0}
+                      onClick={() => download(data.manga, unread.filter((c) => !states[c.id] || states[c.id].status === "failed"))}
+                    >
+                      Download unread
+                    </button>
+                    {working > 0 && <span className="muted">Downloading {working} chapter{working === 1 ? "" : "s"} to the NAS…</span>}
+                    {data.chapters.length > 1 && <span className="muted small selHint">Tick chapters to act on several at once; shift-click selects a range.</span>}
+                  </div>
+                )}
+                {offer && (
+                  <div className="offer">
+                    <span>Also mark the {offer.ids.length} unread chapter{offer.ids.length === 1 ? "" : "s"} before {offer.label} as read?</span>
+                    <button type="button" className="button small" onClick={() => { void mark(offer.ids, true); setOffer(null); }}>Mark read</button>
+                    <button type="button" className="linkish" onClick={() => setOffer(null)}>No thanks</button>
+                  </div>
+                )}
+                <ul className={`chapters ${selected.size > 0 ? "picking" : ""}`}>
+                  {listed.map((c) => {
+                    const on = selected.has(c.id);
+                    return (
+                      <li key={c.id} className={`${readIds.has(c.id) ? "read" : ""} ${on ? "picked" : ""}`}>
+                        <button
+                          type="button"
+                          className="pick"
+                          role="checkbox"
+                          aria-checked={on}
+                          aria-label={`Select ${chapterLabel(c)}`}
+                          onClick={(e) => pick(c, e.shiftKey)}
+                        >
+                          <span aria-hidden="true">{on ? "✓" : ""}</span>
+                        </button>
+                        <a
+                          href={readHref(mangaId, c.id)}
+                          onClick={(e) => {
+                            // While picking (or with shift), a click selects instead of opening.
+                            if (selected.size > 0 || e.shiftKey) {
+                              e.preventDefault();
+                              pick(c, e.shiftKey);
+                            }
+                          }}
+                        >
+                          <span>{chapterLabel(c)}</span>
+                          {c.name && c.chapterNumber >= 0 && c.name !== chapterLabel(c) && <span className="muted chName"> {c.name}</span>}
+                          <span className="muted date" title={c.uploadDate ? new Date(c.uploadDate).toLocaleDateString() : undefined}>{chapterDate(c.uploadDate)}</span>
+                        </a>
+                        <button
+                          type="button"
+                          className="dlBtn"
+                          title={readIds.has(c.id) ? "Mark as unread" : "Mark as read"}
+                          aria-label={readIds.has(c.id) ? "Mark as unread" : "Mark as read"}
+                          onClick={() => {
+                            const read = !readIds.has(c.id);
+                            void mark([c.id], read);
+                            const earlier = data.chapters.slice(0, data.chapters.indexOf(c)).filter((x) => !readIds.has(x.id)).map((x) => x.id);
+                            setOffer(read && earlier.length > 0 ? { label: chapterLabel(c), ids: earlier } : null);
+                          }}
+                        >
+                          {readIds.has(c.id) ? "◉" : "○"}
+                        </button>
+                        <DownloadButton state={states[c.id]} onDownload={() => download(data.manga, [c])} />
+                      </li>
                     );
                   })}
-                </div>
-              )}
+                </ul>
+              </div>
             </div>
           </div>
-          {data.manga.genre.length > 0 && (
-            <ul className="genres">
-              {data.manga.genre.map((g) => (
-                <li key={g}><a className="tag" href={genreHref(g, data.manga.id, data.adult)}>{g}</a></li>
-              ))}
-            </ul>
-          )}
-          {about.body && (
-            <div className="descWrap">
-              <p className={`desc ${fullDesc ? "" : "clamped"}`}>{about.body}</p>
-              {about.body.length > 280 && (
-                <button type="button" className="linkish" onClick={() => setFullDesc((v) => !v)}>
-                  {fullDesc ? "Show less" : "Show more"}
-                </button>
-              )}
-            </div>
-          )}
-          {others && others.length > 0 && (
-            <div className="card">
-              <h3>Also on</h3>
-              <ul className="sources">
-                {others.map((o) => {
-                  const ahead = o.latestNumber !== null && data.latest.latestNumber !== null && o.latestNumber > data.latest.latestNumber;
-                  return (
-                    <li key={o.mangaId} className={ahead ? "best" : undefined}>
-                      <a href={`#/series/${o.mangaId}`}>{o.sourceName}</a>
-                      <span className="muted">{o.latestNumber !== null ? chapterLabel({ name: "", chapterNumber: o.latestNumber }) : "no numbered chapters"}</span>
-                      {ahead && <span className="tag">further ahead</span>}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-          <TrackerLinkCard mangaId={mangaId} title={data.manga.title} />
+
           {similarGroups === null && <Loading label="Finding similar series…" size="sm" />}
           {similarGroups && similarGroups.length > 0 && (
-            <div className="card">
+            <div className="card similarCard">
               <h3>Similar series</h3>
               {basedOn.length > 0 && <p className="muted small">Matched mostly on {basedOn.join(", ")}.</p>}
               <ul className="similar">
                 {similarGroups.map((g) => (
                   <li key={g.key}>
                     <a href={`#/series/${g.hits[0].mangaId}`}>
-                      <img src={thumbnailUrl(g.hits[0].mangaId)} alt="" loading="lazy" width={80} height={116} />
+                      <img src={thumbnailUrl(g.hits[0].mangaId)} alt="" loading="lazy" width={120} height={174} />
                       <span>{g.title}</span>
                     </a>
                   </li>
@@ -251,81 +437,6 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
               </ul>
             </div>
           )}
-          <div className="chapterHead">
-            <h3>
-              Chapters{" "}
-              {data.chapters.length > 0 && (
-                <span className="muted small">
-                  {data.chapters.filter((c) => !readIds.has(c.id)).length} unread of {data.chapters.length}
-                </span>
-              )}
-            </h3>
-            <div className="chapterTools">
-              {data.chapters.length > 30 && (
-                <input
-                  type="search"
-                  inputMode="decimal"
-                  className="jump"
-                  placeholder="Find chapter"
-                  value={jump}
-                  onChange={(e) => setJump(e.target.value)}
-                  aria-label="Find a chapter by number or name"
-                />
-              )}
-              <button type="button" className="linkish" onClick={() => setNewestFirst((v) => !v)}>
-                {newestFirst ? "Newest first" : "Oldest first"}
-              </button>
-            </div>
-          </div>
-          <div className="actions dlActions">
-            <button type="button" className="button small secondary" disabled={notSaved.length === 0} onClick={() => download(data.manga, notSaved)}>
-              Download all{notSaved.length ? ` (${notSaved.length})` : ""}
-            </button>
-            <button
-              type="button"
-              className="button small secondary"
-              disabled={unread.filter((c) => !states[c.id]).length === 0}
-              onClick={() => download(data.manga, unread.filter((c) => !states[c.id] || states[c.id].status === "failed"))}
-            >
-              Download unread
-            </button>
-            {working > 0 && <span className="muted">Downloading {working} chapter{working === 1 ? "" : "s"} to the NAS…</span>}
-          </div>
-          {offer && (
-            <div className="offer">
-              <span>Also mark the {offer.ids.length} unread chapter{offer.ids.length === 1 ? "" : "s"} before {offer.label} as read?</span>
-              <button type="button" className="button small" onClick={() => { void mark(offer.ids, true); setOffer(null); }}>Mark read</button>
-              <button type="button" className="linkish" onClick={() => setOffer(null)}>No thanks</button>
-            </div>
-          )}
-          <ul className="chapters">
-            {(newestFirst ? [...data.chapters].reverse() : data.chapters)
-              .filter((c) => !jump.trim() || chapterLabel(c).toLowerCase().includes(jump.trim().toLowerCase()) || c.name.toLowerCase().includes(jump.trim().toLowerCase()))
-              .map((c) => (
-              <li key={c.id} className={readIds.has(c.id) ? "read" : undefined}>
-                <a href={readHref(mangaId, c.id)}>
-                  <span>{chapterLabel(c)}</span>
-                  {c.name && c.chapterNumber >= 0 && c.name !== chapterLabel(c) && <span className="muted"> {c.name}</span>}
-                  <span className="muted date" title={c.uploadDate ? new Date(c.uploadDate).toLocaleDateString() : undefined}>{chapterDate(c.uploadDate)}</span>
-                </a>
-                <button
-                  type="button"
-                  className="dlBtn"
-                  title={readIds.has(c.id) ? "Mark as unread" : "Mark as read"}
-                  aria-label={readIds.has(c.id) ? "Mark as unread" : "Mark as read"}
-                  onClick={() => {
-                    const read = !readIds.has(c.id);
-                    void mark([c.id], read);
-                    const earlier = data.chapters.slice(0, data.chapters.indexOf(c)).filter((x) => !readIds.has(x.id)).map((x) => x.id);
-                    setOffer(read && earlier.length > 0 ? { label: chapterLabel(c), ids: earlier } : null);
-                  }}
-                >
-                  {readIds.has(c.id) ? "◉" : "○"}
-                </button>
-                <DownloadButton state={states[c.id]} onDownload={() => download(data.manga, [c])} />
-              </li>
-            ))}
-          </ul>
         </>
       )}
     </section>

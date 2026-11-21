@@ -380,7 +380,7 @@ export function App() {
     );
   }
 
-  const wide = route.name === "series" ? false : WIDE.includes(page!);
+  const wide = route.name === "series" ? true : WIDE.includes(page!);
   const scopeTag = String(adult.unlocked);
 
   return (
