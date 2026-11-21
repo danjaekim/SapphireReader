@@ -17,6 +17,7 @@ import { Sources } from "./Sources";
 import { TrackerSettings } from "./Trackers";
 import { Updates } from "./Updates";
 import { clearPagedCache } from "./usePaged";
+import { resetHiddenCache } from "./shared";
 import { navigate, pageHref, useRoute, type PageName } from "./route";
 
 interface Status {
@@ -334,6 +335,7 @@ export function App() {
   // Locking or unlocking changes what searches return, so remembered results are dropped.
   function onAdult(next: AdultState) {
     clearPagedCache();
+    resetHiddenCache();
     setAdult(next);
     if (!next.unlocked && route.name === "page" && route.page === "discover-18") navigate(pageHref("home"));
   }

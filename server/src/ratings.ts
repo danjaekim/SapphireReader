@@ -20,7 +20,7 @@ export type RatingMeta = AnilistMeta & { mu?: number | null };
 /** Asks AniList about several titles in one request; each answer is the best match or null. */
 async function anilistBatch(titles: string[], fetchImpl?: FetchLike): Promise<(NonNullable<MediaHit> | null)[]> {
   const query = `query (${titles.map((_, j) => `$t${j}: String`).join(", ")}) {
-    ${titles.map((_, j) => `m${j}: Media(search: $t${j}, type: MANGA) { id averageScore meanScore popularity bannerImage }`).join("\n")}
+    ${titles.map((_, j) => `m${j}: Media(search: $t${j}, type: MANGA) { id averageScore meanScore popularity bannerImage isAdult }`).join("\n")}
   }`;
   // A title AniList can't find makes that alias null (with an error), not the whole answer.
   const data = await anilistLoose(query, Object.fromEntries(titles.map((t, j) => [`t${j}`, t])), fetchImpl);
@@ -28,7 +28,7 @@ async function anilistBatch(titles: string[], fetchImpl?: FetchLike): Promise<(N
 }
 
 const toMeta = (m: NonNullable<MediaHit> | null): AnilistMeta =>
-  m ? { anilistId: m.id, score: m.averageScore ?? m.meanScore ?? null, popularity: m.popularity ?? null, banner: m.bannerImage ?? null } : { anilistId: null, score: null, popularity: null, banner: null };
+  m ? { anilistId: m.id, score: m.averageScore ?? m.meanScore ?? null, popularity: m.popularity ?? null, banner: m.bannerImage ?? null, adult: m.isAdult ?? null } : { anilistId: null, score: null, popularity: null, banner: null, adult: null };
 
 /** Other names worth trying on AniList: native-script names first (they match exactly), then the rest. */
 function altCandidates(title: string, alts: string[] | undefined): string[] {
@@ -142,7 +142,7 @@ export async function ratingsFor(
   );
 }
 
-type MediaHit = { id: number; averageScore: number | null; meanScore: number | null; popularity: number | null; bannerImage?: string | null } | null;
+type MediaHit = { id: number; averageScore: number | null; meanScore: number | null; popularity: number | null; bannerImage?: string | null; isAdult?: boolean | null } | null;
 
 async function anilistLoose(query: string, variables: Record<string, unknown>, fetchImpl: FetchLike = fetch): Promise<Record<string, MediaHit>> {
   const res = await fetchImpl("https://graphql.anilist.co", {

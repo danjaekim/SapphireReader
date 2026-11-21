@@ -1,6 +1,6 @@
 import { Loading } from "./Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { changeExtension, checkSources, setSourceAdult, extensions, genreSupport, refreshExtensionList, sources, type ExtensionInfo, type GenreSupport, type SourceRow } from "./api";
+import { changeExtension, checkSources, setSourceAdult, setSourceCheck, extensions, genreSupport, refreshExtensionList, sources, type ExtensionInfo, type GenreSupport, type SourceRow } from "./api";
 
 const LANGS: Record<string, string> = { en: "English", all: "Multi-language", multi: "Multi-language" };
 
@@ -234,6 +234,17 @@ export function Sources() {
                       </label>
                     ))}
                     <div className="muted small">Moves this site's series between the ordinary and 18+ pages.</div>
+                    {mine.some((r) => !r.isNsfw) && (
+                      <label className="small">
+                        <input
+                          type="checkbox"
+                          checked={mine.every((r) => r.checkTitles !== false)}
+                          onChange={(ev) => void Promise.all(mine.map((r) => setSourceCheck(r.id, ev.target.checked))).then(loadSources)}
+                        />{" "}
+                        Check each title for 18+ content
+                      </label>
+                    )}
+                    <div className="muted small">For sites that mix both: series found to be adult are hidden while 18+ mode is off.</div>
                   </div>
                 </details>
               )}

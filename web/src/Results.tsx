@@ -1,7 +1,7 @@
 import { Loading } from "./Loading";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { seriesHref } from "./route";
-import { bestRating, useLibraryIds, useRating } from "./shared";
+import { bestRating, useHiddenAdult, useLibraryIds, useRating } from "./shared";
 import { createQueue, latest, thumbnailUrl, type LatestChapter, type SearchResult, type SeriesGroup } from "./api";
 
 type Chapter = { state: "loading" } | { state: "error"; reason?: string } | { state: "done"; value: LatestChapter };
@@ -77,6 +77,9 @@ function Card({ group, queue, lookups, hideBad, onBad }: { group: SeriesGroup; q
   const failReason = group.hits.map((h) => (chapters[h.mangaId] as { reason?: string } | undefined)?.reason).find(Boolean);
   const loading = lookups && group.hits.some((h) => !chapters[h.mangaId] || chapters[h.mangaId].state === "loading");
 
+  // Adult series from mixed sites stay out of sight while 18+ mode is off.
+  const adultHidden = useHiddenAdult({ mangaId: group.hits[0].mangaId, title: group.title, sourceId: group.hits[0].sourceId }, near);
+  if (adultHidden) return null;
   if (hideBad && allFailed) return null;
   return (
     <li className={`gridCard ${allFailed ? "unavailable" : ""}`} ref={ref}>

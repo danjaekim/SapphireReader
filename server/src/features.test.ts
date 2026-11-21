@@ -199,3 +199,25 @@ describe("read state across sources", () => {
     expect(store.applyReadFromOtherSources(2, [{ id: 999, chapterNumber: 7, name: "7" }])).toEqual([]);
   });
 });
+
+describe("adult check for mixed sources", () => {
+  it("decides from tags, then AniList, then the site, and remembers", async () => {
+    const { classifyAdult, tagsAreAdult } = await import("./adultcheck.js");
+    expect(tagsAreAdult(["Action", "Smut"])).toBe(true);
+    expect(tagsAreAdult(["Action", "Mature", "Ecchi"])).toBe(false);
+    const store = new Store(":memory:");
+    store.recordSeriesTags(1, ["Hentai"]);
+    store.recordSeriesTags(2, ["Action"]);
+    let siteCalls = 0;
+    // No AniList (offline), so the rest comes from the site.
+    const fetchImpl = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
+    const details = async (id: number) => { siteCalls++; return id === 3 ? ["Adult", "Drama"] : id === 4 ? ["Drama"] : []; };
+    const items = [1, 2, 3, 4, 5].map((mangaId) => ({ mangaId, title: `Title ${mangaId}` }));
+    const out = await classifyAdult(store, items, { fetchImpl, details });
+    expect([...out.entries()]).toEqual([[1, true], [2, false], [3, true], [4, false], [5, null]]);
+    expect(siteCalls).toBe(3);
+    // Answered ones are remembered; only the unknown one is asked about again.
+    await classifyAdult(store, items, { fetchImpl, details });
+    expect(siteCalls).toBe(4);
+  });
+});

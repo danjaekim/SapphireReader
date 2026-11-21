@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { addToLibrary, library, ratingsFor, removeFromLibrary, type Rating } from "./api";
+import { addToLibrary, classifyAdult, library, ratingsFor, removeFromLibrary, type Rating } from "./api";
 
 /** AniList scores, asked for in small batches as cards appear and remembered for the session. */
 const ratingCache = new Map<string, Rating | null>();
@@ -97,3 +97,48 @@ export function useLibraryIds() {
 
 /** Forget the cached library list (after it changes somewhere else). */
 export const forgetLibraryIds = () => { libIds = null; };
+
+/**
+ * While 18+ mode is off, mixed sites can still list adult series. Cards ask (in small batches, once
+ * on screen) whether their series should be hidden; the server remembers each answer.
+ */
+const hideCache = new Map<number, boolean>();
+const hideWaiting = new Map<number, { title: string; sourceId?: string; cbs: Set<() => void> }>();
+let hideTimer: number | undefined;
+
+export function resetHiddenCache() {
+  hideCache.clear();
+}
+
+function flushHide() {
+  hideTimer = undefined;
+  const ids = [...hideWaiting.keys()].slice(0, 30);
+  const items = ids.map((mangaId) => ({ mangaId, title: hideWaiting.get(mangaId)!.title, sourceId: hideWaiting.get(mangaId)!.sourceId }));
+  classifyAdult(items).then(
+    (r) => ids.forEach((id) => hideCache.set(id, r.hide[id] === true)),
+    () => ids.forEach((id) => hideCache.set(id, false)),
+  ).finally(() => {
+    for (const id of ids) {
+      hideWaiting.get(id)?.cbs.forEach((cb) => cb());
+      hideWaiting.delete(id);
+    }
+    if (hideWaiting.size > 0) hideTimer = window.setTimeout(flushHide, 100);
+  });
+}
+
+/** True when this series is adult and 18+ mode is off, so its card should be hidden. */
+export function useHiddenAdult(hit: { mangaId: number; title: string; sourceId?: string }, enabled: boolean): boolean {
+  const [, bump] = useState(0);
+  const id = hit.mangaId;
+  useEffect(() => {
+    if (!enabled || hideCache.has(id)) return;
+    const cb = () => bump((n) => n + 1);
+    const w = hideWaiting.get(id) ?? { title: hit.title, sourceId: hit.sourceId, cbs: new Set<() => void>() };
+    w.cbs.add(cb);
+    hideWaiting.set(id, w);
+    if (hideTimer === undefined) hideTimer = window.setTimeout(flushHide, 200);
+    return () => void w.cbs.delete(cb);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, enabled]);
+  return hideCache.get(id) === true;
+}

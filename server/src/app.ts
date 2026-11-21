@@ -12,6 +12,7 @@ import { clearUpdateCache, requestUpdate, updateInfo } from "./updater.js";
 import { rankByAnilist, ratingsFor, type RatingMeta } from "./ratings.js";
 import { parseDescription } from "./description.js";
 import { canonKey } from "./genres.js";
+import { classifyAdult } from "./adultcheck.js";
 import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } from "./browse.js";
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { discover, recommendFor, similarTo, tagWeights, type DiscoverSort } from "./discover.js";
@@ -169,6 +170,43 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       out[t] = { score: m?.score ?? null, popularity: m?.popularity ?? null, banner, mu: m?.mu ?? null };
     }
     return { ratings: out };
+  });
+
+  // Which sources get each of their series checked for adult content (the default). Off for ones you've settled.
+  const noCheck = (): Set<string> => {
+    try {
+      return new Set(JSON.parse(store.getSetting("source_nocheck") ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  };
+  // Mixed sites list some adult series among ordinary ones. While 18+ mode is off, say which of these
+  // series should be hidden: the answer is worked out once per series and remembered.
+  app.post<{ Body: { items?: unknown } }>("/api/classify", async (req) => {
+    if (gate.unlocked(req.headers.cookie)) return { hide: {} };
+    const raw = Array.isArray(req.body?.items) ? (req.body!.items as unknown[]) : [];
+    const skip = noCheck();
+    const items = raw
+      .filter((i): i is { mangaId: number; title: string; sourceId?: string } => typeof i === "object" && i !== null && Number.isInteger((i as { mangaId: unknown }).mangaId) && typeof (i as { title: unknown }).title === "string")
+      .filter((i) => !(typeof i.sourceId === "string" && skip.has(i.sourceId)))
+      .slice(0, 30);
+    if (items.length === 0) return { hide: {} };
+    const found = await classifyAdult(store, items, {
+      fetchImpl,
+      details: async (id) => (await detailsFor(id)).genre ?? [],
+    }).catch(() => new Map<number, boolean | null>());
+    const hide: Record<number, boolean> = {};
+    for (const [id, adult] of found) if (adult === true) hide[id] = true;
+    return { hide };
+  });
+
+  app.put<{ Params: { id: string }; Body: { check?: unknown } }>("/api/sources/:id/check", async (req, reply) => {
+    if (typeof req.body?.check !== "boolean") return reply.code(400).send({ error: "Bad request." });
+    const skip = noCheck();
+    if (req.body.check) skip.delete(req.params.id);
+    else skip.add(req.params.id);
+    store.setSetting("source_nocheck", JSON.stringify([...skip]));
+    return { ok: true };
   });
 
   const sortOf = (v: string | undefined): SortKey => (SORT_KEYS.includes(v as SortKey) ? (v as SortKey) : "relevance");
@@ -412,10 +450,11 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     try {
       const health = new Map(store.sourceHealth().map((h) => [h.sourceId, h]));
       const seen = new Set<string>();
+      const skipCheck = noCheck();
       const sources = (await listSources(config, fetchImpl))
         .filter((s) => (s.lang === "en" || s.lang === "all") && s.name !== "Local source")
         .filter((s) => !seen.has(s.id) && !!seen.add(s.id))
-        .map((s) => ({ ...s, adultOverride: adultOverrideFor(s.id), health: health.get(s.id) ?? null, hidden: false }));
+        .map((s) => ({ ...s, adultOverride: adultOverrideFor(s.id), health: health.get(s.id) ?? null, hidden: false, checkTitles: !skipCheck.has(s.id) }));
       return { sources };
     } catch (err) {
       req.log.error(err);

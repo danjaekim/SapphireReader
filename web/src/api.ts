@@ -205,6 +205,9 @@ export interface AdultState {
   pinSet: boolean;
   unlocked: boolean;
 }
+export const classifyAdult = (items: { mangaId: number; title: string; sourceId?: string }[]) =>
+  send("POST", "/api/classify", { items }) as Promise<{ hide: Record<string, boolean> }>;
+export const setSourceCheck = (id: string, check: boolean) => send("PUT", `/api/sources/${encodeURIComponent(id)}/check`, { check });
 export const adultState = () => getJson<AdultState>("/api/adult");
 export const setAdultPin = (pin: string, currentPin?: string) =>
   send("POST", "/api/adult/pin", { pin, currentPin }) as Promise<AdultState>;
@@ -258,6 +261,8 @@ export interface SourceRow {
   /** What the extension says, and any manual choice (true/false) that overrides it. */
   flaggedNsfw?: boolean;
   adultOverride?: boolean | null;
+  /** Whether each of its series is checked for adult content while 18+ mode is off. */
+  checkTitles?: boolean;
   /** An 18+ source while 18+ mode is off: listed, but its health isn't shown. */
   hidden?: boolean;
   health: SourceHealth | null;

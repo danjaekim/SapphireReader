@@ -74,6 +74,8 @@ export interface AnilistMeta {
   popularity: number | null;
   /** Wide banner art, when AniList has one. */
   banner?: string | null;
+  /** AniList flags it as adult (null: not known yet). */
+  adult?: boolean | null;
 }
 
 export interface UpdateRow {
@@ -239,6 +241,14 @@ export class Store {
     } catch {
       /* column already exists */
     }
+    try {
+      this.db.exec("ALTER TABLE anilist_meta ADD COLUMN is_adult INTEGER");
+      this.db.exec("UPDATE anilist_meta SET fetched_at = '1970-01-01T00:00:00.000Z' WHERE anilist_id IS NOT NULL");
+    } catch {
+      /* column already exists */
+    }
+    // What each series turned out to be (adult or not), and how we know, so a series is only checked once.
+    this.db.exec("CREATE TABLE IF NOT EXISTS series_adult (manga_id INTEGER PRIMARY KEY, adult INTEGER NOT NULL, basis TEXT NOT NULL, checked_at TEXT NOT NULL)");
     // MangaUpdates' rating, the fallback for series AniList doesn't know.
     this.db.exec("CREATE TABLE IF NOT EXISTS mu_meta (title_key TEXT PRIMARY KEY, series_id INTEGER, score REAL, fetched_at TEXT NOT NULL)");
     // Tags of every series Sapphire has looked at, so it can tell common tags from telling ones.
@@ -352,7 +362,7 @@ export class Store {
     const out = new Map<string, AnilistMeta & { fetchedAt: string }>();
     for (const k of keys) {
       const r = get.get(k) as Record<string, unknown> | undefined;
-      if (r) out.set(k, { anilistId: (r.anilist_id as number | null) ?? null, score: (r.score as number | null) ?? null, popularity: (r.popularity as number | null) ?? null, banner: (r.banner as string | null) ?? null, fetchedAt: r.fetched_at as string });
+      if (r) out.set(k, { anilistId: (r.anilist_id as number | null) ?? null, score: (r.score as number | null) ?? null, popularity: (r.popularity as number | null) ?? null, banner: (r.banner as string | null) ?? null, adult: r.is_adult == null ? null : r.is_adult === 1, fetchedAt: r.fetched_at as string });
     }
     return out;
   }
@@ -379,11 +389,27 @@ export class Store {
   putAnilistMeta(key: string, m: AnilistMeta): void {
     this.db
       .prepare(
-        `INSERT INTO anilist_meta (title_key, anilist_id, score, popularity, banner, fetched_at) VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO anilist_meta (title_key, anilist_id, score, popularity, banner, is_adult, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(title_key) DO UPDATE SET anilist_id = excluded.anilist_id, score = excluded.score, popularity = excluded.popularity,
-           banner = excluded.banner, fetched_at = excluded.fetched_at`,
+           banner = excluded.banner, is_adult = excluded.is_adult, fetched_at = excluded.fetched_at`,
       )
-      .run(key, m.anilistId, m.score, m.popularity, m.banner ?? null, new Date().toISOString());
+      .run(key, m.anilistId, m.score, m.popularity, m.banner ?? null, m.adult == null ? null : m.adult ? 1 : 0, new Date().toISOString());
+  }
+
+  seriesAdult(ids: number[]): Map<number, boolean> {
+    const get = this.db.prepare("SELECT adult FROM series_adult WHERE manga_id = ?");
+    const out = new Map<number, boolean>();
+    for (const id of ids) {
+      const r = get.get(id) as { adult: number } | undefined;
+      if (r) out.set(id, r.adult === 1);
+    }
+    return out;
+  }
+
+  putSeriesAdult(mangaId: number, adult: boolean, basis: string): void {
+    this.db
+      .prepare("INSERT INTO series_adult (manga_id, adult, basis, checked_at) VALUES (?, ?, ?, ?) ON CONFLICT(manga_id) DO UPDATE SET adult = excluded.adult, basis = excluded.basis, checked_at = excluded.checked_at")
+      .run(mangaId, adult ? 1 : 0, basis, new Date().toISOString());
   }
 
   /**
