@@ -726,19 +726,22 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  app.get<{ Querystring: { sort?: string; adult?: string; page?: string } }>("/api/discover", async (req, reply) => {
+  app.get<{ Querystring: { sort?: string; adult?: string; page?: string; source?: string | string[] } }>("/api/discover", async (req, reply) => {
     const sort: DiscoverSort = req.query.sort === "latest" ? "latest" : "popular";
     const adult = req.query.adult === "1";
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const other = sortOf(req.query.sort);
+    // Only these sources (by id), when you picked some.
+    const picked = new Set(([] as string[]).concat(req.query.source ?? []).filter(Boolean));
+    const within = (only?: (s: EngineSource) => boolean) => (picked.size === 0 ? only : (s: EngineSource) => picked.has(s.id) && (!only || only(s)));
     try {
       // Popular and Latest use each site's own lists; other orders go through each site's sort filter.
       const page = pageOf(req.query.page);
       if (other === "rating" || other === "newest" || other === "az") {
-        const run = (scope: Scope, only?: (s: EngineSource) => boolean) => browseByGenres(config, [], { sort: other, fetchImpl, onResult: report, scope, page, only });
+        const run = (scope: Scope, only?: (s: EngineSource) => boolean) => browseByGenres(config, [], { sort: other, fetchImpl, onResult: report, scope, page, only: within(only) });
         return await ranked(adult ? await adultWithMixed(run) : await run("safe"), other);
       }
-      const run = (scope: Scope, only?: (s: EngineSource) => boolean) => discover(config, sort, { fetchImpl, onResult: report, scope, page, only });
+      const run = (scope: Scope, only?: (s: EngineSource) => boolean) => discover(config, sort, { fetchImpl, onResult: report, scope, page, only: within(only) });
       return await ranked(adult ? await adultWithMixed(run) : await run("safe"), sort);
     } catch (err) {
       req.log.error(err);

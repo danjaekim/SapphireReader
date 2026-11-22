@@ -1,12 +1,12 @@
 import { Loading } from "./Loading";
-import { browse, search, sources as loadSources } from "./api";
-import { FilterBar } from "./FilterBar";
+import { browse, search } from "./api";
+import { FilterBar, useSourceChoices } from "./FilterBar";
 import { Results } from "./Results";
 import { navigate, pageHref } from "./route";
 import { usePaged } from "./usePaged";
 import { sortFrom, unsortedNote } from "./SortSelect";
 import { rememberSearch, SearchStart } from "./SearchStart";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 /**
  * Search box plus stackable genre filters, with results that keep loading as you scroll.
@@ -18,15 +18,7 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
   const seed = params.get("seed") ?? undefined;
   const sort = sortFrom(params.get("sort"));
   const picked = params.getAll("source");
-  // The sources you can limit a search to (18+ ones only while 18+ mode is on).
-  const [sourceList, setSourceList] = useState<{ id: string; name: string }[]>([]);
-  useEffect(() => {
-    const adultOn = scopeTag === "true";
-    loadSources().then(
-      (r) => setSourceList(r.sources.filter((x) => !x.hidden && (adultOn || !x.isNsfw)).map((x) => ({ id: x.id, name: x.name })).sort((a, b) => a.name.localeCompare(b.name))),
-      () => setSourceList([]),
-    );
-  }, [scopeTag]);
+  const sourceList = useSourceChoices("search", scopeTag === "true");
 
   const active = genres.length > 0 || q.length >= 2;
   const { result, busy, error, more, loadMore } = usePaged(

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { genreList, type GenreScope } from "./api";
+import { genreList, sources as loadSources, type GenreScope } from "./api";
 import { canonKey, canonLabel } from "./genres";
 import { Loading } from "./Loading";
 import { SORT_LABELS, type SortKey } from "./SortSelect";
@@ -143,6 +143,28 @@ export function FilterBar({
       {sheet && <GenreSheet selected={genres} scope={scope} onApply={(g) => { setSheet(false); if (g.join("|") !== genres.join("|")) onGenres(g); }} onClose={() => setSheet(false)} />}
     </>
   );
+}
+
+/**
+ * The sources a list can be limited to: for Search, every source you can search right now; for
+ * Discover, its regular sources, and for Discover (18+), the 18+ sources plus the mixed ones it checks.
+ */
+export function useSourceChoices(kind: "search" | "discover" | "discover-18", adultOn: boolean): { id: string; name: string }[] {
+  const [list, setList] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    loadSources().then(
+      (r) =>
+        setList(
+          r.sources
+            .filter((x) => !x.hidden)
+            .filter((x) => (kind === "search" ? adultOn || !x.isNsfw : kind === "discover" ? !x.isNsfw : x.isNsfw || x.checkTitles !== false))
+            .map((x) => ({ id: x.id, name: x.name }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        ),
+      () => setList([]),
+    );
+  }, [kind, adultOn]);
+  return list;
 }
 
 /** True while the person is scrolling down the page (past the first screenful), so the bar can get out of the way. */

@@ -6,6 +6,8 @@ export interface SourceHit {
   thumbnailUrl: string | null;
 }
 
+const sourceQs = (ids?: string[]) => (ids ?? []).map((id) => `&source=${encodeURIComponent(id)}`).join("");
+
 export interface SeriesGroup {
   key: string;
   title: string;
@@ -212,7 +214,6 @@ export interface BrowseResult extends SearchResult {
 export type GenreScope = "safe" | "adult";
 const scopeQs = (scope?: GenreScope) => (scope ? `&scope=${scope}` : "");
 const sortQs = (sort?: string) => (sort && sort !== "relevance" ? `&sort=${sort}` : "");
-const sourceQs = (ids?: string[]) => (ids ?? []).map((id) => `&source=${encodeURIComponent(id)}`).join("");
 export const browse = (genres: string[], q: string, page = 1, scope?: GenreScope, seed?: string, sort?: string, sourceIds?: string[]) =>
   getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}&page=${page}${scopeQs(scope)}${seed ? `&seed=${encodeURIComponent(seed)}` : ""}${sortQs(sort)}${sourceQs(sourceIds)}`);
 export const genreList = (scope?: GenreScope) =>
@@ -234,8 +235,8 @@ export const refreshExtensionList = () =>
 export const changeExtension = (pkg: string, action: "install" | "update" | "uninstall") =>
   send("POST", `/api/extensions/${pkg}/${action}`) as Promise<{ extension: ExtensionInfo }>;
 
-export const discoverList = (sort: "popular" | "latest" | "rating" | "newest" | "az", adult = false, page = 1) =>
-  getJson<BrowseResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}&page=${page}`);
+export const discoverList = (sort: "popular" | "latest" | "rating" | "newest" | "az", adult = false, page = 1, sourceIds?: string[]) =>
+  getJson<BrowseResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}&page=${page}${sourceQs(sourceIds)}`);
 export const alsoLiked = (adult = false) =>
   getJson<{ rows: { from: string; groups: SeriesGroup[] }[] }>(`/api/for-you/also-liked${adult ? "?adult=1" : ""}`);
 export interface DeepRow {

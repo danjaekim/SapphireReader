@@ -2,20 +2,21 @@ import { Loading } from "./Loading";
 import { tidyTitle } from "./titles";
 import { alsoLiked, browse, deepForYou, discoverList, forYou, setNotInterested, type SearchResult, type DeepRow, type SeriesGroup, type Shelf } from "./api";
 import { canonLabel } from "./genres";
-import { FilterBar } from "./FilterBar";
+import { FilterBar, useSourceChoices } from "./FilterBar";
 import { Results } from "./Results";
 import { navigate, pageHref, type PageName } from "./route";
 import { clearPagedCache, usePaged } from "./usePaged";
 import { Fragment, useEffect, useState } from "react";
 import { sortFrom, unsortedNote } from "./SortSelect";
 
-type Mode = "for-you" | "popular" | "latest" | "rating" | "newest";
+type Mode = "for-you" | "popular" | "latest" | "rating" | "newest" | "az";
 const MODES: { id: Mode; label: string }[] = [
   { id: "for-you", label: "For you" },
   { id: "popular", label: "Popular" },
   { id: "latest", label: "Latest" },
   { id: "rating", label: "Top rated" },
   { id: "newest", label: "Newest" },
+  { id: "az", label: "A–Z" },
 ];
 
 /**
@@ -139,13 +140,15 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
   const genres = params.getAll("genre");
   const seed = params.get("seed") ?? undefined;
   const sort = sortFrom(params.get("sort"));
+  const picked = params.getAll("source");
+  const sourceList = useSourceChoices(adult ? "discover-18" : "discover", adult);
   const [empty, setEmpty] = useState<string | undefined>();
 
   const { result, busy, error, more, loadMore } = usePaged(
     async (p): Promise<SearchResult> => {
       if (p === 1) setEmpty(undefined);
       if (genres.length > 0) {
-        const b = await browse(genres, "", p, adult ? "adult" : "safe", seed, sort);
+        const b = await browse(genres, "", p, adult ? "adult" : "safe", seed, sort, picked);
         const notes = [b.textFallback ? "No series matched those genres exactly, so these are plain text-search results for them." : undefined, unsortedNote(b.unsorted)].filter(Boolean);
         return { ...b, note: notes.length ? notes.join(" ") : undefined };
       }
@@ -165,10 +168,10 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
         const shelves = f.shelves ?? [];
         return { groups: f.groups, failed: [], searched: 0, shelves, note: f.because.length && f.groups.length ? `Because you like ${f.because.join(", ")}.` : undefined } as SearchResult & { shelves: Shelf[] };
       }
-      const list = await discoverList(mode, adult, p);
+      const list = await discoverList(mode, adult, p, picked);
       return { ...list, note: unsortedNote(list.unsorted) };
     },
-    `${page}|${scopeTag}|${mode}|${genres.join(",")}|${seed ?? ""}|${sort}`,
+    `${page}|${scopeTag}|${mode}|${genres.join(",")}|${seed ?? ""}|${sort}|${mode === "for-you" && genres.length === 0 ? "" : picked.join(",")}`,
   );
 
   const dismiss = (g: SeriesGroup, on: boolean) => {
@@ -179,12 +182,14 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
   return (
     <section>
       <FilterBar
-        tabs={{ items: MODES, active: genres.length === 0 ? mode : null, onPick: (id) => navigate(pageHref(page, { mode: id })) }}
+        tabs={{ items: MODES, active: genres.length === 0 ? mode : null, onPick: (id) => navigate(pageHref(page, { mode: id, source: id === "for-you" ? undefined : picked })) }}
         genres={genres}
         scope={adult ? "adult" : "safe"}
-        onGenres={(g) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: g, seed, sort: sort === "relevance" ? undefined : sort }))}
+        onGenres={(g) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: g, seed, sort: sort === "relevance" ? undefined : sort, source: picked }))}
         sort={genres.length > 0 ? sort : undefined}
-        onSort={(next) => navigate(pageHref(page, { genre: genres, seed, sort: next === "relevance" ? undefined : next }))}
+        onSort={(next) => navigate(pageHref(page, { genre: genres, seed, sort: next === "relevance" ? undefined : next, source: picked }))}
+        // For you picks from your taste across every source, so it isn't limited by source.
+        sources={mode === "for-you" && genres.length === 0 ? undefined : { list: sourceList, selected: picked, onChange: (ids) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: genres, seed, sort: sort === "relevance" ? undefined : sort, source: ids })) }}
       />
       {error && <p className="bad">{error}</p>}
       {busy && <Loading label="Asking your sources. This can take several seconds." />}
