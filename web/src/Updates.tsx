@@ -92,7 +92,7 @@ export function Updates() {
               <span> · {chapterText(u.latestNumber)}{u.newCount > 1 ? ` (+${u.newCount})` : ""}</span>
               <div className="muted small">
                 {u.sourceName ?? "source"} · {ago(u.detectedAt)}
-                {u.caughtUp && <span className="tag"> you were caught up</span>}
+                {u.caughtUp && <span className="tag caughtTag">you were caught up</span>}
               </div>
             </div>
             <a className="button small" href={seriesHref(u.mangaId)}>Open</a>
