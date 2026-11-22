@@ -33,6 +33,8 @@ import {
   fetchPageUrls,
   listSources,
   setAdultOverrides,
+  setTitleAliases,
+  rawTitleKey,
   adultOverrideFor,
   groupKey,
   latestFromChapters,
@@ -201,8 +203,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       return new Set();
     }
   };
-  /** Adult because its source is an 18+ one, or because you marked the title 18+. */
+  /** Whether a source is an 18+ one (by the extension's flag or your setting for the source). */
   const adultSourceOf = async (sourceId: string) => (await listSources(config, fetchImpl).catch(() => [])).find((x) => x.id === sourceId)?.isNsfw === true;
+  /** Adult or not: your mark on the title wins, otherwise its source decides. */
+  const adultFor = async (sourceId: string, title: string) => store.adultMark(title) ?? (await adultSourceOf(sourceId));
 
   // --- Hidden tags: series with any of these tags never show up in lists ----------------------------
   function tagSetting(key: string): string[] {
@@ -328,7 +332,14 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
    * with "Check each title" on). Mixed sources' lists are fetched like any other, then only the
    * series found to be adult are kept.
    */
+  /** adultWithMixedAll, without the titles you marked not 18+ (they belong on the regular pages). */
   async function adultWithMixed<T extends SearchResult>(run: (scope: Scope, only?: (s: EngineSource) => boolean) => Promise<T>): Promise<T> {
+    const res = await adultWithMixedAll(run);
+    const safe = store.safeMarkedKeys();
+    return safe.size === 0 ? res : { ...res, groups: res.groups.filter((g) => !safe.has(g.key)) };
+  }
+
+  async function adultWithMixedAll<T extends SearchResult>(run: (scope: Scope, only?: (s: EngineSource) => boolean) => Promise<T>): Promise<T> {
     const skip = noCheck();
     const [adultRes, mixed] = await Promise.all([run("adult"), run("safe", (s) => !skip.has(s.id)).catch(() => null)]);
     if (!mixed || mixed.groups.length === 0) return adultRes;
@@ -361,15 +372,33 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
 
   const sortOf = (v: string | undefined): SortKey => (SORT_KEYS.includes(v as SortKey) ? (v as SortKey) : "relevance");
 
-  app.get<{ Querystring: { q?: string; page?: string; sort?: string } }>("/api/search", async (req, reply) => {
+  app.get<{ Querystring: { q?: string; page?: string; sort?: string; source?: string | string[] } }>("/api/search", async (req, reply) => {
     const q = (req.query.q ?? "").trim();
     if (q.length < 2) return reply.code(400).send({ error: "Type at least 2 characters." });
     const sort = sortOf(req.query.sort);
+    // Only these sources (by id), when you picked some.
+    const picked = new Set(([] as string[]).concat(req.query.source ?? []).filter(Boolean));
+    const only = picked.size > 0 ? (s: EngineSource) => picked.has(s.id) : undefined;
+    const scope = scopeFor(req);
+    const page = pageOf(req.query.page);
     try {
       if (sort !== "relevance") {
-        return await ranked(await browseByGenres(config, [], { query: q, sort, fetchImpl, onResult: report, scope: scopeFor(req), page: pageOf(req.query.page) }), sort);
+        return await ranked(await browseByGenres(config, [], { query: q, sort, fetchImpl, onResult: report, scope, page, only }), sort);
       }
-      return await searchAll(config, q, { fetchImpl, onResult: report, scope: scopeFor(req), page: pageOf(req.query.page) });
+      // With 18+ mode locked, titles you marked not 18+ on 18+ sources still turn up.
+      const safe = scope === "safe" ? store.safeMarkedKeys() : new Set<string>();
+      const [res, extra] = await Promise.all([
+        searchAll(config, q, { fetchImpl, onResult: report, scope, page, only }),
+        safe.size > 0 ? searchAll(config, q, { fetchImpl, scope: "adult", page, only }).catch(() => null) : Promise.resolve(null),
+      ]);
+      if (!extra) return res;
+      const groups = [...res.groups];
+      for (const g of extra.groups.filter((x) => safe.has(x.key))) {
+        const have = groups.find((x) => x.key === g.key);
+        if (have) have.hits.push(...g.hits);
+        else groups.push(g);
+      }
+      return { ...res, groups };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -538,13 +567,15 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  app.get<{ Querystring: { genres?: string; q?: string; page?: string; scope?: string; seed?: string; sort?: string } }>("/api/browse", async (req, reply) => {
+  app.get<{ Querystring: { genres?: string; q?: string; page?: string; scope?: string; seed?: string; sort?: string; source?: string | string[] } }>("/api/browse", async (req, reply) => {
+    const picked = new Set(([] as string[]).concat(req.query.source ?? []).filter(Boolean));
+    const only = picked.size > 0 ? (s: EngineSource) => picked.has(s.id) : undefined;
     const genres = (req.query.genres ?? "").split(",").map((g) => g.trim()).filter(Boolean).slice(0, 10);
     const q = (req.query.q ?? "").trim();
     if (genres.length === 0) return reply.code(400).send({ error: "Pick at least one genre." });
     try {
       const sort = sortOf(req.query.sort);
-      return await ranked(await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: requestedScope(req), sort, page: pageOf(req.query.page), seed: /^\d+$/.test(req.query.seed ?? "") ? Number(req.query.seed) : undefined }), sort);
+      return await ranked(await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: requestedScope(req), sort, page: pageOf(req.query.page), only, seed: /^\d+$/.test(req.query.seed ?? "") ? Number(req.query.seed) : undefined }), sort);
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -595,6 +626,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   }
   setAdultOverrides(loadAdultOverrides());
+  setTitleAliases(store.titleAliases());
 
   app.get("/api/sources", async (req, reply) => {
     try {
@@ -657,8 +689,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
       const manga = await fetchMangaDetails(config, id, fetchImpl);
-      const found = await searchAll(config, manga.title, { fetchImpl, onResult: report, scope: scopeFor(req) });
-      const hits = (found.groups.find((g) => g.key === groupKey(manga.title))?.hits ?? [])
+      // Merged series are listed under other names too, so look each one up.
+      const names = [manga.title, ...mergedWith(manga.title).map((m) => m.title)].slice(0, 4);
+      const found = await Promise.all(names.map((n) => searchAll(config, n, { fetchImpl, onResult: report, scope: scopeFor(req) }).catch(() => null)));
+      const key = groupKey(manga.title);
+      const hits = found
+        .flatMap((f) => f?.groups.find((g) => g.key === key)?.hits ?? [])
+        .filter((h, i, all) => all.findIndex((x) => x.mangaId === h.mangaId) === i)
         .filter((h) => h.mangaId !== id && h.sourceId !== manga.sourceId)
         .slice(0, 6);
       const alternatives = await Promise.all(
@@ -822,7 +859,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const manga = await detailsFor(id).catch(() => null);
       if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
       if ((manga.genre ?? []).length > 0) store.recordSeriesTags(id, manga.genre);
-      const adult = (await adultSourceOf(manga.sourceId)) || store.adultMarked(manga.title) || store.seriesAdult([id]).get(id) === true;
+      const adult = store.adultMark(manga.title) ?? ((await adultSourceOf(manga.sourceId)) || store.seriesAdult([id]).get(id) === true);
       store.setLiked(id, manga.title, adult, true);
     }
     forYouCache.clear();
@@ -831,22 +868,78 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return { liked: on };
   });
 
-  // Mark a title 18+ yourself (for series on ordinary sources that are really adult), or take it back.
-  // Taking it back needs 18+ mode unlocked, since it would reveal the title.
-  app.put<{ Params: { id: string }; Body: { on?: unknown } }>("/api/manga/:id/adult", async (req, reply) => {
+  // Your own call on whether a title is 18+: true (18+, e.g. a series on an ordinary source that's
+  // really adult), false (not 18+, e.g. a safe series on a mixed source you set to 18+), or null (go
+  // by its source again). Anything that would reveal a title (not 18+, or clearing an 18+ mark) needs
+  // 18+ mode unlocked.
+  app.put<{ Params: { id: string }; Body: { mark?: unknown; on?: unknown } }>("/api/manga/:id/adult", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
-    const on = req.body?.on !== false;
-    if (!on && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    const body = req.body ?? {};
+    const mark = "mark" in body ? body.mark : body.on === false ? null : true;
+    if (mark !== true && mark !== false && mark !== null) return reply.code(400).send({ error: "mark is true, false or null." });
+    if (mark !== true && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const manga = await detailsFor(id).catch(() => null);
     if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
-    if (await adultSourceOf(manga.sourceId)) return reply.code(400).send({ error: "This series is on an 18+ source, so it's already 18+." });
-    store.setAdultMarked(manga.title, on);
+    const sources = await listSources(config, fetchImpl).catch(() => []);
+    const adultIds = new Set(sources.filter((x) => x.isNsfw).map((x) => x.id));
+    const adultNames = new Set(sources.filter((x) => x.isNsfw).map((x) => x.name));
+    store.setAdultMark(manga.title, mark, (src) => (!!src.id && adultIds.has(src.id)) || (!!src.name && adultNames.has(src.name)));
     forYouCache.clear();
     alsoLikedCache.clear();
     deepCache.clear();
     similarCache.clear();
-    return { markedAdult: on };
+    return { mark };
+  });
+
+  // ---- Merged titles: differently named listings of the same series count as one ----------------
+  /** The other names this title is merged with (the canonical one first), for the series page. */
+  function mergedWith(title: string): { key: string; title: string; canon: boolean }[] {
+    const canon = normalizeTitle(title);
+    const own = rawTitleKey(title);
+    const out: { key: string; title: string; canon: boolean }[] = [];
+    const canonTitle = store.canonTitle(canon);
+    if (canonTitle && canon !== own) out.push({ key: canon, title: canonTitle, canon: true });
+    for (const n of store.mergedNames(canon)) if (n.key !== own) out.push({ ...n, canon: false });
+    return out;
+  }
+  const mergesChanged = () => {
+    setTitleAliases(store.titleAliases());
+    forYouCache.clear();
+    alsoLikedCache.clear();
+    deepCache.clear();
+    similarCache.clear();
+    chapterCache.clear();
+  };
+  // Merge another listing (by its title) into this series.
+  app.post<{ Params: { id: string }; Body: { title?: unknown } }>("/api/manga/:id/merge", async (req, reply) => {
+    const id = Number(req.params.id);
+    const other = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+    if (!Number.isInteger(id) || id < 0 || !other) return reply.code(400).send({ error: "Needs the series and the title to merge." });
+    const manga = await detailsFor(id).catch(() => null);
+    if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+    const canon = normalizeTitle(manga.title);
+    const aliasKey = rawTitleKey(other);
+    if (!aliasKey || normalizeTitle(other) === canon) return { mergedWith: mergedWith(manga.title) };
+    // The series' current name stays the main one; if it's itself merged into another, that one does.
+    store.mergeTitles(aliasKey, other, canon, store.canonTitle(canon) ?? manga.title);
+    // Anything already merged under the other title follows it.
+    const otherCanon = normalizeTitle(other);
+    if (otherCanon !== aliasKey) store.mergeTitles(otherCanon, store.canonTitle(otherCanon) ?? other, canon, store.canonTitle(canon) ?? manga.title);
+    mergesChanged();
+    return { mergedWith: mergedWith(manga.title) };
+  });
+  app.delete<{ Params: { id: string; key: string } }>("/api/manga/:id/merge/:key", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    const manga = await detailsFor(id).catch(() => null);
+    if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+    // Taking this series' own name out of a merge is the same as taking the merge apart from this side.
+    const key = req.params.key;
+    const own = rawTitleKey(manga.title);
+    store.unmergeTitle(store.titleAliases().has(key) ? key : own);
+    mergesChanged();
+    return { mergedWith: mergedWith(manga.title) };
   });
 
   // "Not interested" on a recommendation: it's never suggested again, and its tags count a little against.
@@ -925,8 +1018,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         store.setGenres(id, manga.genre);
       }
       const adultSource = await adultSourceOf(manga.sourceId);
-      const markedAdult = store.adultMarked(manga.title);
-      const adult = adultSource || markedAdult;
+      const mark = store.adultMark(manga.title);
+      const adult = mark ?? adultSource;
       store.recordSeriesMeta(id, manga.title, manga.sourceName, adult);
       // Reading done before this existed (or on this source) is remembered by chapter number so other sources can pick it up.
       const doneHere = new Set(store.readChapterIds(id));
@@ -945,7 +1038,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         about: parseDescription(manga.description, manga.title),
         adult,
         adultSource,
-        markedAdult,
+        markedAdult: mark === true,
+        markedSafe: mark === false,
+        mergedWith: mergedWith(manga.title),
         reader: readerPrefs(id, manga.sourceId, deviceOf(req)),
         liked: store.isLiked(id),
         chapters,
@@ -991,7 +1086,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       chapters.every((c) => Number.isInteger(c.id) && typeof c.name === "string" && typeof c.number === "number");
     if (!valid) return reply.code(400).send({ error: "Bad request." });
     const sourceId = String(b.sourceId ?? "");
-    const adult = (await adultSourceOf(sourceId)) || store.adultMarked(b.title as string);
+    const adult = await adultFor(sourceId, b.title as string);
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const queued = store.queueDownloads(
       { mangaId: b.mangaId as number, title: b.title as string, sourceName: typeof b.sourceName === "string" ? b.sourceName : null, adult },
@@ -1105,7 +1200,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const id = Number(req.params.id);
       const { sourceId, sourceName = null, title } = req.body ?? {};
       if (!Number.isInteger(id) || id < 0 || !sourceId || !title) return reply.code(400).send({ error: "Bad request." });
-      const adult = (await adultSourceOf(sourceId)) || store.adultMarked(title);
+      const adult = await adultFor(sourceId, title);
       if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
       store.addToLibrary({ mangaId: id, sourceId, sourceName, title, adult });
       try {

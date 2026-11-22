@@ -257,6 +257,14 @@ export class Store {
     // Series you liked (♥): a strong signal for recommendations, whether or not they're in the library.
     // Titles you marked 18+ yourself (by normalized title, so every source of the series counts).
     this.db.exec("CREATE TABLE IF NOT EXISTS adult_override (title_key TEXT PRIMARY KEY, title TEXT NOT NULL, at TEXT NOT NULL)");
+    // 1: you marked it 18+; 0: you marked it not 18+ (for a title on an 18+ or mixed source that isn't).
+    try {
+      this.db.exec("ALTER TABLE adult_override ADD COLUMN adult INTEGER NOT NULL DEFAULT 1");
+    } catch {
+      // Already there.
+    }
+    // Titles you merged: each alias counts as the same series as its canonical title (see search.ts).
+    this.db.exec("CREATE TABLE IF NOT EXISTS title_alias (alias_key TEXT PRIMARY KEY, alias_title TEXT NOT NULL, canon_key TEXT NOT NULL, canon_title TEXT NOT NULL, at TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS likes (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
     // Series marked "Not interested" in recommendations: never suggested again, and their tags count against.
     this.db.exec("CREATE TABLE IF NOT EXISTS not_interested (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
@@ -402,54 +410,115 @@ export class Store {
       .run(key, m.anilistId, m.score, m.popularity, m.banner ?? null, m.adult == null ? null : m.adult ? 1 : 0, new Date().toISOString());
   }
 
+  /** Your own call on a title: true (18+), false (not 18+), or null (go by its source). */
+  adultMark(title: string): boolean | null {
+    const key = normalizeTitle(title);
+    if (!key) return null;
+    const r = this.db.prepare("SELECT adult FROM adult_override WHERE title_key = ?").get(key) as { adult: number } | undefined;
+    return r ? r.adult === 1 : null;
+  }
+
   /** True when you marked this title 18+ yourself. */
   adultMarked(title: string): boolean {
-    const key = normalizeTitle(title);
-    return !!key && this.db.prepare("SELECT 1 FROM adult_override WHERE title_key = ?").get(key) !== undefined;
+    return this.adultMark(title) === true;
+  }
+
+  /** Titles you marked not 18+, as normalized keys. */
+  safeMarkedKeys(): Set<string> {
+    const rows = this.db.prepare("SELECT title_key FROM adult_override WHERE adult = 0").all() as { title_key: string }[];
+    return new Set(rows.map((r) => r.title_key));
   }
 
   /**
-   * Marks (or unmarks) a title as 18+ across the app: every place that remembers whether a series is
-   * adult (library, history, likes, downloads, updates, not-interested, the adult check) is updated for
-   * every source of it, so it moves to the 18+ side and out of regular lists and notifications.
+   * Marks a title 18+ (true), not 18+ (false), or clears your mark (null), across the app: every place
+   * that remembers whether a series is adult (library, history, likes, downloads, updates,
+   * not-interested, the adult check) is updated for every source of it, so it moves to the right side.
+   * `sourceAdult` says whether a source (by id or name) is an 18+ one, for when a mark is cleared.
    */
-  setAdultMarked(title: string, on: boolean): void {
+  setAdultMark(title: string, mark: boolean | null, sourceAdult: (source: { id?: string | null; name?: string | null }) => boolean = () => false): void {
     const key = normalizeTitle(title);
     if (!key) return;
-    if (on) {
-      this.db
-        .prepare("INSERT INTO adult_override (title_key, title, at) VALUES (?, ?, ?) ON CONFLICT(title_key) DO UPDATE SET at = excluded.at")
-        .run(key, title, new Date().toISOString());
-    } else {
+    const before = this.adultMark(title);
+    if (mark === null) {
       this.db.prepare("DELETE FROM adult_override WHERE title_key = ?").run(key);
+    } else {
+      this.db
+        .prepare("INSERT INTO adult_override (title_key, title, at, adult) VALUES (?, ?, ?, ?) ON CONFLICT(title_key) DO UPDATE SET at = excluded.at, adult = excluded.adult")
+        .run(key, title, new Date().toISOString(), mark ? 1 : 0);
     }
-    const flag = on ? 1 : 0;
-    const touch = (table: string, idCol: string, titleCol: string) => {
-      const rows = this.db.prepare(`SELECT ${idCol} AS id, ${titleCol} AS title FROM ${table}`).all() as { id: number; title: string }[];
-      const set = this.db.prepare(`UPDATE ${table} SET adult = ? WHERE ${idCol} = ?`);
-      for (const r of rows) if (normalizeTitle(r.title) === key) set.run(flag, r.id);
-      return rows.filter((r) => normalizeTitle(r.title) === key).map((r) => r.id);
-    };
+    // With the mark gone, each row goes back to what its source says; rows that don't record a
+    // source go back to the opposite of the mark that's being cleared.
+    const flagFor = (src: { id?: string | null; name?: string | null } | null) =>
+      mark !== null ? (mark ? 1 : 0) : src && (src.id || src.name) ? (sourceAdult(src) ? 1 : 0) : before === false ? 1 : 0;
     const ids = new Set<number>();
-    for (const [table, idCol, titleCol] of [
-      ["library", "manga_id", "title"],
-      ["series_meta", "manga_id", "title"],
-      ["likes", "manga_id", "title"],
-      ["not_interested", "manga_id", "title"],
-      ["downloads", "chapter_id", "manga_title"],
-      ["updates", "id", "title"],
-    ] as const) {
+    const tables: { table: string; idCol: string; titleCol: string; srcId?: string; srcName?: string }[] = [
+      { table: "library", idCol: "manga_id", titleCol: "title", srcId: "source_id", srcName: "source_name" },
+      { table: "series_meta", idCol: "manga_id", titleCol: "title", srcName: "source_name" },
+      { table: "likes", idCol: "manga_id", titleCol: "title" },
+      { table: "not_interested", idCol: "manga_id", titleCol: "title" },
+      { table: "downloads", idCol: "chapter_id", titleCol: "manga_title", srcName: "source_name" },
+      { table: "updates", idCol: "id", titleCol: "title", srcName: "source_name" },
+    ];
+    for (const t of tables) {
       try {
-        const got = touch(table, idCol, titleCol);
-        if (table === "library" || table === "series_meta") got.forEach((id) => ids.add(id));
+        const cols = [`${t.idCol} AS id`, `${t.titleCol} AS title`, t.srcId ? `${t.srcId} AS srcId` : "NULL AS srcId", t.srcName ? `${t.srcName} AS srcName` : "NULL AS srcName"];
+        const rows = this.db.prepare(`SELECT ${cols.join(", ")} FROM ${t.table}`).all() as { id: number; title: string; srcId: string | null; srcName: string | null }[];
+        const set = this.db.prepare(`UPDATE ${t.table} SET adult = ? WHERE ${t.idCol} = ?`);
+        for (const r of rows) {
+          if (normalizeTitle(r.title) !== key) continue;
+          set.run(flagFor(r.srcId || r.srcName ? { id: r.srcId, name: r.srcName } : null), r.id);
+          if (t.table === "library" || t.table === "series_meta") ids.add(r.id);
+        }
       } catch {
         // A table without that column on an old database: nothing to update there.
       }
     }
     for (const id of ids) {
-      if (on) this.putSeriesAdult(id, true, "manual");
+      if (mark !== null) this.putSeriesAdult(id, mark, "manual");
       else this.db.prepare("DELETE FROM series_adult WHERE manga_id = ?").run(id);
     }
+  }
+
+  /** Kept for callers that only mark 18+ on and off. */
+  setAdultMarked(title: string, on: boolean): void {
+    this.setAdultMark(title, on ? true : null);
+  }
+
+  // ---- Merged titles ----------------------------------------------------------------------------
+  /** Every merge, as alias key -> canonical key. */
+  titleAliases(): Map<string, string> {
+    const rows = this.db.prepare("SELECT alias_key, canon_key FROM title_alias").all() as { alias_key: string; canon_key: string }[];
+    return new Map(rows.map((r) => [r.alias_key, r.canon_key]));
+  }
+
+  /** The other names merged with this canonical key (as they were written). */
+  mergedNames(canonKey: string): { key: string; title: string }[] {
+    const rows = this.db.prepare("SELECT alias_key, alias_title FROM title_alias WHERE canon_key = ? ORDER BY at").all(canonKey) as { alias_key: string; alias_title: string }[];
+    return rows.map((r) => ({ key: r.alias_key, title: r.alias_title }));
+  }
+
+  /** The canonical title for a key (the name it's shown and searched under), if it has merges. */
+  canonTitle(canonKey: string): string | null {
+    const r = this.db.prepare("SELECT canon_title FROM title_alias WHERE canon_key = ? LIMIT 1").get(canonKey) as { canon_title: string } | undefined;
+    return r?.canon_title ?? null;
+  }
+
+  /**
+   * Makes `aliasKey` the same series as `canonKey`. Both are raw normalized keys (no aliasing applied).
+   * Anything already merged into the alias moves to the canonical title too.
+   */
+  mergeTitles(aliasKey: string, aliasTitle: string, canonKey: string, canonTitle: string): void {
+    if (!aliasKey || !canonKey || aliasKey === canonKey) return;
+    const now = new Date().toISOString();
+    this.db.prepare("UPDATE title_alias SET canon_key = ?, canon_title = ? WHERE canon_key = ?").run(canonKey, canonTitle, aliasKey);
+    this.db.prepare("DELETE FROM title_alias WHERE alias_key = ?").run(canonKey);
+    this.db
+      .prepare("INSERT INTO title_alias (alias_key, alias_title, canon_key, canon_title, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(alias_key) DO UPDATE SET canon_key = excluded.canon_key, canon_title = excluded.canon_title, at = excluded.at")
+      .run(aliasKey, aliasTitle, canonKey, canonTitle, now);
+  }
+
+  unmergeTitle(aliasKey: string): void {
+    this.db.prepare("DELETE FROM title_alias WHERE alias_key = ?").run(aliasKey);
   }
 
   seriesAdult(ids: number[]): Map<number, boolean> {

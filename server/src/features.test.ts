@@ -278,3 +278,49 @@ describe("marking a title 18+", () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe("marking a title not 18+", () => {
+  it("brings a series on an 18+ source over to the regular side, and back when cleared", async () => {
+    const { classifyAdult } = await import("./adultcheck.js");
+    const store = new Store(":memory:");
+    store.addToLibrary({ mangaId: 1, sourceId: "tg", sourceName: "ToonGod", title: "Safe Romance", adult: true });
+    expect(store.library().map((i) => i.title)).toEqual([]);
+    store.setAdultMark("Safe Romance", false);
+    expect(store.adultMark("safe romance")).toBe(false);
+    expect(store.library().map((i) => i.title)).toEqual(["Safe Romance"]);
+    expect(store.safeMarkedKeys()).toEqual(new Set(["safe romance"]));
+    expect((await classifyAdult(store, [{ mangaId: 1, title: "Safe Romance" }], { details: async () => ["Mature"] })).get(1)).toBe(false);
+    // Cleared: back to what its source says.
+    store.setAdultMark("Safe Romance", null, (src) => src.id === "tg");
+    expect(store.library().map((i) => i.title)).toEqual([]);
+  });
+});
+
+describe("merging titles", () => {
+  it("makes differently named listings group as one series, until unmerged", async () => {
+    const { groupHits, normalizeTitle, rawTitleKey, setTitleAliases } = await import("./search.js");
+    const store = new Store(":memory:");
+    const hits = [
+      { mangaId: 1, sourceId: "a", sourceName: "Asura", title: "The Return of the Crazy Demon", thumbnailUrl: null },
+      { mangaId: 2, sourceId: "b", sourceName: "Flame", title: "Return of the Mad Demon", thumbnailUrl: null },
+    ];
+    expect(groupHits(hits)).toHaveLength(2);
+    store.mergeTitles(rawTitleKey("Return of the Mad Demon"), "Return of the Mad Demon", normalizeTitle("The Return of the Crazy Demon"), "The Return of the Crazy Demon");
+    setTitleAliases(store.titleAliases());
+    try {
+      const groups = groupHits(hits);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].hits.map((h) => h.sourceName)).toEqual(["Asura", "Flame"]);
+      expect(store.mergedNames(normalizeTitle("The Return of the Crazy Demon")).map((n) => n.title)).toEqual(["Return of the Mad Demon"]);
+      // Merging a third name into the alias's group joins the same series.
+      store.mergeTitles(rawTitleKey("Crazy Demon Returns"), "Crazy Demon Returns", normalizeTitle("Return of the Mad Demon"), "The Return of the Crazy Demon");
+      setTitleAliases(store.titleAliases());
+      expect(normalizeTitle("Crazy Demon Returns")).toBe(normalizeTitle("The Return of the Crazy Demon"));
+      store.unmergeTitle(rawTitleKey("Return of the Mad Demon"));
+      setTitleAliases(store.titleAliases());
+      expect(groupHits(hits)).toHaveLength(2);
+    } finally {
+      setTitleAliases(new Map());
+    }
+  });
+});

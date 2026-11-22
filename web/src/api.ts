@@ -103,6 +103,10 @@ export interface SeriesData {
   adultSource?: boolean;
   /** You marked this title 18+ yourself. */
   markedAdult?: boolean;
+  /** You marked this title not 18+ (it's on an 18+ or mixed source). */
+  markedSafe?: boolean;
+  /** Other listings merged with this one (the main name first when this is the merged-in one). */
+  mergedWith?: { key: string; title: string; canon: boolean }[];
   reader?: ReaderPrefs & { custom: boolean; level?: "series" | "source" | "default" };
   chapters: ChapterInfo[]; // oldest first
   latest: LatestChapter;
@@ -204,8 +208,9 @@ export interface BrowseResult extends SearchResult {
 export type GenreScope = "safe" | "adult";
 const scopeQs = (scope?: GenreScope) => (scope ? `&scope=${scope}` : "");
 const sortQs = (sort?: string) => (sort && sort !== "relevance" ? `&sort=${sort}` : "");
-export const browse = (genres: string[], q: string, page = 1, scope?: GenreScope, seed?: string, sort?: string) =>
-  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}&page=${page}${scopeQs(scope)}${seed ? `&seed=${encodeURIComponent(seed)}` : ""}${sortQs(sort)}`);
+const sourceQs = (ids?: string[]) => (ids ?? []).map((id) => `&source=${encodeURIComponent(id)}`).join("");
+export const browse = (genres: string[], q: string, page = 1, scope?: GenreScope, seed?: string, sort?: string, sourceIds?: string[]) =>
+  getJson<BrowseResult>(`/api/browse?genres=${encodeURIComponent(genres.join(","))}&q=${encodeURIComponent(q)}&page=${page}${scopeQs(scope)}${seed ? `&seed=${encodeURIComponent(seed)}` : ""}${sortQs(sort)}${sourceQs(sourceIds)}`);
 export const genreList = (scope?: GenreScope) =>
   getJson<{ genres: { name: string; sources: number }[] }>(`/api/genres?${scopeQs(scope).slice(1)}`);
 
@@ -237,7 +242,10 @@ export interface DeepRow {
   groups: SeriesGroup[];
 }
 export const deepForYou = (adult = false) => getJson<{ rows: DeepRow[] }>(`/api/for-you/deep${adult ? "?adult=1" : ""}`);
-export const setMarkedAdult = (mangaId: number, on: boolean) => send("PUT", `/api/manga/${mangaId}/adult`, { on }) as Promise<{ markedAdult: boolean }>;
+export const setAdultMark = (mangaId: number, mark: boolean | null) => send("PUT", `/api/manga/${mangaId}/adult`, { mark }) as Promise<{ mark: boolean | null }>;
+type Merged = { mergedWith: { key: string; title: string; canon: boolean }[] };
+export const mergeTitle = (mangaId: number, title: string) => send("POST", `/api/manga/${mangaId}/merge`, { title }) as Promise<Merged>;
+export const unmergeTitle = (mangaId: number, key: string) => send("DELETE", `/api/manga/${mangaId}/merge/${encodeURIComponent(key)}`) as Promise<Merged>;
 export const setLiked = (mangaId: number, on: boolean) => send("PUT", `/api/manga/${mangaId}/like`, { on });
 export const setNotInterested = (mangaId: number, title: string, on: boolean, adult = false) =>
   send("PUT", `/api/manga/${mangaId}/not-interested`, { title, on, adult });
@@ -263,8 +271,8 @@ export const unlockAdult = (pin: string) => send("POST", "/api/adult/unlock", { 
 export const lockAdult = () => send("POST", "/api/adult/lock") as Promise<AdultState>;
 export const similar = (mangaId: number) => getJson<{ groups: SeriesGroup[]; basedOn?: string[] }>(`/api/manga/${mangaId}/similar`);
 
-export const search = (q: string, page = 1, sort?: string) =>
-  getJson<BrowseResult>(`/api/search?q=${encodeURIComponent(q)}&page=${page}${sortQs(sort)}`);
+export const search = (q: string, page = 1, sort?: string, sourceIds?: string[]) =>
+  getJson<BrowseResult>(`/api/search?q=${encodeURIComponent(q)}&page=${page}${sortQs(sort)}${sourceQs(sourceIds)}`);
 export const latest = (mangaId: number) => getJson<LatestChapter>(`/api/manga/${mangaId}/latest`);
 export const thumbnailUrl = (mangaId: number) => `/api/manga/${mangaId}/thumbnail`;
 

@@ -18,6 +18,7 @@ export function FilterBar({
   sort,
   onSort,
   sortOptions,
+  sources,
 }: {
   search?: { value: string; busy: boolean; canSubmitEmpty: boolean; placeholder: string; onSubmit: (text: string) => void };
   tabs?: { items: { id: string; label: string }[]; active: string | null; onPick: (id: string) => void };
@@ -27,9 +28,12 @@ export function FilterBar({
   sort?: SortKey;
   onSort?: (s: SortKey) => void;
   sortOptions?: SortKey[];
+  /** Limit to some sources: every source you can pick, the ones picked (none = all), and the change. */
+  sources?: { list: { id: string; name: string }[]; selected: string[]; onChange: (ids: string[]) => void };
 }) {
   const [sheet, setSheet] = useState(false);
-  const tucked = useTuckOnScroll(sheet);
+  const [sourceSheet, setSourceSheet] = useState(false);
+  const tucked = useTuckOnScroll(sheet || sourceSheet);
   const [text, setText] = useState(search?.value ?? "");
   useEffect(() => setText(search?.value ?? ""), [search?.value]);
 
@@ -42,7 +46,9 @@ export function FilterBar({
     }
   }
 
+  const pickedSources = sources ? sources.list.filter((x) => sources.selected.includes(x.id)) : [];
   const count = genres.length;
+  const applied = count + pickedSources.length;
   return (
     <>
       <div className={`filterBar ${tucked ? "tucked" : ""}`}>
@@ -80,6 +86,11 @@ export function FilterBar({
           <button type="button" className={`filterBtn ${count ? "on" : ""}`} onClick={() => setSheet(true)} aria-haspopup="dialog">
             <span aria-hidden="true">☰</span> {count ? `Genres · ${count}` : "Genres"}
           </button>
+          {sources && sources.list.length > 1 && (
+            <button type="button" className={`filterBtn ${sources.selected.length ? "on" : ""}`} onClick={() => setSourceSheet(true)} aria-haspopup="dialog">
+              {sources.selected.length ? `Sources · ${sources.selected.length}` : "Sources"}
+            </button>
+          )}
           {sort && onSort && (
             <label className="filterSort">
               <span className="muted">Sort</span>
@@ -91,7 +102,7 @@ export function FilterBar({
             </label>
           )}
         </div>
-        {count > 0 && (
+        {applied > 0 && (
           <div className="appliedRow" aria-label="Filters in use">
             {genres.map((g) => (
               <span key={g} className="appliedChip">
@@ -99,10 +110,36 @@ export function FilterBar({
                 <button type="button" aria-label={`Remove ${canonLabel(g)}`} onClick={() => onGenres(genres.filter((x) => x !== g))}>×</button>
               </span>
             ))}
-            <button type="button" className="linkish clearAll" onClick={() => onGenres([])}>Clear all</button>
+            {pickedSources.map((x) => (
+              <span key={`src-${x.id}`} className="appliedChip source">
+                <span>{x.name}</span>
+                <button type="button" aria-label={`Stop limiting to ${x.name}`} onClick={() => sources!.onChange(sources!.selected.filter((id) => id !== x.id))}>×</button>
+              </span>
+            ))}
+            <button
+              type="button"
+              className="linkish clearAll"
+              onClick={() => {
+                if (count) onGenres([]);
+                if (pickedSources.length) sources!.onChange([]);
+              }}
+            >
+              Clear all
+            </button>
           </div>
         )}
       </div>
+      {sourceSheet && sources && (
+        <SourceSheet
+          list={sources.list}
+          selected={sources.selected}
+          onClose={() => setSourceSheet(false)}
+          onApply={(ids) => {
+            setSourceSheet(false);
+            if (ids.join("|") !== sources.selected.join("|")) sources.onChange(ids);
+          }}
+        />
+      )}
       {sheet && <GenreSheet selected={genres} scope={scope} onApply={(g) => { setSheet(false); if (g.join("|") !== genres.join("|")) onGenres(g); }} onClose={() => setSheet(false)} />}
     </>
   );
@@ -187,6 +224,51 @@ function GenreSheet({ selected, scope, onApply, onClose }: { selected: string[];
         </div>
         <footer className="filterSheetFoot">
           <button type="button" className="button secondary" onClick={() => setDraft([])} disabled={draft.length === 0}>Reset</button>
+          <button type="button" className="button" onClick={() => onApply(draft)}>Show results</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/** Pick which sources to search; none picked means all of them. */
+function SourceSheet({ list, selected, onApply, onClose }: { list: { id: string; name: string }[]; selected: string[]; onApply: (ids: string[]) => void; onClose: () => void }) {
+  const [draft, setDraft] = useState(selected);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+  const toggle = (id: string) => setDraft((d) => (d.includes(id) ? d.filter((x) => x !== id) : [...d, id]));
+  return (
+    <div className="sheetBackdrop" onClick={onClose}>
+      <div className="sheet filterSheet sourceSheet" role="dialog" aria-modal="true" aria-label="Sources" onClick={(e) => e.stopPropagation()}>
+        <div className="sheetHandle" aria-hidden="true" />
+        <header className="filterSheetHead">
+          <h3>Sources</h3>
+          <button type="button" className="iconBtn" aria-label="Close" onClick={onClose}>×</button>
+        </header>
+        <p className="muted small">{draft.length === 0 ? "Searching all of your sources. Pick some to search only those." : `Searching only the ${draft.length} you picked.`}</p>
+        <div className="filterSheetBody">
+          <div className="tagOpts">
+            {list.map((x) => {
+              const on = draft.includes(x.id);
+              return (
+                <button key={x.id} type="button" className={`tagOpt ${on ? "on" : ""}`} aria-pressed={on} onClick={() => toggle(x.id)}>
+                  {on && <span aria-hidden="true">✓ </span>}
+                  {x.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <footer className="filterSheetFoot">
+          <button type="button" className="button secondary" onClick={() => setDraft([])} disabled={draft.length === 0}>All sources</button>
           <button type="button" className="button" onClick={() => onApply(draft)}>Show results</button>
         </footer>
       </div>

@@ -1,12 +1,12 @@
 import { Loading } from "./Loading";
-import { browse, search } from "./api";
+import { browse, search, sources as loadSources } from "./api";
 import { FilterBar } from "./FilterBar";
 import { Results } from "./Results";
 import { navigate, pageHref } from "./route";
 import { usePaged } from "./usePaged";
 import { sortFrom, unsortedNote } from "./SortSelect";
 import { rememberSearch, SearchStart } from "./SearchStart";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * Search box plus stackable genre filters, with results that keep loading as you scroll.
@@ -17,11 +17,21 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
   const genres = params.getAll("genre");
   const seed = params.get("seed") ?? undefined;
   const sort = sortFrom(params.get("sort"));
+  const picked = params.getAll("source");
+  // The sources you can limit a search to (18+ ones only while 18+ mode is on).
+  const [sourceList, setSourceList] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    const adultOn = scopeTag === "true";
+    loadSources().then(
+      (r) => setSourceList(r.sources.filter((x) => !x.hidden && (adultOn || !x.isNsfw)).map((x) => ({ id: x.id, name: x.name })).sort((a, b) => a.name.localeCompare(b.name))),
+      () => setSourceList([]),
+    );
+  }, [scopeTag]);
 
   const active = genres.length > 0 || q.length >= 2;
   const { result, busy, error, more, loadMore } = usePaged(
-    (page) => (genres.length > 0 ? browse(genres, q, page, undefined, seed, sort) : search(q, page, sort)),
-    active ? `search|${scopeTag}|${q}|${genres.join(",")}|${seed ?? ""}|${sort}` : null,
+    (page) => (genres.length > 0 ? browse(genres, q, page, undefined, seed, sort, picked) : search(q, page, sort, picked)),
+    active ? `search|${scopeTag}|${q}|${genres.join(",")}|${seed ?? ""}|${sort}|${picked.join(",")}` : null,
   );
 
   // Remember each search that brought results back, for the empty Search page.
@@ -31,9 +41,9 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, found, q, genres.join("|"), scopeTag]);
 
-  const go = (next: { q?: string; genre?: string[]; sort?: string }) => {
+  const go = (next: { q?: string; genre?: string[]; sort?: string; source?: string[] }) => {
     const s = next.sort ?? sort;
-    navigate(pageHref("search", { q: next.q ?? q, genre: next.genre ?? genres, seed, sort: s === "relevance" ? undefined : s }));
+    navigate(pageHref("search", { q: next.q ?? q, genre: next.genre ?? genres, seed, sort: s === "relevance" ? undefined : s, source: next.source ?? picked }));
   };
 
   const extra = result as { textFallback?: boolean; unsorted?: string[] } | null;
@@ -46,13 +56,14 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
           value: q,
           busy,
           canSubmitEmpty: genres.length > 0,
-          placeholder: genres.length ? "Optional: add words to narrow it down" : "Search all sources",
+          placeholder: genres.length ? "Optional: add words to narrow it down" : picked.length ? "Search the sources you picked" : "Search all sources",
           onSubmit: (text) => go({ q: text }),
         }}
         genres={genres}
         onGenres={(g) => go({ genre: g })}
         sort={sort}
         onSort={(next) => go({ sort: next })}
+        sources={{ list: sourceList, selected: picked, onChange: (ids) => go({ source: ids }) }}
       />
       {!active && <SearchStart adultOn={scopeTag === "true"} />}
       {error && <p className="bad">{error}</p>}

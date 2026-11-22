@@ -1,7 +1,7 @@
 import { Loading } from "./Loading";
 import { tidyTitle } from "./titles";
-import { useEffect, useRef, useState } from "react";
-import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setMarkedAdult, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -192,6 +192,18 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [attempt, setAttempt] = useState(0);
   const [newestFirst, setNewestFirst] = useState(true);
   const [fullDesc, setFullDesc] = useState(false);
+  // "Show more" only when the description is really cut off at this width.
+  const descRef = useRef<HTMLParagraphElement | null>(null);
+  const [descCut, setDescCut] = useState(false);
+  useEffect(() => {
+    const el = descRef.current;
+    if (!el || fullDesc) return;
+    const measure = () => setDescCut(el.scrollHeight > el.clientHeight + 2);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
   const [allTags, setAllTags] = useState(false);
   // Favorite tags (the regular or 18+ list, whichever this series belongs to); star mode lets you pick them here.
   const [favs, setFavs] = useState<string[] | null>(null);
@@ -296,10 +308,12 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     };
   }, [mangaId, loaded]);
 
+  // Bumped after a merge, so "Also on" looks again under every merged name.
+  const [altRun, setAltRun] = useState(0);
   useEffect(() => {
     setOthers(null);
     alternatives(mangaId).then((r) => setOthers(r.alternatives), () => setOthers([]));
-  }, [mangaId]);
+  }, [mangaId, altRun]);
 
   useEffect(() => {
     setData(null);
@@ -335,20 +349,40 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   }
 
   const [adultNote, setAdultNote] = useState<string | null>(null);
-  async function toggleMarkedAdult() {
+  /** Your own call on 18+: true, false (not 18+), or null (go by the source again). */
+  async function changeAdultMark(mark: boolean | null) {
     if (!data) return;
-    const on = !data.markedAdult;
     setAdultNote(null);
     try {
-      await setMarkedAdult(mangaId, on);
-      setData((d) => (d ? { ...d, markedAdult: on, adult: on || d.adultSource === true } : d));
+      await setAdultMark(mangaId, mark);
+      setData((d) => (d ? { ...d, markedAdult: mark === true, markedSafe: mark === false, adult: mark ?? d.adultSource === true } : d));
       // Lists and cards decide what to hide from what the server knows, so ask again.
       resetHiddenCache();
       clearPagedCache();
       forgetForYou();
-      setAdultNote(on ? "Now with your 18+ series, and hidden while 18+ mode is locked." : "No longer marked 18+.");
-    } catch (e) {
-      setAdultNote(on ? "Couldn't mark it. Try again." : "Unlock 18+ mode to take the mark back.");
+      setAdultNote(
+        mark === true
+          ? "Now with your 18+ series, and hidden while 18+ mode is locked."
+          : mark === false
+            ? "Now with your regular series, even though its source is 18+."
+            : "Back to following its source.",
+      );
+    } catch {
+      setAdultNote(mark === true ? "Couldn't mark it. Try again." : "Unlock 18+ mode to change this.");
+    }
+  }
+
+  const [merging, setMerging] = useState(false);
+  const [mergeNote, setMergeNote] = useState<string | null>(null);
+  async function changeMerge(run: () => Promise<{ mergedWith: { key: string; title: string; canon: boolean }[] }>) {
+    setMergeNote(null);
+    try {
+      const r = await run();
+      setData((d) => (d ? { ...d, mergedWith: r.mergedWith } : d));
+      clearPagedCache();
+      setAltRun((n) => n + 1);
+    } catch {
+      setMergeNote("Couldn't change that. Try again.");
     }
   }
 
@@ -521,13 +555,46 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     )}
                   </ul>
                 )}
-                {data.adultSource !== true && (
-                  <p className="markAdult small">
-                    <button type="button" className="linkish" onClick={toggleMarkedAdult}>
-                      {data.markedAdult ? "Marked 18+ · Undo" : "Mark as 18+"}
-                    </button>
+                <div className="seriesTools small">
+                  <p className="markAdult">
+                    {data.adultSource === true ? (
+                      <button type="button" className="linkish" onClick={() => changeAdultMark(data.markedSafe ? null : false)}>
+                        {data.markedSafe ? "Marked not 18+ · Undo" : "Not actually 18+? Mark as not 18+"}
+                      </button>
+                    ) : (
+                      <button type="button" className="linkish" onClick={() => changeAdultMark(data.markedAdult ? null : true)}>
+                        {data.markedAdult ? "Marked 18+ · Undo" : "Mark as 18+"}
+                      </button>
+                    )}
                     {adultNote && <span className="muted adultNote">{adultNote}</span>}
                   </p>
+                  <div className="mergeRow">
+                    {(data.mergedWith ?? []).length > 0 && (
+                      <>
+                        <span className="muted">Same series as</span>
+                        {(data.mergedWith ?? []).map((m) => (
+                          <span key={m.key} className="mergedName">
+                            {tidyTitle(m.title)}
+                            <button type="button" aria-label={`Unmerge ${m.title}`} title="Unmerge" onClick={() => changeMerge(() => unmergeTitle(mangaId, m.key))}>×</button>
+                          </span>
+                        ))}
+                      </>
+                    )}
+                    <button type="button" className="linkish" onClick={() => setMerging(true)}>
+                      {(data.mergedWith ?? []).length > 0 ? "Merge another" : "Listed under another name? Merge"}
+                    </button>
+                    {mergeNote && <span className="bad">{mergeNote}</span>}
+                  </div>
+                </div>
+                {merging && (
+                  <MergeSheet
+                    title={data.manga.title}
+                    onClose={() => setMerging(false)}
+                    onPick={(t) => {
+                      setMerging(false);
+                      void changeMerge(() => mergeTitle(mangaId, t));
+                    }}
+                  />
                 )}
                 {(about.facets ?? []).map((f) => (
                   <div key={f.label} className="facet">
@@ -576,8 +643,8 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                 )}
                 {about.body && (
                   <div className="descWrap">
-                    <p className={`desc ${fullDesc ? "" : "clamped"}`}>{about.body}</p>
-                    {about.body.length > 280 && (
+                    <p className={`desc ${fullDesc ? "" : "clamped"}`} ref={descRef}>{about.body}</p>
+                    {(descCut || fullDesc) && (
                       <button type="button" className="linkish" onClick={() => setFullDesc((v) => !v)}>
                         {fullDesc ? "Show less" : "Show more"}
                       </button>
@@ -817,5 +884,73 @@ function SimilarGrid({ groups }: { groups: SeriesGroup[] }) {
                   </li>
                 ))}
               </ul>
+  );
+}
+
+/** Find the other listing of this series (by any words in its name) and merge it in. */
+function MergeSheet({ title, onPick, onClose }: { title: string; onPick: (title: string) => void; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [found, setFound] = useState<SeriesGroup[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+  const run = async (e: FormEvent) => {
+    e.preventDefault();
+    if (q.trim().length < 2) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await searchSources(q.trim());
+      setFound(r.groups);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Search failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="sheetBackdrop" onClick={onClose}>
+      <div className="sheet tall filterSheet mergeSheet" role="dialog" aria-modal="true" aria-label="Merge with another listing" onClick={(e) => e.stopPropagation()}>
+        <div className="sheetHandle" aria-hidden="true" />
+        <header className="filterSheetHead">
+          <h3>Merge with another listing</h3>
+          <button type="button" className="iconBtn" aria-label="Close" onClick={onClose}>×</button>
+        </header>
+        <p className="muted small">
+          Find how another source names <strong>{tidyTitle(title)}</strong>. Once merged, both show up as one series with all their sources, and your reading carries across.
+        </p>
+        <form className="mergeFind" onSubmit={run}>
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="The other name" aria-label="The other name" autoFocus />
+          <button type="submit" className="button small" disabled={busy || q.trim().length < 2}>{busy ? "Searching…" : "Search"}</button>
+        </form>
+        <div className="filterSheetBody">
+          {error && <p className="bad small">{error}</p>}
+          {found && found.length === 0 && <p className="muted">Nothing found under that name.</p>}
+          {found && found.length > 0 && (
+            <ul className="mergeList">
+              {found.map((g) => (
+                <li key={g.key}>
+                  <img src={thumbnailUrl(g.hits[0].mangaId)} alt="" loading="lazy" width={40} height={58} />
+                  <span className="mergeInfo">
+                    <strong>{tidyTitle(g.title)}</strong>
+                    <span className="muted small">{[...new Set(g.hits.map((h) => h.sourceName))].join(", ")}</span>
+                  </span>
+                  <button type="button" className="button small secondary" onClick={() => onPick(g.title)}>Merge</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

@@ -847,3 +847,16 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .markAdult { margin: 0 0 12px; }
 .markAdult { line-height: 1.5; }
 .adultNote { display: block; }
+.seriesTools { display: grid; gap: 6px; margin: 0 0 12px; }
+.seriesTools .markAdult { margin: 0; }
+.mergeRow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.mergedName { display: inline-flex; align-items: center; gap: 2px; padding: 2px 2px 2px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); }
+.mergedName button { width: 26px; height: 26px; border: 0; border-radius: 999px; background: none; color: var(--muted); font-size: 16px; cursor: pointer; }
+.mergedName button:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.mergeFind { display: flex; gap: 8px; margin: 8px 0; }
+.mergeFind input { flex: 1; min-width: 0; height: 40px; box-sizing: border-box; padding: 0 12px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.mergeList { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.mergeList li { display: flex; align-items: center; gap: 10px; }
+.mergeList img { border-radius: 6px; object-fit: cover; flex: none; }
+.mergeInfo { flex: 1; min-width: 0; display: grid; }
+.mergeInfo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

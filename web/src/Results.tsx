@@ -188,7 +188,7 @@ export function Results({
   return (
     <>
       {!compact && <p className="muted resultMeta">
-        {result.groups.length} series{result.searched > 0 ? ` from ${result.searched} sources` : ""}.
+        {result.groups.length} series{result.searched > 0 ? ` from ${result.searched} source${result.searched === 1 ? "" : "s"}` : ""}.
         {result.failed.length > 0 && <> Didn't answer: {result.failed.map((f) => f.sourceName).join(", ")}.</>}
         {shownNote && <> {shownNote}</>}
         {bad.size > 0 && (

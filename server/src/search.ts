@@ -65,8 +65,27 @@ export interface SearchResult {
   searched: number;
 }
 
-/** Lowercases and strips punctuation and spacing so "Solo Leveling!" matches "solo leveling". */
+/**
+ * Titles you merged by hand: a raw key that should count as another one. Set from the store at start
+ * and whenever a merge changes, so every comparison of titles (grouping search results, "Also on",
+ * carrying reading across sources, your library) treats them as one series.
+ */
+let titleAliases = new Map<string, string>();
+export function setTitleAliases(map: Map<string, string>): void {
+  titleAliases = map;
+}
+
+/** The normalized key a title is matched by, with merges applied. */
 export function normalizeTitle(title: string): string {
+  const key = rawTitleKey(title);
+  return titleAliases.get(key) ?? key;
+}
+
+/**
+ * The normalized key of the title as written, ignoring merges: lowercased, punctuation and spacing
+ * stripped, so "Solo Leveling!" matches "solo leveling".
+ */
+export function rawTitleKey(title: string): string {
   return title
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
@@ -132,12 +151,12 @@ const SEARCH_MUTATION = `
 export async function searchAll(
   config: Config,
   query: string,
-  opts: { fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number } = {},
+  opts: { fetchImpl?: FetchLike; scope?: Scope; timeoutMs?: number; onResult?: SourceReport; page?: number; only?: (s: EngineSource) => boolean } = {},
 ): Promise<SearchResult> {
-  const { fetchImpl, scope = "safe", timeoutMs = 8000, onResult, page = 1 } = opts;
+  const { fetchImpl, scope = "safe", timeoutMs = 8000, onResult, page = 1, only } = opts;
   const all = await listSources(config, fetchImpl);
   // English and multi-language sources only; 18+ sources are used only when 18+ mode is unlocked.
-  const sources = scopedSources(all, scope);
+  const sources = scopedSources(all, scope, only);
 
   const failed: SearchResult["failed"] = [];
   const results = await Promise.all(
