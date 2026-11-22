@@ -85,7 +85,7 @@ function DeepRows({ adult, scopeTag, page, onDismiss }: { adult: boolean; scopeT
             <p className="shelfSub muted">Judged on every tag, weighted toward what you like most</p>
           ) : (
             <p className="shelfSub muted">
-              <span>{r.examples?.length ? `In ${r.support} of yours, like ${r.examples.slice(0, 2).join(" and ")}` : ""}</span>
+              <span className="shelfExamples" title={r.examples?.join(" · ")}>{r.examples?.length ? `In ${r.support} of yours, like ${r.examples.slice(0, 2).map(shortTitle).join(" and ")}` : ""}</span>
               <a className="shelfMore" href={pageHref(page, { genre: r.tags })}>
                 More <span aria-hidden="true">→</span>
               </a>
@@ -129,6 +129,12 @@ function AlsoLikedRows({ adult, scopeTag, onDismiss }: { adult: boolean; scopeTa
     </>
   );
 }
+
+/** A series name for running text: tidied, and cut short when it's still long. */
+const shortTitle = (t: string) => {
+  const s = tidyTitle(t);
+  return s.length > 32 ? `${s.slice(0, 30).trimEnd()}…` : s;
+};
 
 /** For you comes as rows, one per mix of tags; older servers sent one list. */
 const shelvesOf = (r: SearchResult): Shelf[] | null => {

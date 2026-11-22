@@ -814,6 +814,7 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 /* A long series name (doujin titles) stays on one line instead of filling the heading. */
 .shelfHead h3 { max-width: 100%; display: flex; flex-wrap: nowrap; gap: 0.3em; align-items: baseline; white-space: nowrap; }
 .shelfHead h3 em { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.shelfExamples { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .forYouMeta { margin: -8px 0 0; font-size: 13px; }
 .forYouMeta .linkish { padding: 0; min-height: 0; display: inline; }
 .shelfMore { font-size: 14px; color: var(--muted); text-decoration: none; white-space: nowrap; }

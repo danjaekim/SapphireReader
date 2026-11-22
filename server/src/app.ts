@@ -761,7 +761,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const own = new Set(store.libraryTitles(adult).map(normalizeTitle));
     const notKeys = new Set(store.notInterested(adult).map((n) => n.titleKey));
     const ok = (g: SeriesGroup) => !own.has(g.key) && !notKeys.has(g.key) && !g.hits.some((h) => store.inLibrary(h.mangaId));
-    const v = JSON.parse(JSON.stringify(value)) as { groups?: SeriesGroup[]; shelves?: (RecGroups & { from?: string })[]; rows?: (RecGroups & { from?: string })[] };
+    const v = JSON.parse(JSON.stringify(value)) as { groups?: SeriesGroup[]; shelves?: (RecGroups & { from?: string; examples?: string[] })[]; rows?: (RecGroups & { from?: string; examples?: string[] })[] };
     const clean = async (groups: SeriesGroup[]) => withoutHidden(groups.filter(ok));
     if (v.groups) v.groups = await clean(v.groups);
     for (const key of ["shelves", "rows"] as const) {
@@ -770,6 +770,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       for (const r of list) {
         r.groups = await clean(r.groups);
         if (r.from) r.from = displayTitle(r.from);
+        if (r.examples) r.examples = r.examples.map(displayTitle);
       }
       v[key] = list.filter((r) => r.groups.length > 0) as never;
     }
