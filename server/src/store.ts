@@ -439,6 +439,12 @@ export class Store {
     return this.adultMark(title) === true;
   }
 
+  /** Titles you marked 18+, as normalized keys. */
+  adultMarkedKeys(): Set<string> {
+    const rows = this.db.prepare("SELECT title_key FROM adult_override WHERE adult = 1").all() as { title_key: string }[];
+    return new Set(rows.map((r) => r.title_key));
+  }
+
   /** Titles you marked not 18+, as normalized keys. */
   safeMarkedKeys(): Set<string> {
     const rows = this.db.prepare("SELECT title_key FROM adult_override WHERE adult = 0").all() as { title_key: string }[];

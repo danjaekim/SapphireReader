@@ -1,11 +1,12 @@
 import { Loading } from "./Loading";
 import { tidyTitle } from "./titles";
-import { alsoLiked, browse, deepForYou, discoverList, forYou, setNotInterested, type SearchResult, type DeepRow, type SeriesGroup, type Shelf } from "./api";
+import { alsoLiked, browse, deepForYou, setAdultMarks, discoverList, forYou, setNotInterested, type SearchResult, type DeepRow, type SeriesGroup, type Shelf } from "./api";
 import { canonLabel } from "./genres";
 import { FilterBar, useSourceChoices } from "./FilterBar";
-import { Results } from "./Results";
+import { Results, SelectionContext, type Selection } from "./Results";
 import { navigate, pageHref, type PageName } from "./route";
 import { clearPagedCache, usePaged } from "./usePaged";
+import { resetHiddenCache } from "./shared";
 import { Fragment, useEffect, useState } from "react";
 import { sortFrom, unsortedNote } from "./SortSelect";
 
@@ -174,6 +175,53 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
     `${page}|${scopeTag}|${mode}|${genres.join(",")}|${seed ?? ""}|${sort}|${mode === "for-you" && genres.length === 0 ? "" : picked.join(",")}`,
   );
 
+  // Select mode: pick several cards, then mark them 18+ or not 18+ in one go.
+  const [picking, setPicking] = useState(false);
+  const [chosen, setChosen] = useState<Map<string, SeriesGroup>>(new Map());
+  const [gone, setGone] = useState<Set<string>>(new Set());
+  const [pickNote, setPickNote] = useState<string | null>(null);
+  const [pickBusy, setPickBusy] = useState(false);
+  const selection: Selection = {
+    active: picking,
+    selected: new Set(chosen.keys()),
+    gone,
+    toggle: (g) =>
+      setChosen((m) => {
+        const next = new Map(m);
+        next.has(g.key) ? next.delete(g.key) : next.set(g.key, g);
+        return next;
+      }),
+  };
+  const allShown = (): SeriesGroup[] => {
+    if (!result) return [];
+    const shelves = shelvesOf(result);
+    return (shelves ? shelves.flatMap((s) => s.groups) : result.groups).filter((g) => !gone.has(g.key));
+  };
+  const stopPicking = () => {
+    setPicking(false);
+    setChosen(new Map());
+  };
+  async function markPicked(mark: boolean) {
+    const groups = [...chosen.values()];
+    if (groups.length === 0) return;
+    setPickBusy(true);
+    setPickNote(null);
+    try {
+      await setAdultMarks(groups.map((g) => g.title), mark);
+      // They now belong on the other Discover page.
+      if (mark !== adult) setGone((s) => new Set([...s, ...groups.map((g) => g.key)]));
+      resetHiddenCache();
+      clearPagedCache();
+      forgetAlsoLiked();
+      setPickNote(`Marked ${groups.length} ${mark ? "18+" : "not 18+"}${mark !== adult ? `. ${groups.length === 1 ? "It's" : "They're"} on ${mark ? "Discover (18+)" : "Discover"} now.` : "."}`);
+      stopPicking();
+    } catch (e) {
+      setPickNote(e instanceof Error && /locked/i.test(e.message) ? "Unlock 18+ mode to mark titles not 18+." : "Couldn't mark them. Try again.");
+    } finally {
+      setPickBusy(false);
+    }
+  }
+
   const dismiss = (g: SeriesGroup, on: boolean) => {
     forgetAlsoLiked();
     void setNotInterested(g.hits[0].mangaId, g.title, on, adult).catch(() => {});
@@ -189,8 +237,26 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
         sort={genres.length > 0 ? sort : undefined}
         onSort={(next) => navigate(pageHref(page, { genre: genres, seed, sort: next === "relevance" ? undefined : next, source: picked }))}
         // For you picks from your taste across every source, so it isn't limited by source.
+        extra={
+          <button type="button" className={`filterBtn ${picking ? "on" : ""}`} aria-pressed={picking} onClick={() => (picking ? stopPicking() : (setPicking(true), setPickNote(null)))}>
+            {picking ? "Cancel" : "Select"}
+          </button>
+        }
         sources={mode === "for-you" && genres.length === 0 ? undefined : { list: sourceList, selected: picked, onChange: (ids) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: genres, seed, sort: sort === "relevance" ? undefined : sort, source: ids })) }}
       />
+      {pickNote && <p className="muted pickNote">{pickNote}</p>}
+      {picking && (
+        <div className="pickBar" role="toolbar" aria-label="Selected series">
+          <span className="pickCount">{chosen.size} selected</span>
+          <button type="button" className="linkish" onClick={() => setChosen(new Map(allShown().map((g) => [g.key, g])))}>All</button>
+          {chosen.size > 0 && <button type="button" className="linkish" onClick={() => setChosen(new Map())}>None</button>}
+          <span className="pickActions">
+            <button type="button" className="button small secondary" disabled={pickBusy || chosen.size === 0} onClick={() => markPicked(false)}>Not 18+</button>
+            <button type="button" className="button small" disabled={pickBusy || chosen.size === 0} onClick={() => markPicked(true)}>Mark 18+</button>
+          </span>
+        </div>
+      )}
+      <SelectionContext.Provider value={selection}>
       {error && <p className="bad">{error}</p>}
       {busy && <Loading label="Asking your sources. This can take several seconds." />}
       {result && shelvesOf(result) && (
@@ -214,6 +280,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
         </div>
       )}
       {result && !shelvesOf(result) && <Results result={result} empty={empty ?? (genres.length ? "No series have all of those genres. Try removing one." : undefined)} lookups={false} hasMore={more} onMore={loadMore} />}
+      </SelectionContext.Provider>
     </section>
   );
 }

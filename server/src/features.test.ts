@@ -357,3 +357,15 @@ describe("a merged series' primary listing", () => {
     }
   });
 });
+
+describe("marking several titles at once", () => {
+  it("marks them all; showing titles (not 18+, or clearing) needs 18+ unlocked", async () => {
+    const store = new Store(":memory:");
+    const app = await buildApp(config, { fetchImpl: fakeEngine(), store });
+    const ok = await app.inject({ method: "PUT", url: "/api/adult-marks", payload: { titles: ["One", "Two!"], mark: true } });
+    expect(ok.statusCode).toBe(200);
+    expect([store.adultMark("one"), store.adultMark("two")]).toEqual([true, true]);
+    expect((await app.inject({ method: "PUT", url: "/api/adult-marks", payload: { titles: ["One"], mark: false } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "PUT", url: "/api/adult-marks", payload: { titles: [], mark: true } })).statusCode).toBe(400);
+  });
+});

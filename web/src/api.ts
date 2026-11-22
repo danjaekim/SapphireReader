@@ -247,6 +247,7 @@ export interface DeepRow {
   groups: SeriesGroup[];
 }
 export const deepForYou = (adult = false) => getJson<{ rows: DeepRow[] }>(`/api/for-you/deep${adult ? "?adult=1" : ""}`);
+export const setAdultMarks = (titles: string[], mark: boolean | null) => send("PUT", "/api/adult-marks", { titles, mark }) as Promise<{ marked: number }>;
 export const setAdultMark = (mangaId: number, mark: boolean | null) => send("PUT", `/api/manga/${mangaId}/adult`, { mark }) as Promise<{ mark: boolean | null }>;
 export interface MergedName {
   key: string;

@@ -1,9 +1,21 @@
 import { Loading } from "./Loading";
 import { tidyTitle } from "./titles";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { seriesHref } from "./route";
 import { bestRating, useHiddenAdult, useLibraryIds, useRating } from "./shared";
 import { createQueue, latest, thumbnailUrl, type LatestChapter, type SearchResult, type SeriesGroup } from "./api";
+
+/**
+ * Picking several cards at once (Discover's Select mode). While active, tapping a card selects it
+ * instead of opening it; cards whose keys are in `gone` have been moved off this page.
+ */
+export interface Selection {
+  active: boolean;
+  selected: Set<string>;
+  toggle: (group: SeriesGroup) => void;
+  gone: Set<string>;
+}
+export const SelectionContext = createContext<Selection | null>(null);
 
 type Chapter = { state: "loading" } | { state: "error"; reason?: string } | { state: "done"; value: LatestChapter };
 type Queue = ReturnType<typeof createQueue>;
@@ -30,6 +42,7 @@ function useNearScreen<T extends Element>(margin = "300px") {
 function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: SeriesGroup; queue: Queue; lookups: boolean; hideBad: boolean; onBad: (key: string, bad: boolean) => void; onDismiss?: (group: SeriesGroup, on: boolean) => void }) {
   const [dismissed, setDismissed] = useState(false);
   const [ref, near] = useNearScreen<HTMLLIElement>();
+  const sel = useContext(SelectionContext);
   const sourceNames = [...new Set(group.hits.map((h) => h.sourceName))];
   const [chapters, setChapters] = useState<Record<number, Chapter>>({});
   const [tries, setTries] = useState(0);
@@ -82,6 +95,9 @@ function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: Ser
   // Adult series from mixed sites stay out of sight while 18+ mode is off.
   const adultHidden = useHiddenAdult({ mangaId: group.hits[0].mangaId, title: group.title, sourceId: group.hits[0].sourceId }, near);
   if (adultHidden) return null;
+  if (sel?.gone.has(group.key)) return null;
+  const picking = sel?.active === true;
+  const picked = picking && sel!.selected.has(group.key);
   if (hideBad && allFailed) return null;
   if (dismissed) {
     return (
@@ -92,8 +108,13 @@ function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: Ser
     );
   }
   return (
-    <li className={`gridCard ${allFailed ? "unavailable" : ""} ${onDismiss ? "dismissable" : ""}`} ref={ref}>
-      {onDismiss && (
+    <li className={`gridCard ${allFailed ? "unavailable" : ""} ${onDismiss && !picking ? "dismissable" : ""} ${picking ? "picking" : ""} ${picked ? "picked" : ""}`} ref={ref}>
+      {picking && (
+        <button type="button" className="pickOverlay" aria-pressed={picked} aria-label={`${picked ? "Deselect" : "Select"} ${tidyTitle(group.title)}`} onClick={() => sel!.toggle(group)}>
+          <span className="pickBox" aria-hidden="true">{picked ? "✓" : ""}</span>
+        </button>
+      )}
+      {onDismiss && !picking && (
         <button type="button" className="dismissBtn" aria-label={`Not interested in ${tidyTitle(group.title)}`} title="Not interested" onClick={() => { setDismissed(true); onDismiss(group, true); }}>
           <span aria-hidden="true">✕</span>
         </button>
@@ -103,7 +124,7 @@ function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: Ser
         {sourceNames.length > 1 && <span className="badge">{sourceNames.length} sources</span>}
         {rating && <span className="badge score" title={`${rating.source} rating`}>★ {rating.value.toFixed(1)}</span>}
       </a>
-      {lib.ready && (
+      {lib.ready && !picking && (
         <button
           type="button"
           className={`addBtn ${saved ? "on" : ""}`}

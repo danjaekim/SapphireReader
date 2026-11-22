@@ -578,7 +578,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (genres.length === 0) return reply.code(400).send({ error: "Pick at least one genre." });
     try {
       const sort = sortOf(req.query.sort);
-      return await ranked(await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope: requestedScope(req), sort, page: pageOf(req.query.page), only, seed: /^\d+$/.test(req.query.seed ?? "") ? Number(req.query.seed) : undefined }), sort);
+      const scope = requestedScope(req);
+      return withoutMarked(await ranked(await browseByGenres(config, genres, { query: q, fetchImpl, onResult: report, scope, sort, page: pageOf(req.query.page), only, seed: /^\d+$/.test(req.query.seed ?? "") ? Number(req.query.seed) : undefined }), sort), scope === "adult");
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -739,10 +740,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const page = pageOf(req.query.page);
       if (other === "rating" || other === "newest" || other === "az") {
         const run = (scope: Scope, only?: (s: EngineSource) => boolean) => browseByGenres(config, [], { sort: other, fetchImpl, onResult: report, scope, page, only: within(only) });
-        return await ranked(adult ? await adultWithMixed(run) : await run("safe"), other);
+        return withoutMarked(await ranked(adult ? await adultWithMixed(run) : await run("safe"), other), adult);
       }
       const run = (scope: Scope, only?: (s: EngineSource) => boolean) => discover(config, sort, { fetchImpl, onResult: report, scope, page, only: within(only) });
-      return await ranked(adult ? await adultWithMixed(run) : await run("safe"), sort);
+      return withoutMarked(await ranked(adult ? await adultWithMixed(run) : await run("safe"), sort), adult);
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -898,6 +899,33 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     deepCache.clear();
     similarCache.clear();
     return { mark };
+  });
+
+  /**
+   * Leaves out of a regular page the titles you marked 18+ (they show on the 18+ pages instead). The
+   * 18+ pages already leave out the ones you marked not 18+ (adultWithMixed).
+   */
+  function withoutMarked<T extends { groups: SeriesGroup[] }>(result: T, adultPage: boolean): T {
+    if (adultPage) return result;
+    const marked = store.adultMarkedKeys();
+    return marked.size === 0 ? result : { ...result, groups: result.groups.filter((g) => !marked.has(g.key)) };
+  }
+
+  // Mark several titles at once (from a list): 18+ (true), not 18+ (false) or back to their source (null).
+  app.put<{ Body: { titles?: unknown; mark?: unknown } }>("/api/adult-marks", async (req, reply) => {
+    const titles = Array.isArray(req.body?.titles) ? (req.body!.titles as unknown[]).filter((t): t is string => typeof t === "string" && t.trim().length > 0).slice(0, 200) : [];
+    const mark = req.body?.mark;
+    if (titles.length === 0 || (mark !== true && mark !== false && mark !== null)) return reply.code(400).send({ error: "Needs titles and a mark (true, false or null)." });
+    if (mark !== true && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    const sources = await listSources(config, fetchImpl).catch(() => []);
+    const adultIds = new Set(sources.filter((x) => x.isNsfw).map((x) => x.id));
+    const adultNames = new Set(sources.filter((x) => x.isNsfw).map((x) => x.name));
+    for (const t of titles) store.setAdultMark(t, mark, (src) => (!!src.id && adultIds.has(src.id)) || (!!src.name && adultNames.has(src.name)));
+    forYouCache.clear();
+    alsoLikedCache.clear();
+    deepCache.clear();
+    similarCache.clear();
+    return { marked: titles.length, mark };
   });
 
   // ---- Merged titles: differently named listings of the same series count as one ----------------

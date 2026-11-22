@@ -862,3 +862,29 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .mergeInfo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .caughtTag { display: inline-flex; align-items: center; margin-left: 8px; padding: 1px 10px; line-height: 1.5; vertical-align: 1px; }
 .mergedName button.mainBtn { width: auto; padding: 0 8px; font: inherit; font-size: 12px; color: var(--accent); }
+
+/* Discover's Select mode */
+.gridCard.picking { position: relative; }
+.pickOverlay { position: absolute; inset: 0; z-index: 3; border: 0; padding: 0; background: transparent; cursor: pointer; border-radius: 10px; }
+.pickOverlay:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pickBox {
+  position: absolute; top: 8px; left: 8px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 8px;
+  background: rgba(11, 18, 32, 0.55); border: 2px solid #fff; color: #fff; font-weight: 700; font-size: 15px;
+}
+.gridCard.picked .pickBox { background: var(--accent); border-color: var(--accent); }
+.gridCard.picked .gridCover { outline: 3px solid var(--accent); outline-offset: 2px; }
+.pickBar {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 30;
+  display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; justify-content: center;
+  width: min(640px, calc(100% - 24px)); box-sizing: border-box; padding: 10px 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+.pickCount { font-weight: 600; }
+.pickActions { display: flex; gap: 8px; margin-left: auto; }
+.pickActions .button { min-height: 40px; }
+.pickNote { margin: 0 0 10px; }
+@media (max-width: 720px) {
+  .pickBar { bottom: calc(76px + env(safe-area-inset-bottom)); justify-content: flex-start; }
+  .pickActions { flex-basis: 100%; margin-left: 0; }
+  .pickActions .button { flex: 1; }
+}

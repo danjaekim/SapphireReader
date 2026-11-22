@@ -19,6 +19,7 @@ export function FilterBar({
   onSort,
   sortOptions,
   sources,
+  extra,
 }: {
   search?: { value: string; busy: boolean; canSubmitEmpty: boolean; placeholder: string; onSubmit: (text: string) => void };
   tabs?: { items: { id: string; label: string }[]; active: string | null; onPick: (id: string) => void };
@@ -30,6 +31,8 @@ export function FilterBar({
   sortOptions?: SortKey[];
   /** Limit to some sources: every source you can pick, the ones picked (none = all), and the change. */
   sources?: { list: { id: string; name: string }[]; selected: string[]; onChange: (ids: string[]) => void };
+  /** More controls at the end of the row (e.g. Discover's Select). */
+  extra?: ReactNode;
 }) {
   const [sheet, setSheet] = useState(false);
   const [sourceSheet, setSourceSheet] = useState(false);
@@ -91,6 +94,7 @@ export function FilterBar({
               {sources.selected.length ? `Sources · ${sources.selected.length}` : "Sources"}
             </button>
           )}
+          {extra}
           {sort && onSort && (
             <label className="filterSort">
               <span className="muted">Sort</span>
