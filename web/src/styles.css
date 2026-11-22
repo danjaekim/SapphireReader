@@ -709,7 +709,8 @@ code.versionValue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(10px);
   display: grid; gap: 8px; transition: transform 0.2s ease;
 }
-.filterSearch { position: relative; display: flex; align-items: center; gap: 8px; }
+.filterSearch { display: flex; align-items: center; gap: 8px; }
+.filterField { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
 .filterSearch input {
   flex: 1; min-width: 0; height: 44px; box-sizing: border-box; padding: 0 40px 0 36px; font: inherit; color: var(--fg);
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
@@ -718,10 +719,10 @@ code.versionValue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 .filterSearch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .filterSearchIcon { position: absolute; left: 12px; color: var(--muted); font-size: 20px; pointer-events: none; }
 .filterClear {
-  position: absolute; right: 100px; width: 32px; height: 32px; border: 0; border-radius: 999px; cursor: pointer;
+  position: absolute; right: 6px; width: 32px; height: 32px; border: 0; border-radius: 999px; cursor: pointer;
   background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg); font-size: 18px; line-height: 1;
 }
-.filterGo { height: 44px; min-width: 92px; padding: 0 16px; font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 12px; cursor: pointer; }
+.filterGo { height: 44px; width: 124px; flex: none; white-space: nowrap; padding: 0 16px; font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 12px; cursor: pointer; }
 .filterGo:disabled { opacity: 0.5; cursor: default; }
 .tabRow { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
 .tabRow::-webkit-scrollbar { display: none; }
@@ -777,7 +778,6 @@ code.versionValue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   .filterBar { top: calc(53px + env(safe-area-inset-top)); }
   .filterBar.tucked { transform: translateY(calc(-100% - 60px)); }
   .filterGo { display: none; }
-  .filterClear { right: 6px; }
   .filterBtn, .filterSort select { height: 40px; }
   .appliedChip { height: 40px; font-size: 15px; }
   .appliedChip button { width: 36px; height: 36px; }

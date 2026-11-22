@@ -48,18 +48,20 @@ export function FilterBar({
       <div className={`filterBar ${tucked ? "tucked" : ""}`}>
         {search && (
           <form className="filterSearch" onSubmit={submit} role="search">
-            <span className="filterSearchIcon" aria-hidden="true">⌕</span>
-            <input
-              type="search"
-              enterKeyHint="search"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={search.placeholder}
-              aria-label="Search all sources"
-            />
-            {text && (
-              <button type="button" className="filterClear" aria-label="Clear search" onClick={() => setText("")}>×</button>
-            )}
+            <div className="filterField">
+              <span className="filterSearchIcon" aria-hidden="true">⌕</span>
+              <input
+                type="search"
+                enterKeyHint="search"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder={search.placeholder}
+                aria-label="Search all sources"
+              />
+              {text && (
+                <button type="button" className="filterClear" aria-label="Clear search" onClick={() => setText("")}>×</button>
+              )}
+            </div>
             <button type="submit" className="filterGo" disabled={search.busy || (text.trim().length < 2 && !search.canSubmitEmpty)}>
               {search.busy ? "Searching…" : "Search"}
             </button>
