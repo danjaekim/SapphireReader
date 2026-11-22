@@ -267,8 +267,24 @@ export interface MergedName {
   primary: boolean;
   /** This source's own name. */
   own: boolean;
+  /** The listing's series id (null for an old merge that didn't record it). */
+  mangaId?: number | null;
+  /** Which listing the name, the cover and the description are taken from. */
+  shows?: { title: boolean; cover: boolean; description: boolean };
 }
 type Merged = { mergedWith: MergedName[] };
+export interface DisplayChoice {
+  title?: string;
+  cover?: string;
+  /** A listing's key, or null for the opened series' own description. */
+  description?: string | null;
+}
+export const setDisplay = (mangaId: number, choice: DisplayChoice) =>
+  send("PUT", `/api/manga/${mangaId}/merge/display`, choice) as Promise<Merged & { title: string; description: string | null; about: SeriesData["about"] }>;
+export const mergePreviews = (mangaId: number) =>
+  getJson<{ items: { key: string; sourceName: string | null; description: string; available: boolean }[] }>(`/api/manga/${mangaId}/merge/previews`);
+/** A listing's own cover, even when it's part of a merged series that shows another one. */
+export const rawThumbnailUrl = (mangaId: number) => `/api/manga/${mangaId}/thumbnail?raw=1`;
 export const mergeTitle = (mangaId: number, title: string, otherId?: number) => send("POST", `/api/manga/${mangaId}/merge`, { title, mangaId: otherId }) as Promise<Merged>;
 export const setMainName = (mangaId: number, key: string) => send("PUT", `/api/manga/${mangaId}/merge/primary`, { key }) as Promise<Merged & { title: string }>;
 export const unmergeTitle = (mangaId: number, key: string) => send("DELETE", `/api/manga/${mangaId}/merge/${encodeURIComponent(key)}`) as Promise<Merged>;

@@ -1,7 +1,7 @@
 import { Loading } from "./Loading";
 import { tidyTitle } from "./titles";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setMainName, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -373,15 +373,25 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   }
 
   const [merging, setMerging] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [mergeNote, setMergeNote] = useState<string | null>(null);
-  async function changeMerge(run: () => Promise<{ mergedWith: MergedName[]; title?: string }>) {
+  async function changeMerge(run: () => Promise<{ mergedWith: MergedName[]; title?: string; description?: string | null; about?: SeriesData["about"] }>) {
     setMergeNote(null);
     try {
       const r = await run();
       // The series is shown as its primary listing: take its name (and reload covers, which may have swapped).
       const main = r.title ?? r.mergedWith.find((m) => m.primary)?.title ?? data?.sourceTitle ?? data?.manga.title;
       coversChanged();
-      setData((d) => (d ? { ...d, mergedWith: r.mergedWith, manga: { ...d.manga, title: main ?? d.manga.title } } : d));
+      setData((d) =>
+        d
+          ? {
+              ...d,
+              mergedWith: r.mergedWith,
+              manga: { ...d.manga, title: main ?? d.manga.title, ...(r.description !== undefined ? { description: r.description ?? "" } : {}) },
+              ...(r.about ? { about: r.about } : {}),
+            }
+          : d,
+      );
       clearPagedCache();
       setAltRun((n) => n + 1);
     } catch {
@@ -583,7 +593,6 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                                 {tidyTitle(m.title)}
                                 {m.own && <span className="muted"> (this source)</span>}
                               </span>
-                              <button type="button" aria-label={`Show as ${m.title}`} title="Make this the main name and cover" className="mainBtn" onClick={() => changeMerge(() => setMainName(mangaId, m.key))}>Make main</button>
                               {!m.canon && (
                                 <button type="button" aria-label={`Unmerge ${m.title}`} title="Unmerge" onClick={() => changeMerge(() => unmergeTitle(mangaId, m.key))}>×</button>
                               )}
@@ -591,12 +600,18 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                           ))}
                       </>
                     )}
+                    {(data.mergedWith ?? []).length > 0 && (
+                      <button type="button" className="linkish" onClick={() => setEditing(true)}>Edit name, cover &amp; description</button>
+                    )}
                     <button type="button" className="linkish" onClick={() => setMerging(true)}>
                       {(data.mergedWith ?? []).length > 0 ? "Merge another" : "Listed under another name? Merge"}
                     </button>
                     {mergeNote && <span className="bad">{mergeNote}</span>}
                   </div>
                 </div>
+                {editing && (data.mergedWith ?? []).length > 0 && (
+                  <DisplaySheet mangaId={mangaId} listings={data.mergedWith ?? []} onChange={(c) => changeMerge(() => setDisplay(mangaId, c))} onClose={() => setEditing(false)} />
+                )}
                 {merging && (
                   <MergeSheet
                     title={data.manga.title}
@@ -899,6 +914,99 @@ function SimilarGrid({ groups }: { groups: SeriesGroup[] }) {
 }
 
 /** Find the other listing of this series (by any words in its name) and merge it in. */
+/**
+ * Pick, separately, which of a merged series' listings supplies its name, its cover and its description.
+ * Each choice applies as soon as it's tapped.
+ */
+function DisplaySheet({ mangaId, listings, onChange, onClose }: { mangaId: number; listings: MergedName[]; onChange: (c: DisplayChoice) => Promise<void>; onClose: () => void }) {
+  const [previews, setPreviews] = useState<Record<string, { sourceName: string | null; description: string; available: boolean }> | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    mergePreviews(mangaId).then(
+      (r) => live && setPreviews(Object.fromEntries(r.items.map((i) => [i.key, i]))),
+      () => live && setPreviews({}),
+    );
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      live = false;
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [mangaId, onClose]);
+  const choose = async (c: DisplayChoice) => {
+    setBusy(true);
+    await onChange(c);
+    setBusy(false);
+  };
+  const where = (m: MergedName) => previews?.[m.key]?.sourceName ?? (m.own ? "this source" : "");
+  const descChosen = listings.some((m) => m.shows?.description);
+  return (
+    <div className="sheetBackdrop" onClick={onClose}>
+      <div className="sheet tall filterSheet mergeSheet" role="dialog" aria-modal="true" aria-label="Name, cover and description" onClick={(e) => e.stopPropagation()}>
+        <div className="sheetHandle" aria-hidden="true" />
+        <header className="filterSheetHead">
+          <h3>Name, cover &amp; description</h3>
+          <button type="button" className="iconBtn" aria-label="Close" onClick={onClose}>×</button>
+        </header>
+        <p className="muted small">Each one can come from a different listing. Chapters and reading progress aren't affected.</p>
+        <div className="filterSheetBody displayBody">
+          <h4>Name</h4>
+          <ul className="mergeList pickList" role="radiogroup" aria-label="Name">
+            {listings.map((m) => (
+              <li key={`n-${m.key}`}>
+                <button type="button" role="radio" aria-checked={!!m.shows?.title} disabled={busy} className={`pickRow ${m.shows?.title ? "on" : ""}`} onClick={() => void choose({ title: m.key })}>
+                  <span className="pickDot" aria-hidden="true" />
+                  <span className="mergeInfo"><strong title={m.title}>{tidyTitle(m.title)}</strong>{where(m) && <span className="muted small">{where(m)}</span>}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <h4>Cover</h4>
+          <ul className="mergeList pickList" role="radiogroup" aria-label="Cover">
+            {listings.map((m) => (
+              <li key={`c-${m.key}`}>
+                <button type="button" role="radio" aria-checked={!!m.shows?.cover} disabled={busy || m.mangaId == null} className={`pickRow ${m.shows?.cover ? "on" : ""}`} onClick={() => void choose({ cover: m.key })}>
+                  <span className="pickDot" aria-hidden="true" />
+                  {m.mangaId != null ? <img src={rawThumbnailUrl(m.mangaId)} alt="" loading="lazy" width={40} height={58} /> : <span className="pickNoCover muted small">No cover</span>}
+                  <span className="mergeInfo"><strong>{tidyTitle(m.title)}</strong>{where(m) && <span className="muted small">{where(m)}</span>}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <h4>Description</h4>
+          <ul className="mergeList pickList" role="radiogroup" aria-label="Description">
+            <li>
+              <button type="button" role="radio" aria-checked={!descChosen} disabled={busy} className={`pickRow ${!descChosen ? "on" : ""}`} onClick={() => void choose({ description: null })}>
+                <span className="pickDot" aria-hidden="true" />
+                <span className="mergeInfo"><strong>Each source's own</strong><span className="muted small">Shows the description of the source you opened</span></span>
+              </button>
+            </li>
+            {listings.map((m) => {
+              const p = previews?.[m.key];
+              const usable = m.mangaId != null && p?.available !== false;
+              return (
+                <li key={`d-${m.key}`}>
+                  <button type="button" role="radio" aria-checked={descChosen && !!m.shows?.description} disabled={busy || !usable} className={`pickRow ${descChosen && m.shows?.description ? "on" : ""}`} onClick={() => void choose({ description: m.key })}>
+                    <span className="pickDot" aria-hidden="true" />
+                    <span className="mergeInfo">
+                      <strong>{where(m) || tidyTitle(m.title)}</strong>
+                      <span className="muted small pickSnippet">{previews === null ? "Loading…" : p?.description || (usable ? "No description." : "Couldn't load this one.")}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MergeSheet({ title, onPick, onClose }: { title: string; onPick: (title: string, mangaId: number) => void; onClose: () => void }) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);

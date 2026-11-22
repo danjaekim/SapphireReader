@@ -37,6 +37,7 @@ import {
   rawTitleKey,
   displayTitle,
   primaryCover,
+  primaryDescription,
   seenTitle,
   adultOverrideFor,
   groupKey,
@@ -967,15 +968,35 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
    * Every name of a merged series (empty when it isn't merged): the canonical one first, which one it's
    * shown as (primary), and which is this source's own.
    */
-  function mergedWith(title: string): { key: string; title: string; canon: boolean; primary: boolean; own: boolean }[] {
+  function mergedWith(title: string) {
     const canon = normalizeTitle(title);
-    const others = store.mergedNames(canon);
-    if (others.length === 0) return [];
+    if (store.mergedNames(canon).length === 0) return [];
     const own = rawTitleKey(title);
-    const shownAs = displayTitle(title);
-    const c = store.canonOf(canon);
-    const all = [{ key: canon, title: c?.title ?? title, canon: true }, ...others.map((n) => ({ key: n.key, title: n.title, canon: false }))];
-    return all.map((n) => ({ ...n, primary: n.title === shownAs, own: n.key === own }));
+    const shown = store.titlePrimaries().get(canon);
+    const all = store.listings(canon);
+    return all.map((n) => ({
+      key: n.key,
+      title: n.title,
+      mangaId: n.mangaId,
+      canon: n.key === canon,
+      own: n.key === own,
+      primary: n.title === (shown?.title ?? all[0]?.title),
+      // Where the name, the cover and the description each come from (description: only when one was chosen).
+      shows: {
+        title: n.title === (shown?.title ?? all[0]?.title),
+        cover: n.mangaId !== null && n.mangaId === (shown?.mangaId ?? all[0]?.mangaId),
+        description: shown?.descMangaId != null && n.mangaId === shown.descMangaId,
+      },
+    }));
+  }
+  /** The description to show: a merged series can take it from another of its listings. */
+  async function shownDescription(manga: MangaDetails): Promise<string | null> {
+    const from = primaryDescription(manga.title);
+    if (from !== null && from !== manga.id) {
+      const other = await detailsFor(from).catch(() => null);
+      if (other?.description?.trim()) return other.description;
+    }
+    return manga.description;
   }
   const mergesChanged = () => {
     setTitleAliases(store.titleAliases(), store.titlePrimaries());
@@ -1017,6 +1038,35 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     store.setPrimary(normalizeTitle(manga.title), key);
     mergesChanged();
     return { mergedWith: mergedWith(manga.title), title: displayTitle(manga.title) };
+  });
+  // Choose where a merged series takes its name, cover and description from (each from any of its listings).
+  app.put<{ Params: { id: string }; Body: { title?: unknown; cover?: unknown; description?: unknown } }>("/api/manga/:id/merge/display", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+    const pick = { title: str(req.body?.title), cover: str(req.body?.cover), description: req.body?.description === null ? null : str(req.body?.description) };
+    if (pick.title === undefined && pick.cover === undefined && pick.description === undefined) return reply.code(400).send({ error: "Nothing to change." });
+    const manga = await detailsFor(id).catch(() => null);
+    if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+    store.setDisplay(normalizeTitle(manga.title), pick);
+    mergesChanged();
+    const description = await shownDescription(manga);
+    return { mergedWith: mergedWith(manga.title), title: displayTitle(manga.title), description, about: parseDescription(description, manga.title) };
+  });
+  // A look at each listing's description (and which source it's from) for the edit sheet.
+  app.get<{ Params: { id: string } }>("/api/manga/:id/merge/previews", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    const manga = await detailsFor(id).catch(() => null);
+    if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+    const items = await Promise.all(
+      mergedWith(manga.title).map(async (m) => {
+        const d = m.mangaId !== null ? await detailsFor(m.mangaId).catch(() => null) : null;
+        const text = d ? parseDescription(d.description, d.title).body.replace(/\s+/g, " ").trim() : "";
+        return { key: m.key, sourceName: d?.sourceName ?? null, description: text.length > 240 ? `${text.slice(0, 237).trimEnd()}…` : text, available: d !== null };
+      }),
+    );
+    return { items };
   });
   app.delete<{ Params: { id: string; key: string } }>("/api/manga/:id/merge/:key", async (req, reply) => {
     const id = Number(req.params.id);
@@ -1099,6 +1149,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
       const [manga, chapters] = await Promise.all([detailsFor(id), chaptersFor(id)]);
+      const description = await shownDescription(manga);
       if (store.inLibrary(id)) {
         store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
         store.setGenres(id, manga.genre);
@@ -1121,9 +1172,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       }
       return {
         // Shown under a merged series' primary name; the source's own name stays in sourceTitle.
-        manga: { ...manga, title: displayTitle(manga.title) },
+        manga: { ...manga, title: displayTitle(manga.title), description },
         sourceTitle: manga.title,
-        about: parseDescription(manga.description, manga.title),
+        about: parseDescription(description, manga.title),
         adult,
         adultSource,
         markedAdult: mark === true,
@@ -1547,12 +1598,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   });
 
   // Covers are served through Sapphire so the engine never needs to be reachable from devices.
-  app.get<{ Params: { id: string } }>("/api/manga/:id/thumbnail", async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { raw?: string } }>("/api/manga/:id/thumbnail", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     // A merged series is shown with its primary listing's cover.
     const known = store.knownTitle(id) ?? seenTitle(id);
-    const primary = known ? primaryCover(known) : null;
+    const primary = known && req.query.raw !== "1" ? primaryCover(known) : null;
     if (primary !== null && primary !== id) return reply.header("cache-control", "no-cache").redirect(`/api/manga/${primary}/thumbnail`);
     const local = downloader.coverFile(id);
     if (local) {

@@ -868,7 +868,18 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .mergeInfo { flex: 1; min-width: 0; display: grid; }
 .mergeInfo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .caughtTag { display: inline-flex; align-items: center; margin-left: 8px; padding: 1px 10px; line-height: 1.5; vertical-align: 1px; }
-.mergedName button.mainBtn { width: auto; padding: 0 8px; font: inherit; font-size: 12px; color: var(--accent); }
+.displayBody h4 { margin: 16px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.displayBody h4:first-child { margin-top: 4px; }
+.pickList li { display: block; }
+.pickRow { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; text-align: left; font: inherit; color: var(--fg); background: none; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.pickRow:hover:not(:disabled) { background: var(--line); }
+.pickRow.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pickRow:disabled { opacity: 0.55; cursor: default; }
+.pickDot { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--muted); box-sizing: border-box; }
+.pickRow.on .pickDot { border-color: var(--accent); background: radial-gradient(var(--accent) 45%, transparent 50%); }
+.pickRow img { flex: none; border-radius: 6px; object-fit: cover; }
+.pickNoCover { flex: none; width: 40px; text-align: center; }
+.pickSnippet { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
 
 /* Discover's Select mode */
 .gridCard.picking { position: relative; }

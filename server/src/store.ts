@@ -274,6 +274,12 @@ export class Store {
     }
     // Which listing a merged series is shown as (name and cover). Only for display: matching always uses canon_key.
     this.db.exec("CREATE TABLE IF NOT EXISTS title_primary (canon_key TEXT PRIMARY KEY, title TEXT NOT NULL, manga_id INTEGER)");
+    try {
+      // Which listing's description a merged series shows (null: the opened series' own).
+      this.db.exec("ALTER TABLE title_primary ADD COLUMN desc_manga_id INTEGER");
+    } catch {
+      // already there
+    }
     this.db.exec("CREATE TABLE IF NOT EXISTS likes (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
     // Series marked "Not interested" in recommendations: never suggested again, and their tags count against.
     this.db.exec("CREATE TABLE IF NOT EXISTS not_interested (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
@@ -556,26 +562,57 @@ export class Store {
     return this.canonOf(canonKey)?.title ?? null;
   }
 
-  /** How each merged series is shown: canonical key -> the primary listing's name and series id. */
-  titlePrimaries(): Map<string, { title: string; mangaId: number | null }> {
-    const out = new Map<string, { title: string; mangaId: number | null }>();
+  /** How each merged series is shown: canonical key -> its name, the series whose cover it uses, and (if chosen) whose description. */
+  titlePrimaries(): Map<string, { title: string; mangaId: number | null; descMangaId: number | null }> {
+    const out = new Map<string, { title: string; mangaId: number | null; descMangaId: number | null }>();
     const keys = this.db.prepare("SELECT DISTINCT canon_key FROM title_alias").all() as { canon_key: string }[];
-    const get = this.db.prepare("SELECT title, manga_id FROM title_primary WHERE canon_key = ?");
+    const get = this.db.prepare("SELECT title, manga_id, desc_manga_id FROM title_primary WHERE canon_key = ?");
     for (const { canon_key } of keys) {
-      const p = get.get(canon_key) as { title: string; manga_id: number | null } | undefined;
+      const p = get.get(canon_key) as { title: string; manga_id: number | null; desc_manga_id: number | null } | undefined;
       const c = p ? { title: p.title, mangaId: p.manga_id ?? null } : this.canonOf(canon_key);
-      if (c) out.set(canon_key, c);
+      if (c) out.set(canon_key, { ...c, descMangaId: p?.desc_manga_id ?? null });
     }
     return out;
   }
 
-  /** Shows a merged series as one of its listings (the canonical one, or one of its merged names). */
-  setPrimary(canonKey: string, key: string): void {
-    const pick = key === canonKey ? this.canonOf(canonKey) : this.mergedNames(canonKey).find((n) => n.key === key) ?? null;
-    if (!pick) return;
+  /** Every listing of a merged series: the canonical one, then each merged name. */
+  listings(canonKey: string): { key: string; title: string; mangaId: number | null }[] {
+    const c = this.canonOf(canonKey);
+    return [...(c ? [{ key: canonKey, title: c.title, mangaId: c.mangaId }] : []), ...this.mergedNames(canonKey)];
+  }
+
+  /**
+   * Chooses, separately, which listing a merged series takes its name, its cover and its description from
+   * (each given as a listing's key; `description: null` goes back to the opened series' own).
+   */
+  setDisplay(canonKey: string, pick: { title?: string; cover?: string; description?: string | null }): void {
+    const all = this.listings(canonKey);
+    const find = (k: string) => all.find((n) => n.key === k) ?? null;
+    const row = this.db.prepare("SELECT title, manga_id, desc_manga_id FROM title_primary WHERE canon_key = ?").get(canonKey) as { title: string; manga_id: number | null; desc_manga_id: number | null } | undefined;
+    const base = row ?? { ...(this.canonOf(canonKey) ?? { title: "", mangaId: null }), manga_id: this.canonOf(canonKey)?.mangaId ?? null, desc_manga_id: null };
+    let title = base.title;
+    let cover = base.manga_id;
+    let desc = base.desc_manga_id;
+    if (pick.title !== undefined) {
+      const n = find(pick.title);
+      if (n) title = n.title;
+    }
+    if (pick.cover !== undefined) {
+      const n = find(pick.cover);
+      if (n) cover = n.mangaId;
+    }
+    if (pick.description !== undefined) desc = pick.description === null ? null : find(pick.description)?.mangaId ?? desc;
+    if (!title) return;
     this.db
-      .prepare("INSERT INTO title_primary (canon_key, title, manga_id) VALUES (?, ?, ?) ON CONFLICT(canon_key) DO UPDATE SET title = excluded.title, manga_id = excluded.manga_id")
-      .run(canonKey, pick.title, pick.mangaId);
+      .prepare(
+        "INSERT INTO title_primary (canon_key, title, manga_id, desc_manga_id) VALUES (?, ?, ?, ?) ON CONFLICT(canon_key) DO UPDATE SET title = excluded.title, manga_id = excluded.manga_id, desc_manga_id = excluded.desc_manga_id",
+      )
+      .run(canonKey, title, cover, desc);
+  }
+
+  /** Shows a merged series as one of its listings (name and cover). */
+  setPrimary(canonKey: string, key: string): void {
+    this.setDisplay(canonKey, { title: key, cover: key });
   }
 
   /**
@@ -601,13 +638,18 @@ export class Store {
   }
 
   unmergeTitle(aliasKey: string): void {
-    const row = this.db.prepare("SELECT canon_key, alias_title FROM title_alias WHERE alias_key = ?").get(aliasKey) as { canon_key: string; alias_title: string } | undefined;
+    const row = this.db.prepare("SELECT canon_key, alias_title, alias_manga_id FROM title_alias WHERE alias_key = ?").get(aliasKey) as
+      | { canon_key: string; alias_title: string; alias_manga_id: number | null }
+      | undefined;
     this.db.prepare("DELETE FROM title_alias WHERE alias_key = ?").run(aliasKey);
     if (!row) return;
     const left = this.db.prepare("SELECT 1 FROM title_alias WHERE canon_key = ? LIMIT 1").get(row.canon_key);
-    const primary = this.db.prepare("SELECT title FROM title_primary WHERE canon_key = ?").get(row.canon_key) as { title: string } | undefined;
-    // No merges left, or the listing it was shown as is gone: back to the canonical listing.
-    if (!left || (primary && primary.title === row.alias_title)) this.db.prepare("DELETE FROM title_primary WHERE canon_key = ?").run(row.canon_key);
+    const primary = this.db.prepare("SELECT title, manga_id, desc_manga_id FROM title_primary WHERE canon_key = ?").get(row.canon_key) as
+      | { title: string; manga_id: number | null; desc_manga_id: number | null }
+      | undefined;
+    // No merges left, or the display used the listing that's gone: back to the canonical listing.
+    const usedIt = primary && (primary.title === row.alias_title || (row.alias_manga_id !== null && (primary.manga_id === row.alias_manga_id || primary.desc_manga_id === row.alias_manga_id)));
+    if (!left || usedIt) this.db.prepare("DELETE FROM title_primary WHERE canon_key = ?").run(row.canon_key);
   }
 
   seriesAdult(ids: number[]): Map<number, boolean> {

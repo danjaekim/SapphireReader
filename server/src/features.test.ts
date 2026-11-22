@@ -358,6 +358,45 @@ describe("a merged series' primary listing", () => {
   });
 });
 
+describe("choosing name, cover and description separately", () => {
+  it("takes each from a different listing, and resets when that listing is unmerged", async () => {
+    const { normalizeTitle, rawTitleKey, setTitleAliases, displayTitle, primaryCover, primaryDescription } = await import("./search.js");
+    const store = new Store(":memory:");
+    const canon = rawTitleKey("The Return of the Crazy Demon");
+    const mad = rawTitleKey("Return of the Mad Demon");
+    store.mergeTitles(mad, "Return of the Mad Demon", canon, "The Return of the Crazy Demon", { alias: 2, canon: 1 });
+    const refresh = () => setTitleAliases(store.titleAliases(), store.titlePrimaries());
+    try {
+      // Name from one listing, cover from the other: they move independently.
+      store.setDisplay(canon, { title: mad });
+      refresh();
+      expect(displayTitle("The Return of the Crazy Demon")).toBe("Return of the Mad Demon");
+      expect(primaryCover("The Return of the Crazy Demon")).toBe(1);
+      store.setDisplay(canon, { cover: mad });
+      refresh();
+      expect(primaryCover("The Return of the Crazy Demon")).toBe(2);
+      expect(primaryDescription("The Return of the Crazy Demon")).toBeNull();
+      // Description from the canonical listing, and back to "each series' own".
+      store.setDisplay(canon, { description: canon });
+      refresh();
+      expect(primaryDescription("Return of the Mad Demon")).toBe(1);
+      expect(displayTitle("Return of the Mad Demon")).toBe("Return of the Mad Demon");
+      store.setDisplay(canon, { description: null });
+      refresh();
+      expect(primaryDescription("Return of the Mad Demon")).toBeNull();
+      // Choosing the listing that is then unmerged puts everything back.
+      store.setDisplay(canon, { description: mad });
+      store.unmergeTitle(mad);
+      refresh();
+      expect(displayTitle("The Return of the Crazy Demon")).toBe("The Return of the Crazy Demon");
+      expect(primaryDescription("The Return of the Crazy Demon")).toBeNull();
+      expect(normalizeTitle("The Return of the Crazy Demon")).toBe(canon);
+    } finally {
+      setTitleAliases(new Map());
+    }
+  });
+});
+
 describe("marking several titles at once", () => {
   it("marks them all; showing titles (not 18+, or clearing) needs 18+ unlocked", async () => {
     const store = new Store(":memory:");

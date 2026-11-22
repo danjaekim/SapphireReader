@@ -74,8 +74,8 @@ export interface SearchResult {
  */
 let titleAliases = new Map<string, string>();
 /** How each merged series is shown: its primary listing's name and series id (for the cover). */
-let titlePrimaries = new Map<string, { title: string; mangaId: number | null }>();
-export function setTitleAliases(map: Map<string, string>, primaries: Map<string, { title: string; mangaId: number | null }> = new Map()): void {
+let titlePrimaries = new Map<string, { title: string; mangaId: number | null; descMangaId?: number | null }>();
+export function setTitleAliases(map: Map<string, string>, primaries: Map<string, { title: string; mangaId: number | null; descMangaId?: number | null }> = new Map()): void {
   titleAliases = map;
   titlePrimaries = primaries;
 }
@@ -88,6 +88,11 @@ export function displayTitle(title: string): string {
 /** The series whose cover a merged series is shown with (its primary listing), or null. */
 export function primaryCover(title: string): number | null {
   return titlePrimaries.get(normalizeTitle(title))?.mangaId ?? null;
+}
+
+/** The series whose description a merged series is shown with, if one was chosen. */
+export function primaryDescription(title: string): number | null {
+  return titlePrimaries.get(normalizeTitle(title))?.descMangaId ?? null;
 }
 
 /** The normalized key a title is matched by, with merges applied. */
