@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { ago } from "./util";
 import { tidyTitle } from "./titles";
 import { alsoLiked, browse, deepForYou, setAdultMarks, discoverList, forYou, setNotInterested, type SearchResult, type DeepRow, type SeriesGroup, type Shelf } from "./api";
 import { canonLabel } from "./genres";
@@ -119,7 +120,7 @@ function AlsoLikedRows({ adult, scopeTag, onDismiss }: { adult: boolean; scopeTa
       {rows.map((r) => (
         <section key={`al-${r.from}`} className="shelf">
           <header className="shelfHead">
-            <h3>Readers of <em>{tidyTitle(r.from)}</em> also liked</h3>
+            <h3 title={r.from}>Readers of <em>{tidyTitle(r.from)}</em> also liked</h3>
             <span className="shelfMore">from AniList</span>
           </header>
           <Results result={{ groups: r.groups, failed: [], searched: 0 }} lookups={false} compact onDismiss={onDismiss} />
@@ -144,6 +145,16 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
   const picked = params.getAll("source");
   const sourceList = useSourceChoices(adult ? "discover-18" : "discover", adult);
   const [empty, setEmpty] = useState<string | undefined>();
+  // Refresh asks the server to rebuild the recommendations now; the page then loads the new answer.
+  const [nonce, setNonce] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  async function refreshForYou() {
+    setRefreshing(true);
+    await Promise.allSettled([forYou(adult, true), deepForYou(adult, true), alsoLiked(adult, true)]);
+    forgetForYou();
+    setNonce((n) => n + 1);
+    setRefreshing(false);
+  }
 
   const { result, busy, error, more, loadMore } = usePaged(
     async (p): Promise<SearchResult> => {
@@ -167,12 +178,12 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
               : undefined,
         );
         const shelves = f.shelves ?? [];
-        return { groups: f.groups, failed: [], searched: 0, shelves, note: f.because.length && f.groups.length ? `Because you like ${f.because.join(", ")}.` : undefined } as SearchResult & { shelves: Shelf[] };
+        return { groups: f.groups, failed: [], searched: 0, shelves, computedAt: f.computedAt, stale: f.stale, note: f.because.length && f.groups.length ? `Because you like ${f.because.join(", ")}.` : undefined } as SearchResult & { shelves: Shelf[] };
       }
       const list = await discoverList(mode, adult, p, picked);
       return { ...list, note: unsortedNote(list.unsorted) };
     },
-    `${page}|${scopeTag}|${mode}|${genres.join(",")}|${seed ?? ""}|${sort}|${mode === "for-you" && genres.length === 0 ? "" : picked.join(",")}`,
+    `${page}|${scopeTag}|${mode}|${genres.join(",")}|${seed ?? ""}|${sort}|${mode === "for-you" && genres.length === 0 ? "" : picked.join(",")}|${nonce}`,
   );
 
   // Select mode: pick several cards, then mark them 18+ or not 18+ in one go.
@@ -261,20 +272,30 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       {busy && <Loading label="Asking your sources. This can take several seconds." />}
       {result && shelvesOf(result) && (
         <div className="shelves">
-          <DeepRows adult={adult} scopeTag={scopeTag} page={page} onDismiss={dismiss} />
+          {(result as SearchResult & { computedAt?: number }).computedAt && (
+            <p className="muted forYouMeta">
+              Updated {ago(new Date((result as SearchResult & { computedAt: number }).computedAt).toISOString())}
+              {(result as SearchResult & { stale?: boolean }).stale && " · taste changed since"}
+              {" · "}
+              <button type="button" className="linkish" disabled={refreshing} onClick={() => void refreshForYou()}>
+                {refreshing ? "Refreshing…" : "Refresh"}
+              </button>
+            </p>
+          )}
+          <DeepRows adult={adult} scopeTag={`${scopeTag}|${nonce}`} page={page} onDismiss={dismiss} />
           {shelvesOf(result)!.map((s, i) => (
             <Fragment key={s.tags.join("+")}>
-            {i === 1 && <AlsoLikedRows adult={adult} scopeTag={scopeTag} onDismiss={dismiss} />}
+            {i === 1 && <AlsoLikedRows adult={adult} scopeTag={`${scopeTag}|${nonce}`} onDismiss={dismiss} />}
             <section className="shelf">
               <header className="shelfHead">
-                {s.from ? <h3>Because you read <em>{tidyTitle(s.from)}</em></h3> : <h3>From your favorite tags</h3>}
+                {s.from ? <h3 title={s.from}>Because you read <em>{tidyTitle(s.from)}</em></h3> : <h3>From your favorite tags</h3>}
                 <a className="shelfMore" href={pageHref(page, { genre: s.tags })}>
                   {s.tags.map(canonLabel).join(" + ")} <span aria-hidden="true">→</span>
                 </a>
               </header>
               <Results result={{ groups: s.groups, failed: [], searched: 0 }} lookups={false} compact onDismiss={dismiss} />
             </section>
-            {i === 0 && shelvesOf(result)!.length === 1 && <AlsoLikedRows adult={adult} scopeTag={scopeTag} onDismiss={dismiss} />}
+            {i === 0 && shelvesOf(result)!.length === 1 && <AlsoLikedRows adult={adult} scopeTag={`${scopeTag}|${nonce}`} onDismiss={dismiss} />}
             </Fragment>
           ))}
         </div>

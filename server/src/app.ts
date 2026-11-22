@@ -258,8 +258,6 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const tags = cleanTags(req.body?.tags);
     if (!tags) return reply.code(400).send({ error: "tags is a list of names." });
     store.setSetting(adult ? "favorite_tags.adult" : "favorite_tags", JSON.stringify(tags));
-    forYouCache.clear();
-    deepCache.clear();
     return { tags: favoriteTags(adult) };
   });
   /**
@@ -751,38 +749,88 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
+  // ---- "For you" caching ------------------------------------------------------------------------
+  // Answers are kept (in the database, so restarts don't lose them) and reused while what they were built
+  // from is unchanged. When your library, likes or favorite tags change they're rebuilt, but no sooner than
+  // REC_MIN_GAP after the last build; the page then offers a Refresh button. Hidden tags, "Not interested"
+  // and what's already in your library are applied each time an answer is served, so they take effect at once.
+  const REC_MIN_GAP_MS = 3 * 3600 * 1000;
+  const REC_MAX_AGE_MS = 24 * 3600 * 1000;
+  type RecGroups = { groups: SeriesGroup[] };
+  async function recScrub(value: unknown, adult: boolean): Promise<unknown> {
+    const own = new Set(store.libraryTitles(adult).map(normalizeTitle));
+    const notKeys = new Set(store.notInterested(adult).map((n) => n.titleKey));
+    const ok = (g: SeriesGroup) => !own.has(g.key) && !notKeys.has(g.key) && !g.hits.some((h) => store.inLibrary(h.mangaId));
+    const v = JSON.parse(JSON.stringify(value)) as { groups?: SeriesGroup[]; shelves?: (RecGroups & { from?: string })[]; rows?: (RecGroups & { from?: string })[] };
+    const clean = async (groups: SeriesGroup[]) => withoutHidden(groups.filter(ok));
+    if (v.groups) v.groups = await clean(v.groups);
+    for (const key of ["shelves", "rows"] as const) {
+      const list = v[key];
+      if (!list) continue;
+      for (const r of list) {
+        r.groups = await clean(r.groups);
+        if (r.from) r.from = displayTitle(r.from);
+      }
+      v[key] = list.filter((r) => r.groups.length > 0) as never;
+    }
+    return v;
+  }
+  const recEmpty = (v: unknown) => {
+    const x = v as { groups?: unknown[]; shelves?: unknown[]; rows?: unknown[] };
+    return !(x.groups?.length || x.shelves?.length || x.rows?.length);
+  };
+  async function recommend<T extends object>(kind: string, adult: boolean, key: string, refresh: boolean, compute: () => Promise<T>) {
+    const stored = store.recCacheGet(kind, adult);
+    // An empty answer (nothing to learn from yet, or the sites didn't answer) is never held on to.
+    const cached = stored && !recEmpty(stored.value) ? stored : null;
+    const now = Date.now();
+    let use: { at: number; value: unknown; stale: boolean } | null = null;
+    if (cached && !refresh) {
+      const age = now - cached.at;
+      if (cached.key === key && age < REC_MAX_AGE_MS) use = { at: cached.at, value: cached.value, stale: false };
+      else if (cached.key !== key && age < REC_MIN_GAP_MS) use = { at: cached.at, value: cached.value, stale: true };
+    }
+    if (!use) {
+      try {
+        const value = await compute();
+        if (!recEmpty(value)) store.recCacheSet(kind, adult, key, now, value);
+        use = { at: now, value, stale: false };
+      } catch (err) {
+        // The sources aren't answering: an older answer beats an error.
+        if (!cached) throw err;
+        use = { at: cached.at, value: cached.value, stale: cached.key !== key };
+      }
+    }
+    return { ...(await recScrub(use.value, adult) as object), computedAt: use.at, stale: use.stale };
+  }
+
   // "For you" learns from the genres of what's in your library; cached so the page opens fast.
   // The 18+ page has its own taste profile and never mixes with the ordinary one.
-  const forYouCache = new Map<boolean, { at: number; key: string; value: unknown }>();
-  app.get<{ Querystring: { adult?: string } }>("/api/for-you", async (req, reply) => {
+  app.get<{ Querystring: { adult?: string; refresh?: string } }>("/api/for-you", async (req, reply) => {
     const adult = req.query.adult === "1";
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const liked = tasteSignals(adult);
     const titles = store.libraryTitles(adult);
-    const hidden = new Set(hiddenTags().map(canonKey));
-    const disliked = store.notInterested(adult);
-    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]), titles.length, [...hidden], disliked.map((d) => d.mangaId)]);
-    const cached = forYouCache.get(adult);
-    if (cached && cached.key === key && Date.now() - cached.at < 60 * 60 * 1000) return cached.value;
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10), l.tags ?? null]), titles.length]);
     try {
-      const value = await recommendShelves(config, liked, titles, {
-        fetchImpl,
-        onResult: report,
-        scope: adult ? "adult" : "safe",
-        hidden,
-        disliked,
-        // The 18+ page also looks on mixed sources, keeping only the series found to be adult.
-        browse: adult
-          ? (tags, strict) => adultWithMixed((scope, only) => browseByGenres(config, tags, { fetchImpl, onResult: report, scope, only, strict, timeoutMs: 9000 }))
-          : undefined,
-        knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
-        scores: async (list) => {
-          const meta = await ratingsFor(store, list, fetchImpl, {}, false);
-          return new Map([...meta].map(([k, m]) => [k, m.score]));
-        },
-      });
-      forYouCache.set(adult, { at: Date.now(), key, value });
-      return value;
+      return await recommend("for-you", adult, key, req.query.refresh === "1", () =>
+        recommendShelves(config, liked, titles, {
+          fetchImpl,
+          onResult: report,
+          scope: adult ? "adult" : "safe",
+          hidden: new Set(hiddenTags().map(canonKey)),
+          disliked: store.notInterested(adult),
+          // The 18+ page also looks on mixed sources, keeping only the series found to be adult.
+          browse: adult
+            ? (tags, strict) => adultWithMixed((scope, only) => browseByGenres(config, tags, { fetchImpl, onResult: report, scope, only, strict, timeoutMs: 9000 }))
+            : undefined,
+          knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
+          scores: async (list) => {
+            const meta = await ratingsFor(store, list, fetchImpl, {}, false);
+            return new Map([...meta].map(([k, m]) => [k, m.score]));
+          },
+        }),
+      );
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -791,28 +839,24 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
 
   // "Readers of X also liked" (AniList's community recommendations, found on your sources). Separate from
   // /api/for-you because finding each one on your sources is slow; the page adds these rows when they arrive.
-  const alsoLikedCache = new Map<boolean, { at: number; key: string; value: unknown }>();
-  app.get<{ Querystring: { adult?: string } }>("/api/for-you/also-liked", async (req, reply) => {
+  app.get<{ Querystring: { adult?: string; refresh?: string } }>("/api/for-you/also-liked", async (req, reply) => {
     const adult = req.query.adult === "1";
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const liked = store.likedSeries(adult);
-    const own = new Set(store.libraryTitles(adult).map(normalizeTitle));
-    const not = store.notInterested(adult);
-    const notKeys = new Set(not.map((n) => n.titleKey));
-    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]), own.size, not.length]);
-    const cached = alsoLikedCache.get(adult);
-    if (cached && cached.key === key && Date.now() - cached.at < 60 * 60 * 1000) return cached.value;
+    const key = JSON.stringify(liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]));
     try {
-      const rows = await alsoLiked(config, store, liked, {
-        fetchImpl,
-        onResult: report,
-        // On the 18+ page an AniList pick may be on any of your sources, mixed ones included.
-        scope: adult ? "all" : "safe",
-        skip: (g) => own.has(g.key) || notKeys.has(g.key) || g.hits.some((h) => store.inLibrary(h.mangaId)),
+      return await recommend("also-liked", adult, key, req.query.refresh === "1", async () => {
+        const own = new Set(store.libraryTitles(adult).map(normalizeTitle));
+        const notKeys = new Set(store.notInterested(adult).map((n) => n.titleKey));
+        const rows = await alsoLiked(config, store, liked, {
+          fetchImpl,
+          onResult: report,
+          // On the 18+ page an AniList pick may be on any of your sources, mixed ones included.
+          scope: adult ? "all" : "safe",
+          skip: (g) => own.has(g.key) || notKeys.has(g.key) || g.hits.some((h) => store.inLibrary(h.mangaId)),
+        });
+        return { rows };
       });
-      const value = { rows: await Promise.all(rows.map(async (r) => ({ ...r, groups: await withoutHidden(r.groups) }))) };
-      alsoLikedCache.set(adult, { at: Date.now(), key, value });
-      return value;
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't reach AniList." });
@@ -821,36 +865,31 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
 
   // The deeper rows: themes shared across everything you like, and a wide pool ranked by full tag lists.
   // Slow (it reads tags for many candidates), so it's its own request and the page adds the rows when they come.
-  const deepCache = new Map<boolean, { at: number; key: string; value: unknown }>();
-  app.get<{ Querystring: { adult?: string } }>("/api/for-you/deep", async (req, reply) => {
+  app.get<{ Querystring: { adult?: string; refresh?: string } }>("/api/for-you/deep", async (req, reply) => {
     const adult = req.query.adult === "1";
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const liked = tasteSignals(adult);
     const titles = store.libraryTitles(adult);
-    const hidden = new Set(hiddenTags().map(canonKey));
-    const disliked = store.notInterested(adult);
-    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]), titles.length, [...hidden], disliked.map((d) => d.mangaId)]);
-    const cached = deepCache.get(adult);
-    if (cached && cached.key === key && Date.now() - cached.at < 60 * 60 * 1000) return cached.value;
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10), l.tags ?? null]), titles.length]);
     try {
-      const rows = await deepRecommendations(liked, titles, {
-        weight: tagWeights(store.tagStats(canonKey)),
-        tagsOf: (m) => store.seriesTags(m),
-        fetchTags: async (id) => {
-          const tags = (await detailsFor(id)).genre ?? [];
-          if (tags.length > 0) store.recordSeriesTags(id, tags);
-          return tags;
-        },
-        browse: (tags, strict) =>
-          adult
-            ? adultWithMixed((scope, only) => browseByGenres(config, tags, { fetchImpl, onResult: report, scope, only, strict, timeoutMs: 9000 }))
-            : browseByGenres(config, tags, { fetchImpl, onResult: report, scope: "safe", strict, timeoutMs: 9000 }),
-        hidden,
-        disliked,
+      return await recommend("deep", adult, key, req.query.refresh === "1", async () => {
+        const rows = await deepRecommendations(liked, titles, {
+          weight: tagWeights(store.tagStats(canonKey)),
+          tagsOf: (m) => store.seriesTags(m),
+          fetchTags: async (id) => {
+            const tags = (await detailsFor(id)).genre ?? [];
+            if (tags.length > 0) store.recordSeriesTags(id, tags);
+            return tags;
+          },
+          browse: (tags, strict) =>
+            adult
+              ? adultWithMixed((scope, only) => browseByGenres(config, tags, { fetchImpl, onResult: report, scope, only, strict, timeoutMs: 9000 }))
+              : browseByGenres(config, tags, { fetchImpl, onResult: report, scope: "safe", strict, timeoutMs: 9000 }),
+          hidden: new Set(hiddenTags().map(canonKey)),
+          disliked: store.notInterested(adult),
+        });
+        return { rows };
       });
-      const value = { rows: await Promise.all(rows.map(async (r) => ({ ...r, groups: await withoutHidden(r.groups) }))) };
-      deepCache.set(adult, { at: Date.now(), key, value });
-      return value;
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -872,9 +911,6 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const adult = store.adultMark(manga.title) ?? ((await adultSourceOf(manga.sourceId)) || store.seriesAdult([id]).get(id) === true);
       store.setLiked(id, manga.title, adult, true);
     }
-    forYouCache.clear();
-    alsoLikedCache.clear();
-    deepCache.clear();
     return { liked: on };
   });
 
@@ -895,9 +931,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const adultIds = new Set(sources.filter((x) => x.isNsfw).map((x) => x.id));
     const adultNames = new Set(sources.filter((x) => x.isNsfw).map((x) => x.name));
     store.setAdultMark(manga.title, mark, (src) => (!!src.id && adultIds.has(src.id)) || (!!src.name && adultNames.has(src.name)));
-    forYouCache.clear();
-    alsoLikedCache.clear();
-    deepCache.clear();
+    store.recCacheClear();
     similarCache.clear();
     return { mark };
   });
@@ -922,9 +956,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const adultIds = new Set(sources.filter((x) => x.isNsfw).map((x) => x.id));
     const adultNames = new Set(sources.filter((x) => x.isNsfw).map((x) => x.name));
     for (const t of titles) store.setAdultMark(t, mark, (src) => (!!src.id && adultIds.has(src.id)) || (!!src.name && adultNames.has(src.name)));
-    forYouCache.clear();
-    alsoLikedCache.clear();
-    deepCache.clear();
+    store.recCacheClear();
     similarCache.clear();
     return { marked: titles.length, mark };
   });
@@ -946,9 +978,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   }
   const mergesChanged = () => {
     setTitleAliases(store.titleAliases(), store.titlePrimaries());
-    forYouCache.clear();
-    alsoLikedCache.clear();
-    deepCache.clear();
+    store.recCacheClear();
     similarCache.clear();
     chapterCache.clear();
   };
@@ -1012,9 +1042,6 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       if (tags.length > 0) store.recordSeriesTags(id, tags);
     }
     store.markNotInterested(id, title, req.body?.adult === true, on);
-    forYouCache.clear();
-    alsoLikedCache.clear();
-    deepCache.clear();
     return { ok: true };
   });
 

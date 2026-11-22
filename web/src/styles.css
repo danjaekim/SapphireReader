@@ -811,6 +811,11 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .shelfHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-bottom: 10px; }
 .shelfHead h3 { margin: 0; font-size: 17px; min-width: 0; }
 .shelfHead em { font-style: normal; color: var(--accent); }
+/* A long series name (doujin titles) stays on one line instead of filling the heading. */
+.shelfHead h3 { max-width: 100%; display: flex; flex-wrap: nowrap; gap: 0.3em; align-items: baseline; white-space: nowrap; }
+.shelfHead h3 em { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.forYouMeta { margin: -8px 0 0; font-size: 13px; }
+.forYouMeta .linkish { padding: 0; min-height: 0; display: inline; }
 .shelfMore { font-size: 14px; color: var(--muted); text-decoration: none; white-space: nowrap; }
 .shelfMore:hover { color: var(--accent); }
 @media (max-width: 720px) { .shelfHead h3 { font-size: 16px; } .shelfMore { min-height: 32px; display: inline-flex; align-items: center; } }

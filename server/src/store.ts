@@ -278,6 +278,26 @@ export class Store {
     // Series marked "Not interested" in recommendations: never suggested again, and their tags count against.
     this.db.exec("CREATE TABLE IF NOT EXISTS not_interested (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS series_tags (manga_id INTEGER PRIMARY KEY, tags TEXT NOT NULL, seen_at TEXT NOT NULL)");
+    // Finished "For you" answers, one per kind and page, so they survive restarts and aren't recomputed needlessly.
+    this.db.exec("CREATE TABLE IF NOT EXISTS rec_cache (kind TEXT NOT NULL, adult INTEGER NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (kind, adult))");
+  }
+
+  recCacheGet(kind: string, adult: boolean): { key: string; at: number; value: unknown } | null {
+    const r = this.db.prepare("SELECT key, at, value FROM rec_cache WHERE kind = ? AND adult = ?").get(kind, adult ? 1 : 0) as { key: string; at: number; value: string } | undefined;
+    if (!r) return null;
+    try {
+      return { key: r.key, at: r.at, value: JSON.parse(r.value) };
+    } catch {
+      return null;
+    }
+  }
+  recCacheSet(kind: string, adult: boolean, key: string, at: number, value: unknown): void {
+    this.db
+      .prepare("INSERT INTO rec_cache (kind, adult, key, at, value) VALUES (?, ?, ?, ?, ?) ON CONFLICT(kind, adult) DO UPDATE SET key = excluded.key, at = excluded.at, value = excluded.value")
+      .run(kind, adult ? 1 : 0, key, at, JSON.stringify(value));
+  }
+  recCacheClear(): void {
+    this.db.exec("DELETE FROM rec_cache");
   }
 
   recordSeriesMeta(mangaId: number, title: string, sourceName: string | null, adult: boolean): void {

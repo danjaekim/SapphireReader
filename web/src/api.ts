@@ -237,8 +237,18 @@ export const changeExtension = (pkg: string, action: "install" | "update" | "uni
 
 export const discoverList = (sort: "popular" | "latest" | "rating" | "newest" | "az", adult = false, page = 1, sourceIds?: string[]) =>
   getJson<BrowseResult>(`/api/discover?sort=${sort}${adult ? "&adult=1" : ""}&page=${page}${sourceQs(sourceIds)}`);
-export const alsoLiked = (adult = false) =>
-  getJson<{ rows: { from: string; groups: SeriesGroup[] }[] }>(`/api/for-you/also-liked${adult ? "?adult=1" : ""}`);
+/** Recommendation answers are saved on the server; `refresh` asks it to rebuild them now. */
+const recQs = (adult: boolean, refresh: boolean) => {
+  const q = [adult && "adult=1", refresh && "refresh=1"].filter(Boolean).join("&");
+  return q ? `?${q}` : "";
+};
+export interface Freshness {
+  /** When the answer was built (ms), and whether your library has changed since. */
+  computedAt?: number;
+  stale?: boolean;
+}
+export const alsoLiked = (adult = false, refresh = false) =>
+  getJson<{ rows: { from: string; groups: SeriesGroup[] }[] } & Freshness>(`/api/for-you/also-liked${recQs(adult, refresh)}`);
 export interface DeepRow {
   kind: "best" | "theme";
   tags: string[];
@@ -246,7 +256,7 @@ export interface DeepRow {
   examples?: string[];
   groups: SeriesGroup[];
 }
-export const deepForYou = (adult = false) => getJson<{ rows: DeepRow[] }>(`/api/for-you/deep${adult ? "?adult=1" : ""}`);
+export const deepForYou = (adult = false, refresh = false) => getJson<{ rows: DeepRow[] } & Freshness>(`/api/for-you/deep${recQs(adult, refresh)}`);
 export const setAdultMarks = (titles: string[], mark: boolean | null) => send("PUT", "/api/adult-marks", { titles, mark }) as Promise<{ marked: number }>;
 export const setAdultMark = (mangaId: number, mark: boolean | null) => send("PUT", `/api/manga/${mangaId}/adult`, { mark }) as Promise<{ mark: boolean | null }>;
 export interface MergedName {
@@ -270,8 +280,8 @@ export interface Shelf {
   from: string;
   groups: SeriesGroup[];
 }
-export const forYou = (adult = false) =>
-  getJson<{ groups: SeriesGroup[]; because: string[]; shelves?: Shelf[] }>(`/api/for-you${adult ? "?adult=1" : ""}`);
+export const forYou = (adult = false, refresh = false) =>
+  getJson<{ groups: SeriesGroup[]; because: string[]; shelves?: Shelf[] } & Freshness>(`/api/for-you${recQs(adult, refresh)}`);
 
 export interface AdultState {
   pinSet: boolean;

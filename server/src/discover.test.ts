@@ -93,7 +93,7 @@ describe("similar and for you", () => {
 
   it("returns nothing to recommend from an empty library", async () => {
     const app = await buildApp(config, { fetchImpl: engine(), store: new Store(":memory:") });
-    expect((await app.inject({ url: "/api/for-you" })).json()).toEqual({ shelves: [], groups: [], because: [] });
+    expect((await app.inject({ url: "/api/for-you" })).json()).toMatchObject({ shelves: [], groups: [], because: [], stale: false });
   });
 });
 
@@ -223,5 +223,61 @@ describe("favorite tags", () => {
       () => 1,
     );
     expect(taste.get("romance")!.w).toBeGreaterThan(taste.get("action")!.w * 3);
+  });
+});
+
+describe("for you caching", () => {
+  const searches = (log: unknown[]) => log.length;
+  async function setup() {
+    const store = new Store(":memory:");
+    store.addToLibrary({ mangaId: 10, sourceId: "1", sourceName: "Asura Scans", title: "Shared Hit" });
+    store.setGenres(10, ["Action", "Murim"]);
+    const log: { type?: string }[] = [];
+    const app = await buildApp(config, { fetchImpl: engine(log), store });
+    return { store, log, app, get: async (q = "") => (await app.inject({ url: `/api/for-you${q}` })).json() };
+  }
+
+  it("serves the saved answer while nothing it learns from has changed", async () => {
+    const { log, get } = await setup();
+    const first = await get();
+    const calls = searches(log);
+    expect(calls).toBeGreaterThan(0);
+    expect(first.stale).toBe(false);
+    const second = await get();
+    expect(searches(log)).toBe(calls);
+    expect(second.computedAt).toBe(first.computedAt);
+  });
+
+  it("holds off rebuilding after a library change until the gap has passed, and Refresh forces it", async () => {
+    const { store, log, get } = await setup();
+    const first = await get();
+    const calls = searches(log);
+    store.addToLibrary({ mangaId: 11, sourceId: "1", sourceName: "Asura Scans", title: "Another One" });
+    store.setGenres(11, ["Romance"]);
+    const soon = await get();
+    expect(soon.stale).toBe(true);
+    expect(soon.computedAt).toBe(first.computedAt);
+    expect(searches(log)).toBe(calls);
+    const fresh = await get("?refresh=1");
+    expect(fresh.stale).toBe(false);
+    expect(searches(log)).toBeGreaterThan(calls);
+    expect(fresh.computedAt).toBeGreaterThanOrEqual(first.computedAt);
+  });
+
+  it("applies Not interested at once, without rebuilding", async () => {
+    const { app, log, get } = await setup();
+    const titles = (v: { groups: { title: string }[] }) => v.groups.map((g) => g.title);
+    expect(titles(await get())).toContain("Nano Machine");
+    const calls = searches(log);
+    await app.inject({ method: "PUT", url: "/api/manga/20/not-interested", payload: { title: "Nano Machine" } });
+    expect(titles(await get())).not.toContain("Nano Machine");
+    expect(searches(log)).toBe(calls);
+  });
+
+  it("keeps the ordinary and 18+ pages' answers apart", async () => {
+    const { store } = await setup();
+    store.recCacheSet("for-you", true, "k", 1, { groups: [{ key: "x" }] });
+    expect(store.recCacheGet("for-you", false)).toBeNull();
+    expect(store.recCacheGet("for-you", true)?.key).toBe("k");
   });
 });
