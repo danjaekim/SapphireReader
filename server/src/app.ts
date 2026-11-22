@@ -32,6 +32,7 @@ import {
   onSeriesTags,
   fetchPageUrls,
   listSources,
+  inScope,
   setAdultOverrides,
   setTitleAliases,
   rawTitleKey,
@@ -699,11 +700,24 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const names = [...new Set([manga.title, ...mergedWith(manga.title).map((m) => m.title)])].slice(0, 4);
       const found = await Promise.all(names.map((n) => searchAll(config, n, { fetchImpl, onResult: report, scope: scopeFor(req) }).catch(() => null)));
       const key = groupKey(manga.title);
-      const hits = found
-        .flatMap((f) => f?.groups.find((g) => g.key === key)?.hits ?? [])
+      const searched = found.flatMap((f) => f?.groups.find((g) => g.key === key)?.hits ?? []);
+      // Remember everything found together (this listing too), so opening any of them lists the rest,
+      // even when one site's own search can't find the others by their name.
+      store.rememberListings(key, [
+        { mangaId: id, title: manga.title, sourceId: manga.sourceId, sourceName: manga.sourceName ?? "Source" },
+        ...searched.map((h) => ({ mangaId: h.mangaId, title: h.title, sourceId: h.sourceId, sourceName: h.sourceName })),
+      ]);
+      const sources = await listSources(config, fetchImpl).catch(() => [] as EngineSource[]);
+      const allowed = new Set(sources.filter((x) => inScope(x, scopeFor(req))).map((x) => x.id));
+      const remembered = store
+        .seenListings([key])
+        // Still the same series (a merge may have been undone), and a source you can see right now.
+        .filter((l) => groupKey(l.title) === key && allowed.has(l.sourceId))
+        .map((l) => ({ mangaId: l.mangaId, sourceId: l.sourceId, sourceName: l.sourceName, title: l.title, thumbnailUrl: null }));
+      const hits = [...searched, ...remembered]
         .filter((h, i, all) => all.findIndex((x) => x.mangaId === h.mangaId) === i)
         .filter((h) => h.mangaId !== id && h.sourceId !== manga.sourceId)
-        .slice(0, 6);
+        .slice(0, 8);
       const alternatives = await Promise.all(
         hits.map(async (h) => {
           try {

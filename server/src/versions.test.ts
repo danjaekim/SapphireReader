@@ -86,3 +86,34 @@ describe("versions", () => {
     expect((await app.inject({ method: "PUT", url: "/api/manga/200/version", payload: { label: 5 } })).statusCode).toBe(400);
   });
 });
+
+describe("also on", () => {
+  it("lists a listing found from another one, even when its own site's search can't find it back", async () => {
+    const titles: Record<number, string> = { 100: "Dual", 200: "Dual", 300: "Dual!" };
+    const fetchImpl = (async (_u: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      const q: string = body.query;
+      const json = (data: unknown) => new Response(JSON.stringify({ data }));
+      if (q.includes("sources {")) return json({ sources: { nodes: [1, 2, 3].map((i) => ({ id: String(i), name: `Site ${i}`, lang: "en", isNsfw: false })) } });
+      if (q.includes("fetchSourceManga")) {
+        const { source, query } = body.variables.input;
+        // Site 3's search only answers to its own spelling.
+        if (source === "3" && query !== "Dual!") return json({ fetchSourceManga: { mangas: [] } });
+        const id = Number(source) * 100;
+        return json({ fetchSourceManga: { mangas: [{ id, title: titles[id], thumbnailUrl: null }] } });
+      }
+      if (q.includes("fetchChapters")) return json({ fetchChapters: { chapters: [{ id: 1, name: "Ch 1", chapterNumber: 1, uploadDate: "1700000000000", scanlator: null }] } });
+      if (q.includes("manga(id")) {
+        const id = body.variables.id as number;
+        return json({ manga: { id, sourceId: String(id / 100), title: titles[id], thumbnailUrl: null, author: null, artist: null, description: null, genre: [], status: "ONGOING" } });
+      }
+      return new Response("unexpected", { status: 500 });
+    }) as unknown as typeof fetch;
+    const app = await buildApp(config, { fetchImpl, store: new Store(":memory:") });
+    const others = async (id: number) => ((await app.inject({ url: `/api/manga/${id}/alternatives` })).json().alternatives as { mangaId: number }[]).map((a) => a.mangaId).sort();
+    expect(await others(100)).toEqual([200]);
+    expect(await others(300)).toEqual([100, 200]);
+    // Now that they were seen together, site 1's listing lists site 3's too.
+    expect(await others(100)).toEqual([200, 300]);
+  });
+});

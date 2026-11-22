@@ -291,6 +291,10 @@ export class Store {
     // Series marked "Not interested" in recommendations: never suggested again, and their tags count against.
     this.db.exec("CREATE TABLE IF NOT EXISTS not_interested (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS series_tags (manga_id INTEGER PRIMARY KEY, tags TEXT NOT NULL, seen_at TEXT NOT NULL)");
+    // Listings found together as "Also on" for a series, so each one lists the others even when a site's
+    // own search can't find them by the other sites' name.
+    this.db.exec("CREATE TABLE IF NOT EXISTS seen_listings (manga_id INTEGER PRIMARY KEY, group_key TEXT NOT NULL, title TEXT NOT NULL, source_id TEXT NOT NULL, source_name TEXT NOT NULL, at TEXT NOT NULL)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS seen_listings_key ON seen_listings (group_key)");
     // Version labels (Uncensored, Censored, Colored…) on single listings, and the version you prefer per series.
     this.db.exec("CREATE TABLE IF NOT EXISTS listing_versions (manga_id INTEGER PRIMARY KEY, label TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS version_prefs (canon_key TEXT PRIMARY KEY, label TEXT NOT NULL)");
@@ -303,6 +307,21 @@ export class Store {
     }
     // Finished "For you" answers, one per kind and page, so they survive restarts and aren't recomputed needlessly.
     this.db.exec("CREATE TABLE IF NOT EXISTS rec_cache (kind TEXT NOT NULL, adult INTEGER NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (kind, adult))");
+  }
+
+  rememberListings(groupKey: string, listings: { mangaId: number; title: string; sourceId: string; sourceName: string }[]): void {
+    const put = this.db.prepare(
+      "INSERT INTO seen_listings (manga_id, group_key, title, source_id, source_name, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(manga_id) DO UPDATE SET group_key = excluded.group_key, title = excluded.title, source_id = excluded.source_id, source_name = excluded.source_name, at = excluded.at",
+    );
+    const now = new Date().toISOString();
+    for (const l of listings) put.run(l.mangaId, groupKey, l.title, l.sourceId, l.sourceName, now);
+  }
+  /** Listings seen before under these group keys (any of a merged series' keys). */
+  seenListings(groupKeys: string[]): { mangaId: number; title: string; sourceId: string; sourceName: string; groupKey: string }[] {
+    if (groupKeys.length === 0) return [];
+    return this.db
+      .prepare(`SELECT manga_id AS mangaId, title, source_id AS sourceId, source_name AS sourceName, group_key AS groupKey FROM seen_listings WHERE group_key IN (${groupKeys.map(() => "?").join(",")})`)
+      .all(...groupKeys) as { mangaId: number; title: string; sourceId: string; sourceName: string; groupKey: string }[];
   }
 
   versionOf(mangaId: number): string | null {
