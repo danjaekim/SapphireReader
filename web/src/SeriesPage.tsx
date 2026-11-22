@@ -1029,10 +1029,29 @@ function MergeSheet({ title, selfIds, selfTitles, onPick, onClose }: { title: st
   }, [onClose]);
   const run = async (e: FormEvent) => {
     e.preventDefault();
-    if (q.trim().length < 2) return;
+    if (q.trim().length < 2 && !/^\d+$/.test(q.trim())) return;
     setBusy(true);
     setError(null);
     try {
+      // A series number (or a pasted /series/1234 address) finds that exact listing.
+      const idMatch = q.trim().match(/^(?:.*\/series\/)?(\d+)\/?$/);
+      if (idMatch) {
+        const id = Number(idMatch[1]);
+        if (selfIds.includes(id)) {
+          setFound([]);
+          setError("That's this series, or one already merged with it.");
+          return;
+        }
+        const d = await series(id).catch(() => null);
+        if (!d) {
+          setFound([]);
+          setError(`No series found with number ${id}.`);
+          return;
+        }
+        const raw = d.sourceTitle ?? d.manga.title;
+        setFound([{ key: `id-${id}`, title: raw, hits: [{ mangaId: id, sourceId: String(d.manga.sourceId ?? ""), sourceName: d.manga.sourceName ?? "Source", title: raw, thumbnailUrl: null }] }]);
+        return;
+      }
       const r = await searchSources(q.trim());
       // Leave out this series itself and everything already merged with it (including its other sources).
       const ids = new Set(selfIds);
@@ -1053,11 +1072,11 @@ function MergeSheet({ title, selfIds, selfTitles, onPick, onClose }: { title: st
           <button type="button" className="iconBtn" aria-label="Close" onClick={onClose}>×</button>
         </header>
         <p className="muted small">
-          Find how another source names <strong>{tidyTitle(title)}</strong>. Once merged, both show up as one series with all their sources, and your reading carries across.
+          Find how another source names <strong>{tidyTitle(title)}</strong>, by name or by the number in its address (/series/1234). Once merged, both show up as one series with all their sources, and your reading carries across.
         </p>
         <form className="mergeFind" onSubmit={run}>
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="The other name" aria-label="The other name" autoFocus />
-          <button type="submit" className="button small" disabled={busy || q.trim().length < 2}>{busy ? "Searching…" : "Search"}</button>
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="The other name, or its series number" aria-label="The other name or series number" autoFocus />
+          <button type="submit" className="button small" disabled={busy || (q.trim().length < 2 && !/^\d+$/.test(q.trim()))}>{busy ? "Searching…" : "Search"}</button>
         </form>
         <div className="filterSheetBody">
           {error && <p className="bad small">{error}</p>}
