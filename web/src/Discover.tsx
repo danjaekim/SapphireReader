@@ -4,7 +4,7 @@ import { canonLabel } from "./genres";
 import { FilterBar } from "./FilterBar";
 import { Results } from "./Results";
 import { navigate, pageHref, type PageName } from "./route";
-import { usePaged } from "./usePaged";
+import { clearPagedCache, usePaged } from "./usePaged";
 import { Fragment, useEffect, useState } from "react";
 import { sortFrom, unsortedNote } from "./SortSelect";
 
@@ -28,6 +28,11 @@ const deepCache = new Map<boolean, DeepRow[]>();
 const forgetAlsoLiked = () => {
   alsoCache.clear();
   deepCache.clear();
+};
+/** After your taste changes (a like, favorite tags), For you loads fresh next time. */
+export const forgetForYou = () => {
+  forgetAlsoLiked();
+  clearPagedCache();
 };
 
 /**
@@ -190,7 +195,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
             {i === 1 && <AlsoLikedRows adult={adult} scopeTag={scopeTag} onDismiss={dismiss} />}
             <section className="shelf">
               <header className="shelfHead">
-                <h3>Because you read <em>{s.from}</em></h3>
+                {s.from ? <h3>Because you read <em>{s.from}</em></h3> : <h3>From your favorite tags</h3>}
                 <a className="shelfMore" href={pageHref(page, { genre: s.tags })}>
                   {s.tags.map(canonLabel).join(" + ")} <span aria-hidden="true">→</span>
                 </a>

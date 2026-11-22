@@ -46,3 +46,14 @@ describe("hidden tags", () => {
     expect((await app.inject({ method: "PUT", url: "/api/settings/hidden-tags", payload: { tags: "BL" } })).statusCode).toBe(400);
   });
 });
+
+describe("favorite tags", () => {
+  it("keeps the regular and 18+ lists apart, and the 18+ one behind the lock", async () => {
+    const app = await buildApp(loadConfig({ WEB_DIR: "./does-not-exist", ENGINE_URL: "http://127.0.0.1:1" }));
+    const saved = await app.inject({ method: "PUT", url: "/api/settings/favorite-tags", payload: { tags: ["Murim", "murim", "Regression"] } });
+    expect(saved.json()).toEqual({ tags: ["Murim", "Regression"] });
+    expect((await app.inject({ method: "GET", url: "/api/settings/favorite-tags" })).json()).toEqual({ tags: ["Murim", "Regression"] });
+    expect((await app.inject({ method: "GET", url: "/api/settings/favorite-tags?adult=1" })).statusCode).toBe(403);
+    expect((await app.inject({ method: "PUT", url: "/api/settings/favorite-tags?adult=1", payload: { tags: ["X"] } })).statusCode).toBe(403);
+  });
+});

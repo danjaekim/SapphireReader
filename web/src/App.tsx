@@ -2,13 +2,13 @@ import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
 import { AdultButton, AdultDialog } from "./AdultLock";
 import { adultState, lockAdult, type AdultState } from "./api";
-import { Discover } from "./Discover";
+import { Discover, forgetForYou } from "./Discover";
 import { Downloads } from "./Downloads";
 import { Home } from "./Home";
 import { History } from "./History";
 import { savedTheme, setTheme, type Theme } from "./theme";
 import { EngineUpdateCard, UpdateCard, startUpdate, useUpdate } from "./update";
-import { automation, genreList, hiddenTags, setAutomation, setHiddenTags, type Automation } from "./api";
+import { automation, favoriteTags, genreList, hiddenTags, setAutomation, setFavoriteTags, setHiddenTags, type Automation, type GenreScope } from "./api";
 import { Library } from "./Library";
 import { Reader } from "./Reader";
 import { Search } from "./Search";
@@ -253,25 +253,47 @@ function AutomationCard() {
   );
 }
 
-/** Tags you never want to see: series with any of them are left out of search, Discover and Similar. */
-function HiddenTagsCard() {
+/** A list of tags you edit in Settings: add from the genres your sources know, remove with ×. */
+function TagListCard({
+  title,
+  blurb,
+  scope,
+  load,
+  store,
+  onSaved,
+  verb,
+  removeLabel,
+  placeholder,
+}: {
+  title: string;
+  blurb: string;
+  scope?: GenreScope;
+  load: () => Promise<{ tags: string[] }>;
+  store: (tags: string[]) => Promise<{ tags: string[] }>;
+  onSaved?: () => void;
+  verb: string;
+  removeLabel: string;
+  placeholder: string;
+}) {
   const [tags, setTags] = useState<string[] | null>(null);
   const [draft, setDraft] = useState("");
   const [known, setKnown] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const listId = `tagOptions-${title.replace(/\W+/g, "")}`;
   useEffect(() => {
-    hiddenTags().then((r) => setTags(r.tags), () => setTags([]));
-    genreList().then((r) => setKnown(r.genres.map((g) => g.name)), () => {});
-  }, []);
+    load().then((r) => setTags(r.tags), () => setTags([]));
+    genreList(scope).then((r) => setKnown(r.genres.map((g) => g.name)), () => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
   if (!tags) return null;
   const save = (next: string[]) => {
     const before = tags;
     setTags(next);
     setError(null);
-    setHiddenTags(next).then(
+    store(next).then(
       (r) => {
         setTags(r.tags);
-        resetHiddenCache();
+        onSaved?.();
       },
       () => {
         setTags(before);
@@ -288,27 +310,64 @@ function HiddenTagsCard() {
   const lower = new Set(tags.map((t) => t.toLowerCase()));
   return (
     <section className="card">
-      <h3>Hidden tags</h3>
-      <p className="muted small">Series with any of these tags are left out of search, Discover and Similar, whether 18+ mode is on or off. Your library isn't affected.</p>
+      <h3>{title}</h3>
+      <p className="muted small">{blurb}</p>
       {tags.length > 0 && (
         <ul className="chips hiddenTags">
           {tags.map((t) => (
             <li key={t} className="chip on">
               {t}
-              <button type="button" className="chipX" aria-label={`Stop hiding ${t}`} title="Stop hiding" onClick={() => save(tags.filter((x) => x !== t))}>×</button>
+              <button type="button" className="chipX" aria-label={`${removeLabel} ${t}`} title={removeLabel} onClick={() => save(tags.filter((x) => x !== t))}>×</button>
             </li>
           ))}
         </ul>
       )}
       <form className="hiddenTagForm" onSubmit={(e) => { e.preventDefault(); add(); }}>
-        <input list="hiddenTagOptions" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Add a tag, e.g. Boys' Love" aria-label="Tag to hide" />
-        <datalist id="hiddenTagOptions">
+        <input list={listId} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={placeholder} aria-label={placeholder} />
+        <datalist id={listId}>
           {known.filter((k) => !lower.has(k.toLowerCase())).map((k) => <option key={k} value={k} />)}
         </datalist>
-        <button type="submit" className="button small" disabled={!draft.trim()}>Hide</button>
+        <button type="submit" className="button small" disabled={!draft.trim()}>{verb}</button>
       </form>
       {error && <p className="bad small">{error}</p>}
     </section>
+  );
+}
+
+/** Tags you never want to see: series with any of them are left out of search, Discover and Similar. */
+function HiddenTagsCard() {
+  return (
+    <TagListCard
+      title="Hidden tags"
+      blurb="Series with any of these tags are left out of search, Discover and Similar, whether 18+ mode is on or off. Your library isn't affected."
+      load={hiddenTags}
+      store={setHiddenTags}
+      onSaved={resetHiddenCache}
+      verb="Hide"
+      removeLabel="Stop hiding"
+      placeholder="Add a tag, e.g. Boys' Love"
+    />
+  );
+}
+
+/** Tags you love: they count strongly toward For you. The 18+ page keeps its own list. */
+function FavoriteTagsCard({ adult }: { adult: boolean }) {
+  return (
+    <TagListCard
+      title={adult ? "Favorite tags (18+)" : "Favorite tags"}
+      blurb={
+        adult
+          ? "These count strongly toward For you on Discover (18+), even before you've liked anything there. Kept apart from your regular favorites."
+          : "These count strongly toward For you on Discover, as much as a few series you like. You can also star tags on any series page."
+      }
+      scope={adult ? "adult" : "safe"}
+      load={() => favoriteTags(adult)}
+      store={(t) => setFavoriteTags(t, adult)}
+      onSaved={forgetForYou}
+      verb="Add"
+      removeLabel="Remove favorite"
+      placeholder="Add a tag, e.g. Murim"
+    />
   );
 }
 
@@ -474,6 +533,8 @@ export function App() {
                 <EngineUpdateCard />
                 <AppearanceCard />
                 <AutomationCard />
+                <FavoriteTagsCard adult={false} />
+                {adult.unlocked && <FavoriteTagsCard adult />}
                 <HiddenTagsCard />
                 <TrackerSettings />
                 <section className="card">

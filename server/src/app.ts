@@ -18,7 +18,7 @@ import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } fro
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { alsoLiked } from "./alsoliked.js";
 import { deepRecommendations } from "./deep.js";
-import { discover, recommendShelves, similarTo, tagWeights, type DiscoverSort } from "./discover.js";
+import { discover, FAVORITES_ID, FAVORITES_WEIGHT, recommendShelves, similarTo, tagWeights, type DiscoverSort, type LikedSeries } from "./discover.js";
 import { Downloader, mimeForFile } from "./downloader.js";
 import { backupName, snapshot } from "./backup.js";
 import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
@@ -202,19 +202,17 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   };
   // --- Hidden tags: series with any of these tags never show up in lists ----------------------------
-  function hiddenTags(): string[] {
+  function tagSetting(key: string): string[] {
     try {
-      const v = JSON.parse(store.getSetting("hidden_tags") ?? "[]") as unknown;
+      const v = JSON.parse(store.getSetting(key) ?? "[]") as unknown;
       return Array.isArray(v) ? v.filter((t): t is string => typeof t === "string" && t.trim().length > 0) : [];
     } catch {
       return [];
     }
   }
-  app.get("/api/settings/hidden-tags", async () => ({ tags: hiddenTags() }));
-  app.put<{ Body: { tags?: unknown } }>("/api/settings/hidden-tags", async (req, reply) => {
-    const raw = req.body?.tags;
-    if (!Array.isArray(raw) || raw.some((t) => typeof t !== "string")) return reply.code(400).send({ error: "tags is a list of names." });
-    // One entry per genre, however it was typed ("BL", "Yaoi" and "Boys' Love" are the same one).
+  /** One entry per genre, however it was typed ("BL", "Yaoi" and "Boys' Love" are the same one). */
+  function cleanTags(raw: unknown): string[] | null {
+    if (!Array.isArray(raw) || raw.some((t) => typeof t !== "string")) return null;
     const seen = new Set<string>();
     const tags: string[] = [];
     for (const t of raw as string[]) {
@@ -224,10 +222,44 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       seen.add(key);
       tags.push(name);
     }
-    store.setSetting("hidden_tags", JSON.stringify(tags.slice(0, 100)));
+    return tags.slice(0, 100);
+  }
+  const hiddenTags = () => tagSetting("hidden_tags");
+  app.get("/api/settings/hidden-tags", async () => ({ tags: hiddenTags() }));
+  app.put<{ Body: { tags?: unknown } }>("/api/settings/hidden-tags", async (req, reply) => {
+    const tags = cleanTags(req.body?.tags);
+    if (!tags) return reply.code(400).send({ error: "tags is a list of names." });
+    store.setSetting("hidden_tags", JSON.stringify(tags));
     similarCache.clear();
     return { tags: hiddenTags() };
   });
+
+  // --- Favorite tags: count strongly toward "For you". The 18+ page keeps its own list. -------------
+  const favoriteTags = (adult: boolean) => tagSetting(adult ? "favorite_tags.adult" : "favorite_tags");
+  app.get<{ Querystring: { adult?: string } }>("/api/settings/favorite-tags", async (req, reply) => {
+    const adult = req.query.adult === "1";
+    if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    return { tags: favoriteTags(adult) };
+  });
+  app.put<{ Querystring: { adult?: string }; Body: { tags?: unknown } }>("/api/settings/favorite-tags", async (req, reply) => {
+    const adult = req.query.adult === "1";
+    if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    const tags = cleanTags(req.body?.tags);
+    if (!tags) return reply.code(400).send({ error: "tags is a list of names." });
+    store.setSetting(adult ? "favorite_tags.adult" : "favorite_tags", JSON.stringify(tags));
+    forYouCache.clear();
+    deepCache.clear();
+    return { tags: favoriteTags(adult) };
+  });
+  /**
+   * What "For you" learns from: the series you like, plus your favorite tags as one stand-in series
+   * that counts as much as a few liked ones (it has no id or title, so rows from it say "favorite tags").
+   */
+  function tasteSignals(adult: boolean): LikedSeries[] {
+    const liked = store.likedSeries(adult);
+    const favs = favoriteTags(adult);
+    return favs.length > 0 ? [...liked, { mangaId: FAVORITES_ID, title: "", tags: favs, weight: FAVORITES_WEIGHT }] : liked;
+  }
 
   /**
    * Which of these series carry a hidden tag. Tags already seen are used as they are; the rest are
@@ -675,7 +707,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.get<{ Querystring: { adult?: string } }>("/api/for-you", async (req, reply) => {
     const adult = req.query.adult === "1";
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
-    const liked = store.likedSeries(adult);
+    const liked = tasteSignals(adult);
     const titles = store.libraryTitles(adult);
     const hidden = new Set(hiddenTags().map(canonKey));
     const disliked = store.notInterested(adult);
@@ -743,7 +775,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.get<{ Querystring: { adult?: string } }>("/api/for-you/deep", async (req, reply) => {
     const adult = req.query.adult === "1";
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
-    const liked = store.likedSeries(adult);
+    const liked = tasteSignals(adult);
     const titles = store.libraryTitles(adult);
     const hidden = new Set(hiddenTags().map(canonKey));
     const disliked = store.notInterested(adult);

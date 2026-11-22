@@ -1,4 +1,4 @@
-import { FORMAT_TAGS, tasteWeights, type LikedSeries } from "./discover.js";
+import { FAVORITES_ID, FORMAT_TAGS, tasteWeights, type LikedSeries } from "./discover.js";
 import { canonKey } from "./genres.js";
 import { normalizeTitle, type SearchResult, type SeriesGroup } from "./search.js";
 
@@ -39,7 +39,8 @@ function storyKeys(tags: string[], hidden: Set<string>): Map<string, string> {
  * shared by most of the same series. The best few that don't overlap much become rows.
  */
 export function findThemes(liked: LikedSeries[], weight: (tag: string) => number, hidden: Set<string> = new Set()): Theme[] {
-  const series = liked.filter((s) => s.weight > 0).map((s) => ({ ...s, keys: storyKeys(s.tags, hidden) })).filter((s) => s.keys.size >= 2);
+  // Themes are what your series share, so the favorite-tags stand-in doesn't take part.
+  const series = liked.filter((s) => s.weight > 0 && s.mangaId !== FAVORITES_ID).map((s) => ({ ...s, keys: storyKeys(s.tags, hidden) })).filter((s) => s.keys.size >= 2);
   if (series.length < 2) return [];
   const label = new Map<string, string>();
   for (const s of series) for (const [k, t] of s.keys) if (!label.has(k)) label.set(k, t);

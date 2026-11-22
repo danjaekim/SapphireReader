@@ -177,6 +177,9 @@ a { color: var(--fg); }
   display: inline-block; padding: 10px 16px; font-weight: 600; color: #fff; background: var(--accent);
   border-radius: 10px; text-decoration: none;
 }
+.tag.fav { background: color-mix(in srgb, #f59e0b 30%, transparent); }
+.starTag { font: inherit; font-size: 12px; border: 1px dashed var(--line); cursor: pointer; }
+.starTag.fav { border-style: solid; border-color: #f59e0b; }
 .genres { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .desc { color: var(--muted); max-width: 70ch; }
 .chapterHead { display: flex; justify-content: space-between; align-items: baseline; margin-top: 16px; }
@@ -840,3 +843,4 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .likeBtn span { color: var(--muted); }
 .likeBtn.on { border-color: color-mix(in srgb, #e11d48 50%, var(--line)); }
 .likeBtn.on span { color: #e11d48; }
+@media (max-width: 720px) { .starTag, .starring .moreTag { min-height: 36px; padding: 6px 12px; font-size: 14px; } }

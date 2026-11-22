@@ -204,3 +204,24 @@ describe("similar scoring", () => {
     expect(out.groups.map((g) => g.title).indexOf("Glasses Only")).toBeLessThan(out.groups.map((g) => g.title).indexOf("Action Thing"));
   });
 });
+
+describe("favorite tags", () => {
+  it("can fill rows on their own, named for your favorites rather than a series", async () => {
+    const { planShelves, FAVORITES_ID, FAVORITES_WEIGHT } = await import("./discover.js");
+    const plan = planShelves([{ mangaId: FAVORITES_ID, title: "", tags: ["Murim", "Regression", "Revenge"], weight: FAVORITES_WEIGHT }], () => 1);
+    expect(plan.length).toBeGreaterThan(0);
+    expect(plan.every((p) => p.from === "")).toBe(true);
+  });
+
+  it("outweigh a tag a single liked series happens to have", async () => {
+    const { tasteWeights, FAVORITES_ID, FAVORITES_WEIGHT } = await import("./discover.js");
+    const taste = tasteWeights(
+      [
+        { mangaId: 1, title: "A", tags: ["Action", "Romance"], weight: 2 },
+        { mangaId: FAVORITES_ID, title: "", tags: ["Romance"], weight: FAVORITES_WEIGHT },
+      ],
+      () => 1,
+    );
+    expect(taste.get("romance")!.w).toBeGreaterThan(taste.get("action")!.w * 3);
+  });
+});

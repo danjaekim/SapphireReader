@@ -153,6 +153,9 @@ export interface Automation {
 export const automation = () => getJson<Automation>("/api/settings/automation");
 export const hiddenTags = () => getJson<{ tags: string[] }>("/api/settings/hidden-tags");
 export const setHiddenTags = (tags: string[]) => send("PUT", "/api/settings/hidden-tags", { tags }) as Promise<{ tags: string[] }>;
+export const favoriteTags = (adult = false) => getJson<{ tags: string[] }>(`/api/settings/favorite-tags${adult ? "?adult=1" : ""}`);
+export const setFavoriteTags = (tags: string[], adult = false) =>
+  send("PUT", `/api/settings/favorite-tags${adult ? "?adult=1" : ""}`, { tags }) as Promise<{ tags: string[] }>;
 export const setAutomation = (a: Partial<Automation>) => send("PUT", "/api/settings/automation", a) as Promise<Automation>;
 
 async function send(method: string, url: string, body?: unknown, keepalive = false) {

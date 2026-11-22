@@ -199,6 +199,10 @@ export interface LikedSeries {
   weight: number;
 }
 
+/** Your favorite tags join your taste as one stand-in series with this id, counting as much as a few liked series. */
+export const FAVORITES_ID = -1;
+export const FAVORITES_WEIGHT = 6;
+
 /** One row of "For you": series with this mix of tags, because of the series you read with it. */
 export interface Shelf {
   tags: string[];

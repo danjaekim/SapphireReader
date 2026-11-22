@@ -1,10 +1,12 @@
 import { Loading } from "./Loading";
 import { useEffect, useRef, useState } from "react";
-import { addToLibrary, alternatives, setLiked, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
 import { useRating } from "./shared";
+import { canonKey } from "./genres";
+import { forgetForYou } from "./Discover";
 import { chapterDate, statusLabel } from "./util";
 
 function chapterLabel(c: { name: string; chapterNumber: number }): string {
@@ -189,6 +191,32 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [newestFirst, setNewestFirst] = useState(true);
   const [fullDesc, setFullDesc] = useState(false);
   const [allTags, setAllTags] = useState(false);
+  // Favorite tags (the regular or 18+ list, whichever this series belongs to); star mode lets you pick them here.
+  const [favs, setFavs] = useState<string[] | null>(null);
+  const [starring, setStarring] = useState(false);
+  const favAdult = data?.adult === true;
+  useEffect(() => {
+    if (!data) return;
+    let live = true;
+    favoriteTags(favAdult).then((r) => live && setFavs(r.tags), () => live && setFavs(null));
+    return () => {
+      live = false;
+    };
+  }, [data !== null, favAdult]);
+  const favKeys = new Set((favs ?? []).map(canonKey));
+  function toggleFav(tag: string) {
+    if (!favs) return;
+    const before = favs;
+    const next = favKeys.has(canonKey(tag)) ? favs.filter((f) => canonKey(f) !== canonKey(tag)) : [...favs, tag];
+    setFavs(next);
+    setFavoriteTags(next, favAdult).then(
+      (r) => {
+        setFavs(r.tags);
+        forgetForYou();
+      },
+      () => setFavs(before),
+    );
+  }
   const [pageCount, setPageCount] = useState<number | null>(null);
   const [jump, setJump] = useState("");
   // Wait for the series (and its other names) before asking, so the lookup can use them.
@@ -436,14 +464,35 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   )}
                 </dl>
                 {data.manga.genre.length > 0 && (
-                  <ul className="genres">
-                    {(allTags ? data.manga.genre : data.manga.genre.slice(0, TAG_CAP)).map((g) => (
-                      <li key={g}><a className="tag" href={genreHref(g, data.manga.id, data.adult)}>{g}</a></li>
-                    ))}
-                    {data.manga.genre.length > TAG_CAP && (
+                  <ul className={`genres ${starring ? "starring" : ""}`}>
+                    {(allTags || starring ? data.manga.genre : data.manga.genre.slice(0, TAG_CAP)).map((g) => {
+                      const fav = favKeys.has(canonKey(g));
+                      return (
+                        <li key={g}>
+                          {starring ? (
+                            <button type="button" className={`tag starTag ${fav ? "fav" : ""}`} aria-pressed={fav} onClick={() => toggleFav(g)}>
+                              <span aria-hidden="true">{fav ? "★" : "☆"}</span> {g}
+                            </button>
+                          ) : (
+                            <a className={`tag ${fav ? "fav" : ""}`} href={genreHref(g, data.manga.id, data.adult)} title={fav ? "One of your favorite tags" : undefined}>
+                              {fav && <span aria-hidden="true">★ </span>}
+                              {g}
+                            </a>
+                          )}
+                        </li>
+                      );
+                    })}
+                    {!starring && data.manga.genre.length > TAG_CAP && (
                       <li>
                         <button type="button" className="tag moreTag" onClick={() => setAllTags((v) => !v)}>
                           {allTags ? "Fewer" : `+${data.manga.genre.length - TAG_CAP} more`}
+                        </button>
+                      </li>
+                    )}
+                    {favs && (
+                      <li>
+                        <button type="button" className="tag moreTag" onClick={() => setStarring((v) => !v)} title="Favorite tags count strongly toward For you">
+                          {starring ? "Done" : <><span aria-hidden="true">☆</span> Favorite tags</>}
                         </button>
                       </li>
                     )}
