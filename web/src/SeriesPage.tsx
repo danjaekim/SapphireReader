@@ -338,6 +338,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     setData({ ...data, liked: next });
     try {
       await setLiked(mangaId, next);
+      forgetForYou();
     } catch {
       setData((d) => (d ? { ...d, liked: !next } : d));
     }

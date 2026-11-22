@@ -5,6 +5,7 @@ import { DownloadButton } from "./SeriesPage";
 import { backTo, readHref, replaceHash, seriesHref } from "./route";
 import { useSeriesDownloads } from "./useDownloads";
 import { OfflineButton } from "./offline";
+import { forgetForYou } from "./Discover";
 
 const chapterText = (c: { chapterNumber: number; name: string }) =>
   c.chapterNumber >= 0 ? `Chapter ${Number.isInteger(c.chapterNumber) ? c.chapterNumber : c.chapterNumber.toFixed(1)}` : c.name;
@@ -284,7 +285,7 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
                 e.stopPropagation();
                 const on = !data.liked;
                 setData({ ...data, liked: on });
-                setLiked(mangaId, on).catch(() => setData((d) => (d ? { ...d, liked: !on } : d)));
+                setLiked(mangaId, on).then(forgetForYou, () => setData((d) => (d ? { ...d, liked: !on } : d)));
               }}
             >
               <span aria-hidden="true">{data.liked ? "♥" : "♡"}</span> {data.liked ? "Liked: you'll see more like this" : "Liked it? Get more like this"}
