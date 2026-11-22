@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { tidyTitle } from "./titles";
 import { useEffect, useMemo, useState } from "react";
 import { downloads, removeDownload, removeSeriesDownloads, thumbnailUrl, type DownloadRow } from "./api";
 import { readHref, seriesHref } from "./route";
@@ -77,7 +78,7 @@ export function Downloads() {
             <div className="dlHead">
               <img src={thumbnailUrl(mangaId)} alt="" width={56} height={80} loading="lazy" />
               <div className="info">
-                <a href={seriesHref(mangaId)} className="libTitle">{s.title}</a>
+                <a href={seriesHref(mangaId)} className="libTitle">{tidyTitle(s.title)}</a>
                 <p className="muted">
                   {s.sourceName ? `${s.sourceName} · ` : ""}
                   {done.length} saved · {size(done.reduce((n, d) => n + d.bytes, 0))}

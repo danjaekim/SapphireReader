@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { tidyTitle } from "./titles";
 import { useEffect, useState } from "react";
 import { history, removeHistory, thumbnailUrl, type HistoryItem } from "./api";
 import { readHref, seriesHref } from "./route";
@@ -45,7 +46,7 @@ export function History() {
               <img src={thumbnailUrl(h.mangaId)} alt="" loading="lazy" />
             </a>
             <a className="info" href={readHref(h.mangaId, h.progress.chapterId)}>
-              <strong className="clamp1">{h.title}</strong>
+              <strong className="clamp1">{tidyTitle(h.title)}</strong>
               <span className="muted small">
                 {h.progress.chapterNumber >= 0 ? chapterText(h.progress.chapterNumber) : h.progress.chapterName}
                 {h.progress.pageIndex > 0 ? `, page ${h.progress.pageIndex + 1}` : ""} · {when(h.progress.updatedAt)}

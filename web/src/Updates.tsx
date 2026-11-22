@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { tidyTitle } from "./titles";
 import { acceptSwitch, dismissSwitch, refreshLibrary, switchOffers, thumbnailUrl, updatesFeed, type SwitchOffer, type UpdateRow } from "./api";
 import { navigate, seriesHref } from "./route";
 import { ago, chapterText } from "./util";
@@ -64,7 +65,7 @@ export function Updates() {
             <li key={o.mangaId} className="feedRow offerRow">
               <img src={thumbnailUrl(o.mangaId)} alt="" width={44} height={60} loading="lazy" />
               <div className="info">
-                <strong>Move {o.title} to {o.toSourceName ?? "another source"}?</strong>
+                <strong>Move {tidyTitle(o.title)} to {o.toSourceName ?? "another source"}?</strong>
                 <div className="muted small">
                   It has up to {chapterText(o.toLatest)}; {o.fromSourceName ?? "your current source"} stops at {chapterText(o.fromLatest)}. Your place and read chapters come along.
                 </div>
@@ -87,7 +88,7 @@ export function Updates() {
           <li key={`${u.mangaId}-${i}`} className="feedRow">
             <img src={thumbnailUrl(u.mangaId)} alt="" width={44} height={60} loading="lazy" />
             <div className="info">
-              <a href={seriesHref(u.mangaId)} className="libTitle">{u.title}</a>
+              <a href={seriesHref(u.mangaId)} className="libTitle">{tidyTitle(u.title)}</a>
               <span> · {chapterText(u.latestNumber)}{u.newCount > 1 ? ` (+${u.newCount})` : ""}</span>
               <div className="muted small">
                 {u.sourceName ?? "source"} · {ago(u.detectedAt)}

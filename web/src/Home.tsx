@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { tidyTitle } from "./titles";
 import { useEffect, useState, type FormEvent } from "react";
 import { forYou, homeData, thumbnailUrl, type HomeData, type SeriesGroup, type UpdateRow } from "./api";
 import { navigate, pageHref, readHref, seriesHref } from "./route";
@@ -9,7 +10,7 @@ function UpdateRowView({ u }: { u: UpdateRow }) {
     <li className="feedRow">
       <img src={thumbnailUrl(u.mangaId)} alt="" width={44} height={60} loading="lazy" />
       <div className="info">
-        <a href={seriesHref(u.mangaId)} className="libTitle">{u.title}</a>
+        <a href={seriesHref(u.mangaId)} className="libTitle">{tidyTitle(u.title)}</a>
         <span> · {chapterText(u.latestNumber)}{u.newCount > 1 ? ` (+${u.newCount})` : ""}</span>
         <div className="muted small">{u.sourceName ?? "source"} · {ago(u.detectedAt)}</div>
       </div>

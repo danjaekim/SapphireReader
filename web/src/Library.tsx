@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { tidyTitle } from "./titles";
 import { useEffect, useState } from "react";
 import { categories as loadCategories, createCategory, deleteCategory, library, refreshLibrary, renameCategory, thumbnailUrl, type Category, type LibraryItem } from "./api";
 import { readHref, seriesHref } from "./route";
@@ -16,7 +17,7 @@ function Card({ item }: { item: LibraryItem }) {
         {item.unread ? <span className="badge new">{item.unread} unread</span> : null}
         {rating && <span className="badge score" title={`${rating.source} rating`}>★ {rating.value.toFixed(1)}</span>}
       </a>
-      <a href={seriesHref(item.mangaId)} className="gridTitle" title={item.title}>{item.title}</a>
+      <a href={seriesHref(item.mangaId)} className="gridTitle" title={item.title}>{tidyTitle(item.title)}</a>
       {p && <div className="bar"><i style={{ width: `${pct}%` }} /></div>}
       <span className="muted gridMeta">
         {p ? `${p.chapterNumber >= 0 ? chapterText(p.chapterNumber) : p.chapterName}${item.latestNumber ? ` of ${Math.floor(item.latestNumber)}` : ""}` : "not started"}

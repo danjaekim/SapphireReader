@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { tidyTitle } from "./titles";
 import { alsoLiked, browse, deepForYou, discoverList, forYou, setNotInterested, type SearchResult, type DeepRow, type SeriesGroup, type Shelf } from "./api";
 import { canonLabel } from "./genres";
 import { FilterBar } from "./FilterBar";
@@ -116,7 +117,7 @@ function AlsoLikedRows({ adult, scopeTag, onDismiss }: { adult: boolean; scopeTa
       {rows.map((r) => (
         <section key={`al-${r.from}`} className="shelf">
           <header className="shelfHead">
-            <h3>Readers of <em>{r.from}</em> also liked</h3>
+            <h3>Readers of <em>{tidyTitle(r.from)}</em> also liked</h3>
             <span className="shelfMore">from AniList</span>
           </header>
           <Results result={{ groups: r.groups, failed: [], searched: 0 }} lookups={false} compact onDismiss={onDismiss} />
@@ -195,7 +196,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
             {i === 1 && <AlsoLikedRows adult={adult} scopeTag={scopeTag} onDismiss={dismiss} />}
             <section className="shelf">
               <header className="shelfHead">
-                {s.from ? <h3>Because you read <em>{s.from}</em></h3> : <h3>From your favorite tags</h3>}
+                {s.from ? <h3>Because you read <em>{tidyTitle(s.from)}</em></h3> : <h3>From your favorite tags</h3>}
                 <a className="shelfMore" href={pageHref(page, { genre: s.tags })}>
                   {s.tags.map(canonLabel).join(" + ")} <span aria-hidden="true">→</span>
                 </a>

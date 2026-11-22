@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { tidyTitle } from "./titles";
 import { useEffect, useRef, useState } from "react";
 import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setMarkedAdult, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
@@ -313,7 +314,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   // Tab title (left plain for 18+ series, so they stay out of browser history).
   useEffect(() => {
     if (!data || data.adult) return;
-    document.title = `${data.manga.title} · Sapphire`;
+    document.title = `${tidyTitle(data.manga.title)} · Sapphire`;
     return () => {
       document.title = "Sapphire";
     };
@@ -379,6 +380,8 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const rawAbout = data?.about ?? { body: data?.manga.description ?? "", altTitles: [], stats: [] };
   // Some sites write their descriptions in Markdown; show **bold** and __bold__ as plain text.
   const about = { ...rawAbout, body: rawAbout.body.replace(/(\*\*|__)(.+?)\1/g, "$2") };
+  // A tidied title keeps the full one (with its circle, artist and tags) at the front of the other names.
+  const fullTitles = data && tidyTitle(data.manga.title) !== data.manga.title ? [data.manga.title, ...about.altTitles] : about.altTitles;
   const unread = data ? data.chapters.filter((c) => !readIds.has(c.id) && states[c.id]?.status !== "done") : [];
   const notSaved = data ? data.chapters.filter((c) => !states[c.id] || states[c.id].status === "failed") : [];
   const working = Object.values(states).filter((d) => d.status === "queued" || d.status === "downloading").length;
@@ -559,8 +562,8 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
 
             <div className="seriesRight">
               <div className="card seriesIntro">
-                <h2>{data.manga.title}</h2>
-                {about.altTitles.length > 0 && <AltTitles titles={about.altTitles} open={fullAlt} onToggle={() => setFullAlt((v) => !v)} />}
+                <h2>{tidyTitle(data.manga.title)}</h2>
+                {(fullTitles.length > 0) && <AltTitles titles={fullTitles} open={fullAlt} onToggle={() => setFullAlt((v) => !v)} />}
                 {(rank || ratings.length > 0) && (
                   <ul className="ratingRow">
                     {rank && <li className="rankBadge" title={`From ${data.manga.sourceName ?? "the source"}`}>Rank {rank.value}</li>}
@@ -809,7 +812,7 @@ function SimilarGrid({ groups }: { groups: SeriesGroup[] }) {
                   <li key={g.key}>
                     <a href={`#/series/${g.hits[0].mangaId}`} title={g.title}>
                       <img src={thumbnailUrl(g.hits[0].mangaId)} alt="" loading="lazy" width={120} height={174} />
-                      <span className="simTitle">{g.title}</span>
+                      <span className="simTitle">{tidyTitle(g.title)}</span>
                     </a>
                   </li>
                 ))}

@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { tidyTitle } from "./titles";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { seriesHref } from "./route";
 import { bestRating, useHiddenAdult, useLibraryIds, useRating } from "./shared";
@@ -85,7 +86,7 @@ function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: Ser
   if (dismissed) {
     return (
       <li className="gridCard dismissedCard" ref={ref}>
-        <p>Won't suggest <strong>{group.title}</strong> again.</p>
+        <p>Won't suggest <strong>{tidyTitle(group.title)}</strong> again.</p>
         <button type="button" className="button secondary small" onClick={() => { setDismissed(false); onDismiss?.(group, false); }}>Undo</button>
       </li>
     );
@@ -93,7 +94,7 @@ function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: Ser
   return (
     <li className={`gridCard ${allFailed ? "unavailable" : ""} ${onDismiss ? "dismissable" : ""}`} ref={ref}>
       {onDismiss && (
-        <button type="button" className="dismissBtn" aria-label={`Not interested in ${group.title}`} title="Not interested" onClick={() => { setDismissed(true); onDismiss(group, true); }}>
+        <button type="button" className="dismissBtn" aria-label={`Not interested in ${tidyTitle(group.title)}`} title="Not interested" onClick={() => { setDismissed(true); onDismiss(group, true); }}>
           <span aria-hidden="true">✕</span>
         </button>
       )}
@@ -115,7 +116,7 @@ function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: Ser
         </button>
       )}
       <a href={seriesHref(target)} className="gridTitle" title={group.title}>
-        {group.title}
+        {tidyTitle(group.title)}
       </a>
       <span className="muted gridMeta">
         {best

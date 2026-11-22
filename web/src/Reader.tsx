@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { tidyTitle } from "./titles";
 import { useEffect, useRef, useState, type MouseEvent, type TouchEvent } from "react";
 import { chapterPages, saveProgress, series, setLiked, setReaderPrefs, type PrefsScope, type ReaderPrefs, type SeriesData } from "./api";
 import { DownloadButton } from "./SeriesPage";
@@ -217,7 +218,7 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
   // Tab title shows where you are (left plain for 18+ series, so they stay out of browser history).
   useEffect(() => {
     if (!data || !chapter || data.adult) return;
-    document.title = `${chapterText(chapter)} · ${data.manga.title}`;
+    document.title = `${chapterText(chapter)} · ${tidyTitle(data.manga.title)}`;
     return () => {
       document.title = "Sapphire";
     };
@@ -305,7 +306,7 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
       <header className={`readerBar readerTop ${chrome ? "show" : ""}`}>
         <a className="iconBtn" href={seriesHref(mangaId)} aria-label="Back to the series" onClick={(e) => { e.preventDefault(); backTo(seriesHref(mangaId)); }}>←</a>
         <div className="readerHeading">
-          <strong className="readerSeries">{data?.manga.title ?? ""}</strong>
+          <strong className="readerSeries">{tidyTitle(data?.manga.title ?? "")}</strong>
           <span className="readerSub">
             {chapter ? chapterText(chapter) : ""}
             {chapter && chapter.chapterNumber >= 0 && chapter.name && !/^ch(apter)?\.?\s*[\d.]+$/i.test(chapter.name.trim()) ? ` · ${chapter.name}` : ""}
