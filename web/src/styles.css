@@ -52,7 +52,8 @@ body {
 .navItem:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .navIcon { width: 22px; text-align: center; }
 .sidenav.open { box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5); }
-.adultItem { margin-top: 8px; border-top: 1px solid var(--line); border-radius: 0 0 10px 10px; padding-top: 14px; }
+.adultItem { position: relative; margin-top: 17px; }
+.adultItem::before { content: ""; position: absolute; left: 0; right: 0; top: -9px; border-top: 1px solid var(--line); pointer-events: none; }
 .navBadge { margin-left: auto; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--line); color: var(--muted); }
 .navBadge.on { background: var(--accent); color: #fff; }
 .drawerBackdrop { position: fixed; inset: 0; z-index: 19; background: rgba(0, 0, 0, 0.5); animation: fadeIn 0.15s; }
