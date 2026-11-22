@@ -381,9 +381,8 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .chipCount { opacity: 0.65; font-size: 0.85em; margin-left: 2px; }
 .chip.ghost { background: none; border-style: dashed; }
 .chip.small { font-size: 12.5px; padding: 3px 10px; }
-.shelves { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
-.shelves::-webkit-scrollbar { display: none; }
-.shelves .chip { flex: none; }
+/* Library shelves: a row of tabs like Discover's, scrolling sideways on phones. */
+.tabRow.libTabs { margin-bottom: 14px; }
 .shelfPick { margin-top: 10px; }
 .shelfSheet { text-align: left; }
 .shelfSheet h3, .shelfSheet .sheetHandle { text-align: center; }

@@ -84,7 +84,7 @@ export function Library() {
   const rest = shown.filter((i) => !reading.includes(i));
   return (
     <>
-      <div className="chips shelves" role="tablist" aria-label="Shelves">
+      <div className="tabRow libTabs" role="tablist" aria-label="Shelves">
         <button type="button" role="tab" aria-selected={shelf === "all"} className={`chip ${shelf === "all" ? "on" : ""}`} onClick={() => setShelf("all")}>
           All <span className="chipCount">{items.length}</span>
         </button>
@@ -93,7 +93,9 @@ export function Library() {
             {c.name} <span className="chipCount">{items.filter((i) => i.categories.includes(c.id)).length}</span>
           </button>
         ))}
-        <button type="button" className="chip ghost" onClick={() => setEditing(true)}>{cats.length ? "Edit shelves" : "+ Add shelves"}</button>
+        <button type="button" className="chip ghost" onClick={() => setEditing(true)} aria-label={cats.length ? "Edit shelves" : "Add shelves"}>
+          {cats.length ? <><span aria-hidden="true">✎</span> Edit</> : "+ Add shelves"}
+        </button>
       </div>
       {editing && (
         <ShelfEditor
