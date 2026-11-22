@@ -615,6 +615,8 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                 {merging && (
                   <MergeSheet
                     title={data.manga.title}
+                    selfIds={[mangaId, ...(data.mergedWith ?? []).map((m) => m.mangaId).filter((x): x is number => typeof x === "number"), ...(others ?? []).map((a) => a.mangaId)]}
+                    selfTitles={[data.manga.title, data.sourceTitle ?? data.manga.title, ...(data.mergedWith ?? []).map((m) => m.title)]}
                     onClose={() => setMerging(false)}
                     onPick={(t, otherId) => {
                       setMerging(false);
@@ -1007,7 +1009,10 @@ function DisplaySheet({ mangaId, listings, onChange, onClose }: { mangaId: numbe
   );
 }
 
-function MergeSheet({ title, onPick, onClose }: { title: string; onPick: (title: string, mangaId: number) => void; onClose: () => void }) {
+/** A title as the server compares them: no case, accents or punctuation. */
+const looseKey = (t: string) => t.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/&/g, " and ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+function MergeSheet({ title, selfIds, selfTitles, onPick, onClose }: { title: string; selfIds: number[]; selfTitles: string[]; onPick: (title: string, mangaId: number) => void; onClose: () => void }) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [found, setFound] = useState<SeriesGroup[] | null>(null);
@@ -1029,7 +1034,10 @@ function MergeSheet({ title, onPick, onClose }: { title: string; onPick: (title:
     setError(null);
     try {
       const r = await searchSources(q.trim());
-      setFound(r.groups);
+      // Leave out this series itself and everything already merged with it (including its other sources).
+      const ids = new Set(selfIds);
+      const names = new Set(selfTitles.map(looseKey));
+      setFound(r.groups.filter((g) => !g.hits.some((h) => ids.has(h.mangaId)) && !names.has(looseKey(g.title)) && !g.hits.some((h) => names.has(looseKey(h.title)))));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed.");
     } finally {
