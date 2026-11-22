@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { fakeEngine } from "./test-engine.js";
-import { groupHits, normalizeTitle, type SourceHit } from "./search.js";
+import { groupHits, normalizeTitle, rankByQuery, titleMatch, type SeriesGroup, type SourceHit } from "./search.js";
 
 const hit = (title: string, sourceName: string, mangaId = 1): SourceHit => ({
   mangaId,
@@ -106,5 +106,29 @@ describe("search api", () => {
     const res = await app.inject({ method: "GET", url: "/api/manga/10/thumbnail" });
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toBe("image/png");
+  });
+});
+
+describe("rankByQuery", () => {
+  const g = (title: string, sources = 1): SeriesGroup => ({ key: title.toLowerCase(), title, hits: Array.from({ length: sources }, (_, i) => ({ mangaId: i, sourceId: String(i), sourceName: `S${i}`, title, thumbnailUrl: null })) });
+  it("puts titles that match the words first", () => {
+    const groups = [
+      g("The Mysterious World's Greatest Martial Artist Little Disciple", 2),
+      g("The Twin Swords Of The Sima Clan"),
+      g("The Great Villain of Gods and Demons: I Set Up the Divine Hall"),
+      g("Set Up (Kim Mundo)"),
+      g("Sonna Kaoshite Sasotteru?"),
+    ];
+    expect(rankByQuery(groups, "set up").map((x) => x.title).slice(0, 2)).toEqual(["Set Up (Kim Mundo)", "The Great Villain of Gods and Demons: I Set Up the Divine Hall"]);
+  });
+  it("scores exact, prefix, phrase and word matches", () => {
+    expect(titleMatch("Set Up!", "set up")).toBe(100);
+    expect(titleMatch("Set Up (Kim Mundo)", "set up")).toBe(80);
+    expect(titleMatch("I Set Up a Shop", "set up")).toBe(60);
+    expect(titleMatch("Up and Set", "set up")).toBe(40);
+    expect(titleMatch("Sets of Swords", "set up")).toBe(0);
+  });
+  it("keeps more sources first among equal matches", () => {
+    expect(rankByQuery([g("Alpha Set Up"), g("Beta Set Up", 3)], "set up").map((x) => x.title)).toEqual(["Beta Set Up", "Alpha Set Up"]);
   });
 });

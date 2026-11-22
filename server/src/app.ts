@@ -42,6 +42,7 @@ import {
   groupKey,
   latestFromChapters,
   searchAll,
+  rankByQuery,
   type EngineSource,
   type Scope,
   type SearchResult,
@@ -401,7 +402,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         if (have) have.hits.push(...g.hits);
         else groups.push(g);
       }
-      return { ...res, groups };
+      return { ...res, groups: rankByQuery(groups, q) };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });

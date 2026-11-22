@@ -155,6 +155,39 @@ export function interleaveGroups(lists: SourceHit[][]): SeriesGroup[] {
   return groups.sort((a, b) => (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0));
 }
 
+/**
+ * How well a title matches what was typed: the whole title (100), the title starting with it (80),
+ * the words together somewhere in it (60), every word somewhere (40), or some of the words (under 30).
+ * Words count only whole ("set" doesn't match "Sets" or "Sima"), ignoring case and punctuation.
+ */
+export function titleMatch(title: string, query: string): number {
+  const q = rawTitleKey(query);
+  const t = rawTitleKey(title);
+  if (!q || !t) return 0;
+  if (t === q) return 100;
+  const padded = ` ${t} `;
+  if (padded.startsWith(` ${q} `)) return 80;
+  if (padded.includes(` ${q} `)) return 60;
+  const words = q.split(" ");
+  const have = new Set(t.split(" "));
+  const found = words.filter((w) => have.has(w)).length;
+  if (found === words.length) return 40;
+  return Math.round((30 * found) / words.length);
+}
+
+/**
+ * Orders search results by how well their names match the query, then by how many sources have
+ * them, then by the sites' own order. Sites often return loose matches (a word in the description,
+ * a similar spelling) ahead of the real one, and one site's whole list would otherwise come first.
+ */
+export function rankByQuery(groups: SeriesGroup[], query: string): SeriesGroup[] {
+  const score = new Map(groups.map((g) => [g.key, Math.max(titleMatch(g.title, query), ...g.hits.map((h) => titleMatch(h.title, query)))]));
+  return groups
+    .map((g, i) => ({ g, i }))
+    .sort((a, b) => score.get(b.g.key)! - score.get(a.g.key)! || b.g.hits.length - a.g.hits.length || a.i - b.i)
+    .map((x) => x.g);
+}
+
 const SOURCES_QUERY = `{ sources { nodes { id name lang isNsfw } } }`;
 
 export async function listSources(config: Config, fetchImpl?: FetchLike): Promise<EngineSource[]> {
@@ -215,7 +248,7 @@ export async function searchAll(
     }),
   );
 
-  return { groups: groupHits(results.flat()), failed, searched: sources.length };
+  return { groups: rankByQuery(interleaveGroups(results), query), failed, searched: sources.length };
 }
 
 const CHAPTERS_MUTATION = `
