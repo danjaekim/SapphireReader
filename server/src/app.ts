@@ -201,6 +201,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       return new Set();
     }
   };
+  /** Adult because its source is an 18+ one, or because you marked the title 18+. */
+  const adultSourceOf = async (sourceId: string) => (await listSources(config, fetchImpl).catch(() => [])).find((x) => x.id === sourceId)?.isNsfw === true;
+
   // --- Hidden tags: series with any of these tags never show up in lists ----------------------------
   function tagSetting(key: string): string[] {
     try {
@@ -819,14 +822,31 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const manga = await detailsFor(id).catch(() => null);
       if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
       if ((manga.genre ?? []).length > 0) store.recordSeriesTags(id, manga.genre);
-      const fromAdultSite = (await listSources(config, fetchImpl).catch(() => [])).find((x) => x.id === manga.sourceId)?.isNsfw === true;
-      const adult = fromAdultSite || store.seriesAdult([id]).get(id) === true;
+      const adult = (await adultSourceOf(manga.sourceId)) || store.adultMarked(manga.title) || store.seriesAdult([id]).get(id) === true;
       store.setLiked(id, manga.title, adult, true);
     }
     forYouCache.clear();
     alsoLikedCache.clear();
     deepCache.clear();
     return { liked: on };
+  });
+
+  // Mark a title 18+ yourself (for series on ordinary sources that are really adult), or take it back.
+  // Taking it back needs 18+ mode unlocked, since it would reveal the title.
+  app.put<{ Params: { id: string }; Body: { on?: unknown } }>("/api/manga/:id/adult", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    const on = req.body?.on !== false;
+    if (!on && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    const manga = await detailsFor(id).catch(() => null);
+    if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+    if (await adultSourceOf(manga.sourceId)) return reply.code(400).send({ error: "This series is on an 18+ source, so it's already 18+." });
+    store.setAdultMarked(manga.title, on);
+    forYouCache.clear();
+    alsoLikedCache.clear();
+    deepCache.clear();
+    similarCache.clear();
+    return { markedAdult: on };
   });
 
   // "Not interested" on a recommendation: it's never suggested again, and its tags count a little against.
@@ -904,7 +924,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
         store.setGenres(id, manga.genre);
       }
-      const adult = (await listSources(config, fetchImpl).catch(() => [])).find((x) => x.id === manga.sourceId)?.isNsfw === true;
+      const adultSource = await adultSourceOf(manga.sourceId);
+      const markedAdult = store.adultMarked(manga.title);
+      const adult = adultSource || markedAdult;
       store.recordSeriesMeta(id, manga.title, manga.sourceName, adult);
       // Reading done before this existed (or on this source) is remembered by chapter number so other sources can pick it up.
       const doneHere = new Set(store.readChapterIds(id));
@@ -922,6 +944,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         manga,
         about: parseDescription(manga.description, manga.title),
         adult,
+        adultSource,
+        markedAdult,
         reader: readerPrefs(id, manga.sourceId, deviceOf(req)),
         liked: store.isLiked(id),
         chapters,
@@ -967,7 +991,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       chapters.every((c) => Number.isInteger(c.id) && typeof c.name === "string" && typeof c.number === "number");
     if (!valid) return reply.code(400).send({ error: "Bad request." });
     const sourceId = String(b.sourceId ?? "");
-    const adult = (await listSources(config, fetchImpl).catch(() => [])).find((s) => s.id === sourceId)?.isNsfw === true;
+    const adult = (await adultSourceOf(sourceId)) || store.adultMarked(b.title as string);
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const queued = store.queueDownloads(
       { mangaId: b.mangaId as number, title: b.title as string, sourceName: typeof b.sourceName === "string" ? b.sourceName : null, adult },
@@ -1081,7 +1105,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const id = Number(req.params.id);
       const { sourceId, sourceName = null, title } = req.body ?? {};
       if (!Number.isInteger(id) || id < 0 || !sourceId || !title) return reply.code(400).send({ error: "Bad request." });
-      const adult = (await listSources(config, fetchImpl).catch(() => [])).find((s) => s.id === sourceId)?.isNsfw === true;
+      const adult = (await adultSourceOf(sourceId)) || store.adultMarked(title);
       if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
       store.addToLibrary({ mangaId: id, sourceId, sourceName, title, adult });
       try {

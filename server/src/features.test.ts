@@ -242,3 +242,39 @@ describe("adult check for mixed sources", () => {
     expect(siteCalls).toBe(4);
   });
 });
+
+describe("marking a title 18+", () => {
+  it("moves it to the 18+ side everywhere, for every source of it, and can be taken back", async () => {
+    const { classifyAdult } = await import("./adultcheck.js");
+    const store = new Store(":memory:");
+    store.addToLibrary({ mangaId: 1, sourceId: "a", sourceName: "Asura", title: "Spicy Title!" });
+    store.addToLibrary({ mangaId: 2, sourceId: "b", sourceName: "Other", title: "Plain One" });
+    store.recordSeriesMeta(1, "Spicy Title!", "Asura", false);
+    store.recordSeriesMeta(9, "spicy title", "MangaFire", false); // the same series on another source
+    store.saveProgress(1, { chapterId: 11, chapterNumber: 1, chapterName: "1", pageIndex: 0, pageOffset: 0 });
+    store.addUpdate({ mangaId: 1, title: "Spicy Title!", sourceName: "Asura", adult: false, latestNumber: 5, newCount: 1, caughtUp: true });
+
+    store.setAdultMarked("Spicy Title", true);
+    expect(store.adultMarked("spicy title!")).toBe(true);
+    // Out of the regular lists (and so out of notifications and tab titles), into the 18+ ones.
+    expect(store.library().map((i) => i.title)).toEqual(["Plain One"]);
+    expect(store.library(true).map((i) => i.title).sort()).toEqual(["Plain One", "Spicy Title!"]);
+    expect(store.history().map((h) => h.title)).toEqual([]);
+    expect(store.updates()).toEqual([]);
+    expect(store.seriesAdult([1, 9])).toEqual(new Map([[1, true], [9, true]]));
+    // The adult check agrees without asking anyone.
+    const out = await classifyAdult(store, [{ mangaId: 55, title: "Spicy Title" }], { details: async () => [] });
+    expect(out.get(55)).toBe(true);
+
+    store.setAdultMarked("Spicy Title", false);
+    expect(store.library().map((i) => i.title).sort()).toEqual(["Plain One", "Spicy Title!"]);
+    expect(store.seriesAdult([1])).toEqual(new Map());
+  });
+
+  it("is refused for series on 18+ sources and needs the 18+ unlock to take back", async () => {
+    const store = new Store(":memory:");
+    const app = await buildApp(config, { fetchImpl: fakeEngine(), store });
+    const res = await app.inject({ method: "PUT", url: "/api/manga/1/adult", payload: { on: false } });
+    expect(res.statusCode).toBe(403);
+  });
+});

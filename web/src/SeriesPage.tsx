@@ -1,10 +1,11 @@
 import { Loading } from "./Loading";
 import { useEffect, useRef, useState } from "react";
-import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setMarkedAdult, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
-import { useRating } from "./shared";
+import { resetHiddenCache, useRating } from "./shared";
+import { clearPagedCache } from "./usePaged";
 import { canonKey } from "./genres";
 import { forgetForYou } from "./Discover";
 import { chapterDate, statusLabel } from "./util";
@@ -332,6 +333,24 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     }
   }
 
+  const [adultNote, setAdultNote] = useState<string | null>(null);
+  async function toggleMarkedAdult() {
+    if (!data) return;
+    const on = !data.markedAdult;
+    setAdultNote(null);
+    try {
+      await setMarkedAdult(mangaId, on);
+      setData((d) => (d ? { ...d, markedAdult: on, adult: on || d.adultSource === true } : d));
+      // Lists and cards decide what to hide from what the server knows, so ask again.
+      resetHiddenCache();
+      clearPagedCache();
+      forgetForYou();
+      setAdultNote(on ? "Now with your 18+ series, and hidden while 18+ mode is locked." : "No longer marked 18+.");
+    } catch (e) {
+      setAdultNote(on ? "Couldn't mark it. Try again." : "Unlock 18+ mode to take the mark back.");
+    }
+  }
+
   async function toggleLike() {
     if (!data) return;
     const next = !data.liked;
@@ -498,6 +517,14 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                       </li>
                     )}
                   </ul>
+                )}
+                {data.adultSource !== true && (
+                  <p className="markAdult small">
+                    <button type="button" className="linkish" onClick={toggleMarkedAdult}>
+                      {data.markedAdult ? "Marked 18+ · Undo" : "Mark as 18+"}
+                    </button>
+                    {adultNote && <span className="muted adultNote">{adultNote}</span>}
+                  </p>
                 )}
                 {(about.facets ?? []).map((f) => (
                   <div key={f.label} className="facet">

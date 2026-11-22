@@ -255,6 +255,8 @@ export class Store {
     // Which chapter numbers of a series (by normalised title) have been read on any source, so another source of the same series starts out with them marked.
     this.db.exec("CREATE TABLE IF NOT EXISTS read_numbers (title_key TEXT NOT NULL, chapter_number REAL NOT NULL, read_at TEXT NOT NULL, PRIMARY KEY (title_key, chapter_number))");
     // Series you liked (♥): a strong signal for recommendations, whether or not they're in the library.
+    // Titles you marked 18+ yourself (by normalized title, so every source of the series counts).
+    this.db.exec("CREATE TABLE IF NOT EXISTS adult_override (title_key TEXT PRIMARY KEY, title TEXT NOT NULL, at TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS likes (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
     // Series marked "Not interested" in recommendations: never suggested again, and their tags count against.
     this.db.exec("CREATE TABLE IF NOT EXISTS not_interested (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
@@ -398,6 +400,56 @@ export class Store {
            banner = excluded.banner, is_adult = excluded.is_adult, fetched_at = excluded.fetched_at`,
       )
       .run(key, m.anilistId, m.score, m.popularity, m.banner ?? null, m.adult == null ? null : m.adult ? 1 : 0, new Date().toISOString());
+  }
+
+  /** True when you marked this title 18+ yourself. */
+  adultMarked(title: string): boolean {
+    const key = normalizeTitle(title);
+    return !!key && this.db.prepare("SELECT 1 FROM adult_override WHERE title_key = ?").get(key) !== undefined;
+  }
+
+  /**
+   * Marks (or unmarks) a title as 18+ across the app: every place that remembers whether a series is
+   * adult (library, history, likes, downloads, updates, not-interested, the adult check) is updated for
+   * every source of it, so it moves to the 18+ side and out of regular lists and notifications.
+   */
+  setAdultMarked(title: string, on: boolean): void {
+    const key = normalizeTitle(title);
+    if (!key) return;
+    if (on) {
+      this.db
+        .prepare("INSERT INTO adult_override (title_key, title, at) VALUES (?, ?, ?) ON CONFLICT(title_key) DO UPDATE SET at = excluded.at")
+        .run(key, title, new Date().toISOString());
+    } else {
+      this.db.prepare("DELETE FROM adult_override WHERE title_key = ?").run(key);
+    }
+    const flag = on ? 1 : 0;
+    const touch = (table: string, idCol: string, titleCol: string) => {
+      const rows = this.db.prepare(`SELECT ${idCol} AS id, ${titleCol} AS title FROM ${table}`).all() as { id: number; title: string }[];
+      const set = this.db.prepare(`UPDATE ${table} SET adult = ? WHERE ${idCol} = ?`);
+      for (const r of rows) if (normalizeTitle(r.title) === key) set.run(flag, r.id);
+      return rows.filter((r) => normalizeTitle(r.title) === key).map((r) => r.id);
+    };
+    const ids = new Set<number>();
+    for (const [table, idCol, titleCol] of [
+      ["library", "manga_id", "title"],
+      ["series_meta", "manga_id", "title"],
+      ["likes", "manga_id", "title"],
+      ["not_interested", "manga_id", "title"],
+      ["downloads", "chapter_id", "manga_title"],
+      ["updates", "id", "title"],
+    ] as const) {
+      try {
+        const got = touch(table, idCol, titleCol);
+        if (table === "library" || table === "series_meta") got.forEach((id) => ids.add(id));
+      } catch {
+        // A table without that column on an old database: nothing to update there.
+      }
+    }
+    for (const id of ids) {
+      if (on) this.putSeriesAdult(id, true, "manual");
+      else this.db.prepare("DELETE FROM series_adult WHERE manga_id = ?").run(id);
+    }
   }
 
   seriesAdult(ids: number[]): Map<number, boolean> {

@@ -30,6 +30,11 @@ export async function classifyAdult(
   const known = store.seriesAdult(items.map((i) => i.mangaId));
   const todo: CheckItem[] = [];
   for (const it of items) {
+    // A title you marked 18+ is adult, whatever the sources say.
+    if (store.adultMarked(it.title)) {
+      out.set(it.mangaId, true);
+      continue;
+    }
     const k = known.get(it.mangaId);
     if (k !== undefined) {
       out.set(it.mangaId, k);

@@ -844,3 +844,6 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .likeBtn.on { border-color: color-mix(in srgb, #e11d48 50%, var(--line)); }
 .likeBtn.on span { color: #e11d48; }
 @media (max-width: 720px) { .starTag, .starring .moreTag { min-height: 36px; padding: 6px 12px; font-size: 14px; } }
+.markAdult { margin: 0 0 12px; }
+.markAdult { line-height: 1.5; }
+.adultNote { display: block; }

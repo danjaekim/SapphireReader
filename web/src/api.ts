@@ -99,6 +99,10 @@ export interface SeriesData {
   /** The description split into story, other names and the site's own numbers. */
   about?: { body: string; altTitles: string[]; stats: { label: string; value: string }[]; facets?: { label: string; values: string[] }[] };
   adult?: boolean;
+  /** On an 18+ source, so it can't be un-marked. */
+  adultSource?: boolean;
+  /** You marked this title 18+ yourself. */
+  markedAdult?: boolean;
   reader?: ReaderPrefs & { custom: boolean; level?: "series" | "source" | "default" };
   chapters: ChapterInfo[]; // oldest first
   latest: LatestChapter;
@@ -233,6 +237,7 @@ export interface DeepRow {
   groups: SeriesGroup[];
 }
 export const deepForYou = (adult = false) => getJson<{ rows: DeepRow[] }>(`/api/for-you/deep${adult ? "?adult=1" : ""}`);
+export const setMarkedAdult = (mangaId: number, on: boolean) => send("PUT", `/api/manga/${mangaId}/adult`, { on }) as Promise<{ markedAdult: boolean }>;
 export const setLiked = (mangaId: number, on: boolean) => send("PUT", `/api/manga/${mangaId}/like`, { on });
 export const setNotInterested = (mangaId: number, title: string, on: boolean, adult = false) =>
   send("PUT", `/api/manga/${mangaId}/not-interested`, { title, on, adult });
