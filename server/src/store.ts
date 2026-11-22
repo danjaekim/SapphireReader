@@ -66,6 +66,13 @@ export interface SwitchOffer {
   toSourceName: string | null;
   toLatest: number;
   fromLatest: number;
+  /**
+   * ahead: the same version is further along elsewhere. other-version: only another version (say,
+   * Censored) has the newer chapters. back: the version you prefer has caught up with where you are.
+   */
+  kind?: "ahead" | "other-version" | "back";
+  /** The version label of the listing it would move to. */
+  toVersion?: string | null;
 }
 
 export interface AnilistMeta {
@@ -284,8 +291,38 @@ export class Store {
     // Series marked "Not interested" in recommendations: never suggested again, and their tags count against.
     this.db.exec("CREATE TABLE IF NOT EXISTS not_interested (manga_id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL, adult INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS series_tags (manga_id INTEGER PRIMARY KEY, tags TEXT NOT NULL, seen_at TEXT NOT NULL)");
+    // Version labels (Uncensored, Censored, Colored…) on single listings, and the version you prefer per series.
+    this.db.exec("CREATE TABLE IF NOT EXISTS listing_versions (manga_id INTEGER PRIMARY KEY, label TEXT NOT NULL)");
+    this.db.exec("CREATE TABLE IF NOT EXISTS version_prefs (canon_key TEXT PRIMARY KEY, label TEXT NOT NULL)");
+    for (const column of ["to_version TEXT", "kind TEXT"]) {
+      try {
+        this.db.exec(`ALTER TABLE switch_offers ADD COLUMN ${column}`);
+      } catch {
+        // already there
+      }
+    }
     // Finished "For you" answers, one per kind and page, so they survive restarts and aren't recomputed needlessly.
     this.db.exec("CREATE TABLE IF NOT EXISTS rec_cache (kind TEXT NOT NULL, adult INTEGER NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (kind, adult))");
+  }
+
+  versionOf(mangaId: number): string | null {
+    const r = this.db.prepare("SELECT label FROM listing_versions WHERE manga_id = ?").get(mangaId) as { label: string } | undefined;
+    return r?.label ?? null;
+  }
+  setVersion(mangaId: number, label: string | null): void {
+    const clean = label?.trim().slice(0, 30) ?? "";
+    if (!clean) this.db.prepare("DELETE FROM listing_versions WHERE manga_id = ?").run(mangaId);
+    else this.db.prepare("INSERT INTO listing_versions (manga_id, label) VALUES (?, ?) ON CONFLICT(manga_id) DO UPDATE SET label = excluded.label").run(mangaId, clean);
+  }
+  /** The version you chose to prefer for a series (by its canonical key), if you chose one. */
+  preferredVersion(canonKey: string): string | null {
+    const r = this.db.prepare("SELECT label FROM version_prefs WHERE canon_key = ?").get(canonKey) as { label: string } | undefined;
+    return r?.label ?? null;
+  }
+  setPreferredVersion(canonKey: string, label: string | null): void {
+    const clean = label?.trim().slice(0, 30) ?? "";
+    if (!clean) this.db.prepare("DELETE FROM version_prefs WHERE canon_key = ?").run(canonKey);
+    else this.db.prepare("INSERT INTO version_prefs (canon_key, label) VALUES (?, ?) ON CONFLICT(canon_key) DO UPDATE SET label = excluded.label").run(canonKey, clean);
   }
 
   recCacheGet(kind: string, adult: boolean): { key: string; at: number; value: unknown } | null {
@@ -704,13 +741,13 @@ export class Store {
     if (old?.dismissed_latest != null && o.toLatest <= old.dismissed_latest) return false;
     this.db
       .prepare(
-        `INSERT INTO switch_offers (manga_id, to_manga_id, to_source_id, to_source_name, to_latest, from_latest, created_at, dismissed_latest)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+        `INSERT INTO switch_offers (manga_id, to_manga_id, to_source_id, to_source_name, to_latest, from_latest, created_at, dismissed_latest, kind, to_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
          ON CONFLICT(manga_id) DO UPDATE SET to_manga_id = excluded.to_manga_id, to_source_id = excluded.to_source_id,
            to_source_name = excluded.to_source_name, to_latest = excluded.to_latest, from_latest = excluded.from_latest,
-           created_at = excluded.created_at, dismissed_latest = NULL`,
+           created_at = excluded.created_at, dismissed_latest = NULL, kind = excluded.kind, to_version = excluded.to_version`,
       )
-      .run(o.mangaId, o.toMangaId, o.toSourceId, o.toSourceName, o.toLatest, o.fromLatest, new Date().toISOString());
+      .run(o.mangaId, o.toMangaId, o.toSourceId, o.toSourceName, o.toLatest, o.fromLatest, new Date().toISOString(), o.kind ?? "ahead", o.toVersion ?? null);
     return true;
   }
 
@@ -728,6 +765,8 @@ export class Store {
       toSourceName: (r.to_source_name as string | null) ?? null,
       toLatest: r.to_latest as number,
       fromLatest: r.from_latest as number,
+      kind: ((r.kind as string | null) ?? "ahead") as SwitchOffer["kind"],
+      toVersion: (r.to_version as string | null) ?? null,
       title: r.title as string,
       fromSourceName: (r.source_name as string | null) ?? null,
       adult: r.adult === 1,

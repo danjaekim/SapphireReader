@@ -1,7 +1,7 @@
 import { Loading } from "./Loading";
 import { tidyTitle } from "./titles";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -399,6 +399,13 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     }
   }
 
+  /** After a version label or preference changes: take the new labels, and look at other sources again. */
+  async function versionsChanged() {
+    const d = await series(mangaId).catch(() => null);
+    if (d) setData((x) => (x ? { ...x, mergedWith: d.mergedWith, version: d.version, preferredVersion: d.preferredVersion } : x));
+    setAltRun((n) => n + 1);
+  }
+
   async function toggleLike() {
     if (!data) return;
     const next = !data.liked;
@@ -581,6 +588,9 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     )}
                     {adultNote && <span className="muted adultNote">{adultNote}</span>}
                   </p>
+                  {(data.version || (data.mergedWith ?? []).length > 0 || (others ?? []).length > 0) && (
+                    <VersionChip mangaId={mangaId} version={data.version ?? null} preferred={data.preferredVersion ?? null} onChanged={versionsChanged} />
+                  )}
                   <div className="mergeRow">
                     {(data.mergedWith ?? []).length > 0 && (
                       <>
@@ -610,7 +620,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   </div>
                 </div>
                 {editing && (data.mergedWith ?? []).length > 0 && (
-                  <DisplaySheet mangaId={mangaId} listings={data.mergedWith ?? []} onChange={(c) => changeMerge(() => setDisplay(mangaId, c))} onClose={() => setEditing(false)} />
+                  <DisplaySheet mangaId={mangaId} listings={data.mergedWith ?? []} preferred={data.preferredVersion ?? null} onChange={(c) => changeMerge(() => setDisplay(mangaId, c))} onVersions={versionsChanged} onClose={() => setEditing(false)} />
                 )}
                 {merging && (
                   <MergeSheet
@@ -643,6 +653,9 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                         return (
                           <li key={o.mangaId} className={ahead ? "best" : undefined}>
                             <a href={`#/series/${o.mangaId}`}>{o.sourceName}</a>
+                            {o.version && (
+                              <span className={`tag verTag ${data.preferredVersion && o.version.toLowerCase() === data.preferredVersion.toLowerCase() ? "pref" : ""}`}>{o.version}</span>
+                            )}
                             <span className="muted">{o.latestNumber !== null ? chapterLabel({ name: "", chapterNumber: o.latestNumber }) : "no numbered chapters"}</span>
                             {ahead && <span className="tag">further ahead</span>}
                           </li>
@@ -916,11 +929,119 @@ function SimilarGrid({ groups }: { groups: SeriesGroup[] }) {
 }
 
 /** Find the other listing of this series (by any words in its name) and merge it in. */
+/** One merged copy's version label in the Edit sheet, saved when you leave the field; ★ makes it the version to stay on. */
+function VersionRow({ listing, where, preferred, parentId, onChanged }: { listing: MergedName; where: string; preferred: string | null; parentId: number; onChanged: () => Promise<void> }) {
+  const [text, setText] = useState(listing.version ?? "");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setText(listing.version ?? ""), [listing.version]);
+  const isPref = !!listing.version && !!preferred && listing.version.toLowerCase() === preferred.toLowerCase();
+  const id = listing.mangaId;
+  const save = async () => {
+    if (id == null || text.trim() === (listing.version ?? "")) return;
+    setBusy(true);
+    await setVersion(id, text.trim() || null).catch(() => null);
+    await onChanged();
+    setBusy(false);
+  };
+  const star = async () => {
+    if (!listing.version) return;
+    setBusy(true);
+    await setPreferredVersion(parentId, isPref ? null : listing.version).catch(() => null);
+    await onChanged();
+    setBusy(false);
+  };
+  return (
+    <li className="versionRow">
+      <span className="mergeInfo">
+        <strong title={listing.title}>{tidyTitle(listing.title)}</strong>
+        {where && <span className="muted small">{where}</span>}
+      </span>
+      {id == null ? (
+        <span className="muted small">Merge it again to label it</span>
+      ) : (
+        <>
+          <input
+            type="text"
+            list="versionPresets"
+            value={text}
+            placeholder="Version"
+            aria-label={`Version of ${listing.title}`}
+            disabled={busy}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={() => void save()}
+            onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()}
+          />
+          <button type="button" className={`starBtn ${isPref ? "on" : ""}`} disabled={busy || !listing.version} aria-pressed={isPref} title={isPref ? "Preferred version (tap to undo)" : "Prefer this version"} aria-label={isPref ? "Preferred version" : "Prefer this version"} onClick={() => void star()}>
+            {isPref ? "★" : "☆"}
+          </button>
+        </>
+      )}
+    </li>
+  );
+}
+
+/** The version of the copy you're looking at, with a quick way to label it and make it the one to stay on. */
+function VersionChip({ mangaId, version, preferred, onChanged }: { mangaId: number; version: string | null; preferred: string | null; onChanged: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(version ?? "");
+  const isPref = !!version && !!preferred && version.toLowerCase() === preferred.toLowerCase();
+  const [prefer, setPrefer] = useState(isPref);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    setText(version ?? "");
+    setPrefer(isPref);
+  }, [version, isPref, open]);
+  const save = async (label: string | null) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await setVersion(mangaId, label);
+      if (label && prefer !== isPref) await setPreferredVersion(mangaId, prefer ? label : null);
+      else if (!label && isPref) await setPreferredVersion(mangaId, null);
+      await onChanged();
+      setOpen(false);
+    } catch {
+      setErr("Couldn't save that. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!open) {
+    return (
+      <p className="versionLine">
+        <span className="muted">Version</span>{" "}
+        {version ? <span className={`tag verTag ${isPref ? "pref" : ""}`} title={isPref ? "The version you stay on" : undefined}>{version}</span> : <span className="muted">not labeled</span>}{" "}
+        <button type="button" className="linkish" onClick={() => setOpen(true)}>{version ? "Edit" : "Add label"}</button>
+      </p>
+    );
+  }
+  return (
+    <div className="versionEdit" role="group" aria-label="Version of this copy">
+      <div className="chips">
+        {VERSION_PRESETS.map((v) => (
+          <button key={v} type="button" className={`chip ${text.toLowerCase() === v.toLowerCase() ? "on" : ""}`} onClick={() => setText(v)}>{v}</button>
+        ))}
+      </div>
+      <input type="text" value={text} maxLength={30} placeholder="Or type a label" aria-label="Version label" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void save(text.trim() || null)} />
+      <label className="versionPref">
+        <input type="checkbox" checked={prefer} disabled={!text.trim()} onChange={(e) => setPrefer(e.target.checked)} /> Stay on this version when others are ahead
+      </label>
+      <div className="versionActions">
+        <button type="button" className="button small" disabled={busy || !text.trim()} onClick={() => void save(text.trim())}>Save</button>
+        {version && <button type="button" className="button small secondary" disabled={busy} onClick={() => void save(null)}>Remove label</button>}
+        <button type="button" className="linkish" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+      {err && <p className="bad small">{err}</p>}
+    </div>
+  );
+}
+
 /**
  * Pick, separately, which of a merged series' listings supplies its name, its cover and its description.
  * Each choice applies as soon as it's tapped.
  */
-function DisplaySheet({ mangaId, listings, onChange, onClose }: { mangaId: number; listings: MergedName[]; onChange: (c: DisplayChoice) => Promise<void>; onClose: () => void }) {
+function DisplaySheet({ mangaId, listings, preferred, onChange, onVersions, onClose }: { mangaId: number; listings: MergedName[]; preferred: string | null; onChange: (c: DisplayChoice) => Promise<void>; onVersions: () => Promise<void>; onClose: () => void }) {
   const [previews, setPreviews] = useState<Record<string, { sourceName: string | null; description: string; available: boolean }> | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -956,6 +1077,14 @@ function DisplaySheet({ mangaId, listings, onChange, onClose }: { mangaId: numbe
         </header>
         <p className="muted small">Each one can come from a different listing. Chapters and reading progress aren't affected.</p>
         <div className="filterSheetBody displayBody">
+          <h4>Versions</h4>
+          <p className="muted small versionHelp">Label each copy (Uncensored, Censored…) and star the one to stay on. Sapphire only offers another version when it has chapters yours doesn't.</p>
+          <ul className="mergeList versionList">
+            {listings.map((m) => (
+              <VersionRow key={`v-${m.key}`} listing={m} where={where(m)} preferred={preferred} parentId={mangaId} onChanged={onVersions} />
+            ))}
+          </ul>
+          <datalist id="versionPresets">{VERSION_PRESETS.map((v) => <option key={v} value={v} />)}</datalist>
           <h4>Name</h4>
           <ul className="mergeList pickList" role="radiogroup" aria-label="Name">
             {listings.map((m) => (

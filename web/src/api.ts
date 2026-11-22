@@ -111,6 +111,9 @@ export interface SeriesData {
   markedSafe?: boolean;
   /** Other listings merged with this one (the main name first when this is the merged-in one). */
   mergedWith?: MergedName[];
+  /** This listing's version label (Uncensored, Censored…), and the version the series stays on. */
+  version?: string | null;
+  preferredVersion?: string | null;
   /** This source's own name for the series (manga.title is the name it's shown under). */
   sourceTitle?: string;
   reader?: ReaderPrefs & { custom: boolean; level?: "series" | "source" | "default" };
@@ -269,6 +272,7 @@ export interface MergedName {
   own: boolean;
   /** The listing's series id (null for an old merge that didn't record it). */
   mangaId?: number | null;
+  version?: string | null;
   /** Which listing the name, the cover and the description are taken from. */
   shows?: { title: boolean; cover: boolean; description: boolean };
 }
@@ -281,6 +285,11 @@ export interface DisplayChoice {
 }
 export const setDisplay = (mangaId: number, choice: DisplayChoice) =>
   send("PUT", `/api/manga/${mangaId}/merge/display`, choice) as Promise<Merged & { title: string; description: string | null; about: SeriesData["about"] }>;
+export const setVersion = (mangaId: number, label: string | null) => send("PUT", `/api/manga/${mangaId}/version`, { label }) as Promise<{ version: string | null }>;
+export const setPreferredVersion = (mangaId: number, label: string | null) =>
+  send("PUT", `/api/manga/${mangaId}/preferred-version`, { label }) as Promise<{ preferredVersion: string | null }>;
+/** Version labels offered first; any other text works too. */
+export const VERSION_PRESETS = ["Uncensored", "Censored", "Colored", "Raw", "Official"];
 export const mergePreviews = (mangaId: number) =>
   getJson<{ items: { key: string; sourceName: string | null; description: string; available: boolean }[] }>(`/api/manga/${mangaId}/merge/previews`);
 /** A listing's own cover, even when it's part of a merged series that shows another one. */
@@ -377,6 +386,7 @@ export const checkSources = () => send("POST", "/api/sources/check");
 export interface Alternative {
   mangaId: number;
   sourceName: string;
+  version?: string | null;
   chapterCount: number;
   latestNumber: number | null;
 }
@@ -487,6 +497,10 @@ export interface SwitchOffer {
   fromLatest: number;
   title: string;
   fromSourceName: string | null;
+  /** ahead: same version further along; other-version: only another version has newer chapters; back: your preferred version caught up. */
+  kind?: "ahead" | "other-version" | "back";
+  toVersion?: string | null;
+  fromVersion?: string | null;
 }
 export const switchOffers = () => getJson<{ offers: SwitchOffer[] }>("/api/switch-offers").then((r) => r.offers);
 export const acceptSwitch = (mangaId: number) => send("POST", `/api/switch-offers/${mangaId}/accept`) as Promise<{ mangaId: number }>;

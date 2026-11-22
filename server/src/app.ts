@@ -24,7 +24,7 @@ import { backupName, snapshot } from "./backup.js";
 import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
 import { checkLibrary } from "./checker.js";
 import { createNotifier } from "./notify.js";
-import { Store, type ProgressInput } from "./store.js";
+import { Store, type ProgressInput, type SwitchOffer } from "./store.js";
 import {
   fetchChapterList,
   fetchMangaDetails,
@@ -708,7 +708,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         hits.map(async (h) => {
           try {
             const latest = latestFromChapters(await chaptersFor(h.mangaId));
-            return { mangaId: h.mangaId, sourceName: h.sourceName, ...latest };
+            return { mangaId: h.mangaId, sourceName: h.sourceName, version: store.versionOf(h.mangaId), ...latest };
           } catch {
             return null;
           }
@@ -718,8 +718,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         alternatives: alternatives
           .filter((a): a is NonNullable<typeof a> => a !== null)
           .sort((a, b) => (b.latestNumber ?? -1) - (a.latestNumber ?? -1))
-          // A site can list the same title twice (two entries); show each site once, furthest ahead.
-          .filter((a, i, all) => all.findIndex((x) => x.sourceName === a.sourceName) === i),
+          // A site can list the same title twice (two entries); show each site once per version, furthest ahead.
+          .filter((a, i, all) => all.findIndex((x) => x.sourceName === a.sourceName && sameVersion(x.version, a.version)) === i),
       };
     } catch (err) {
       req.log.error(err);
@@ -978,6 +978,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       key: n.key,
       title: n.title,
       mangaId: n.mangaId,
+      version: n.mangaId !== null ? store.versionOf(n.mangaId) : null,
       canon: n.key === canon,
       own: n.key === own,
       primary: n.title === (shown?.title ?? all[0]?.title),
@@ -989,6 +990,19 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       },
     }));
   }
+  // ---- Versions (Uncensored, Censored, Colored…) of one series ------------------------------------
+  const sameVersion = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+  /**
+   * The version to stay on for a series: the one you chose, else "Uncensored" when one of its listings
+   * carries that label, else none (every listing counts the same).
+   */
+  function preferredVersionFor(title: string, ids: number[]): string | null {
+    const chosen = store.preferredVersion(normalizeTitle(title));
+    if (chosen) return chosen;
+    const labels = ids.map((i) => store.versionOf(i)).filter((l): l is string => !!l);
+    return labels.find((l) => sameVersion(l, "uncensored")) ?? null;
+  }
+
   /** The description to show: a merged series can take it from another of its listings. */
   async function shownDescription(manga: MangaDetails): Promise<string | null> {
     const from = primaryDescription(manga.title);
@@ -1068,6 +1082,38 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     );
     return { items };
   });
+  // Label one listing with its version (Uncensored, Censored…), or clear it.
+  app.put<{ Params: { id: string }; Body: { label?: unknown } }>("/api/manga/:id/version", async (req, reply) => {
+    const id = Number(req.params.id);
+    const label = req.body?.label;
+    if (!Number.isInteger(id) || id < 0 || (label !== null && typeof label !== "string")) return reply.code(400).send({ error: "Needs a label (or null to clear it)." });
+    store.setVersion(id, label as string | null);
+    versionsChanged(id);
+    return { version: store.versionOf(id) };
+  });
+  // The version to stay on for this series (merged copies included); null goes back to the automatic choice.
+  app.put<{ Params: { id: string }; Body: { label?: unknown } }>("/api/manga/:id/preferred-version", async (req, reply) => {
+    const id = Number(req.params.id);
+    const label = req.body?.label;
+    if (!Number.isInteger(id) || id < 0 || (label !== null && typeof label !== "string")) return reply.code(400).send({ error: "Needs a label (or null)." });
+    const manga = await detailsFor(id).catch(() => null);
+    if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+    store.setPreferredVersion(normalizeTitle(manga.title), label as string | null);
+    versionsChanged(id);
+    const ids = [id, ...mergedWith(manga.title).map((m) => m.mangaId).filter((x): x is number => x !== null)];
+    return { preferredVersion: preferredVersionFor(manga.title, ids) };
+  });
+  /** A version change can make an open "move" offer wrong: drop it and look again at the next check. */
+  function versionsChanged(id: number) {
+    const title = store.knownTitle(id);
+    const key = title ? normalizeTitle(title) : null;
+    for (const item of store.library(true)) {
+      if (item.mangaId === id || (key && normalizeTitle(item.title) === key)) {
+        store.clearSwitchOffer(item.mangaId);
+        store.setSetting(`autoswitch.checked.${item.mangaId}`, "1970-01-01T00:00:00.000Z");
+      }
+    }
+  }
   app.delete<{ Params: { id: string; key: string } }>("/api/manga/:id/merge/:key", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
@@ -1180,6 +1226,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         markedAdult: mark === true,
         markedSafe: mark === false,
         mergedWith: mergedWith(manga.title),
+        version: store.versionOf(id),
+        preferredVersion: preferredVersionFor(manga.title, [id, ...mergedWith(manga.title).map((m) => m.mangaId).filter((x): x is number => x !== null)]),
         reader: readerPrefs(id, manga.sourceId, deviceOf(req)),
         liked: store.isLiked(id),
         chapters,
@@ -1461,41 +1509,65 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
    * further ahead (and clearly the same series: it has most of the same chapter numbers), moves the
    * library entry there, carrying over read chapters, your place and categories.
    */
-  async function autoSwitchFor(mangaId: number): Promise<{ from: string | null; to: string; latest: number } | null> {
+  async function autoSwitchFor(mangaId: number): Promise<{ from: string | null; to: string; latest: number; kind: NonNullable<SwitchOffer["kind"]>; toVersion: string | null } | null> {
     const item = store.library(true).find((i) => i.mangaId === mangaId);
     if (!item || item.unread !== 0 || item.latestNumber === null) return null;
     const key = `autoswitch.checked.${mangaId}`;
     if (Date.now() - Date.parse(store.getSetting(key) ?? "0") < 20 * 3600 * 1000) return null;
     store.setSetting(key, new Date().toISOString());
-    const found = await searchAll(config, item.title, { fetchImpl, onResult: report, scope: item.adult ? "all" : "safe" });
-    const hits = (found.groups.find((g) => g.key === groupKey(item.title))?.hits ?? [])
+    // Merged series are listed under other names too (often the other versions), so look each one up.
+    const names = [...new Set([item.title, ...mergedWith(item.title).map((m) => m.title)])].slice(0, 4);
+    const found = await Promise.all(names.map((n) => searchAll(config, n, { fetchImpl, onResult: report, scope: item.adult ? "all" : "safe" }).catch(() => null)));
+    const hits = found
+      .flatMap((f) => f?.groups.find((g) => g.key === groupKey(item.title))?.hits ?? [])
+      .filter((h, i, all) => all.findIndex((x) => x.mangaId === h.mangaId) === i)
       .filter((h) => h.mangaId !== mangaId && h.sourceId !== item.sourceId)
-      .slice(0, 4);
+      .slice(0, 6);
     const mine = (await chaptersFor(mangaId)).filter((c) => c.chapterNumber >= 0);
     const mineNumbers = new Set(mine.map((c) => c.chapterNumber));
-    let best: { hit: (typeof hits)[number]; chapters: ChapterInfo[]; latest: number } | null = null;
+    const candidates: { hit: (typeof hits)[number]; latest: number; version: string | null }[] = [];
     for (const hit of hits) {
       try {
         const chapters = await chaptersFor(hit.mangaId);
         const numbers = new Set(chapters.filter((c) => c.chapterNumber >= 0).map((c) => c.chapterNumber));
         const latest = Math.max(-1, ...numbers);
         const overlap = [...mineNumbers].filter((n) => numbers.has(n)).length / Math.max(1, mineNumbers.size);
-        if (latest > item.latestNumber && overlap >= 0.7 && (!best || latest > best.latest)) best = { hit, chapters, latest };
+        if (overlap >= 0.7) candidates.push({ hit, latest, version: store.versionOf(hit.mangaId) });
       } catch {
         // That source is having a bad day.
       }
     }
-    if (!best) return null;
+    const myVersion = store.versionOf(mangaId);
+    const preferred = preferredVersionFor(item.title, [mangaId, ...candidates.map((c) => c.hit.mangaId)]);
+    const furthest = (list: typeof candidates) => list.reduce<(typeof candidates)[number] | null>((a, c) => (!a || c.latest > a.latest ? c : a), null);
+    let pick: { c: (typeof candidates)[number]; kind: NonNullable<SwitchOffer["kind"]> } | null = null;
+    // Reading another version than the one you prefer: offer the way back once it has caught up.
+    if (preferred && !sameVersion(myVersion, preferred)) {
+      const back = furthest(candidates.filter((c) => sameVersion(c.version, preferred) && c.latest >= item.latestNumber!));
+      if (back) pick = { c: back, kind: "back" };
+    }
+    if (!pick) {
+      const same = furthest(candidates.filter((c) => sameVersion(c.version, myVersion) && c.latest > item.latestNumber!));
+      if (same) pick = { c: same, kind: "ahead" };
+    }
+    if (!pick) {
+      // Only another version has the newer chapters: say so, so you can decide.
+      const other = furthest(candidates.filter((c) => !sameVersion(c.version, myVersion) && c.latest > item.latestNumber!));
+      if (other) pick = { c: other, kind: "other-version" };
+    }
+    if (!pick) return null;
     // Asks first: the move happens when you accept it on the Updates page.
     const offered = store.offerSwitch({
       mangaId,
-      toMangaId: best.hit.mangaId,
-      toSourceId: best.hit.sourceId,
-      toSourceName: best.hit.sourceName,
-      toLatest: best.latest,
+      toMangaId: pick.c.hit.mangaId,
+      toSourceId: pick.c.hit.sourceId,
+      toSourceName: pick.c.hit.sourceName,
+      toLatest: pick.c.latest,
       fromLatest: item.latestNumber,
+      kind: pick.kind,
+      toVersion: pick.c.version,
     });
-    return offered ? { from: item.sourceName, to: best.hit.sourceName, latest: best.latest } : null;
+    return offered ? { from: item.sourceName, to: pick.c.hit.sourceName, latest: pick.c.latest, kind: pick.kind, toVersion: pick.c.version } : null;
   }
 
   async function afterCheck(): Promise<void> {
@@ -1509,7 +1581,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
             const latest = Number.isInteger(moved.latest) ? moved.latest : moved.latest.toFixed(1);
             await notify?.({
               title: item.adult ? "Sapphire" : item.title,
-              message: item.adult ? "A series in your 18+ library is further ahead on another source" : `${moved.to} has up to chapter ${latest}. Tap to move it there.`,
+              message: item.adult
+                ? "A series in your 18+ library is further ahead on another source"
+                : moved.kind === "back"
+                  ? `${moved.toVersion ?? "Your preferred version"} has caught up on ${moved.to}. Tap to move back.`
+                  : moved.kind === "other-version"
+                    ? `Up to chapter ${latest} is out in the ${moved.toVersion ?? "other"} version on ${moved.to}.`
+                    : `${moved.to} has up to chapter ${latest}. Tap to move it there.`,
               click: config.publicUrl ? `${config.publicUrl}/#/updates` : undefined,
             }).catch(() => {});
           }
@@ -1523,7 +1601,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   }
 
   // "Further ahead elsewhere" suggestions, shown on the Updates page.
-  app.get("/api/switch-offers", async (req) => ({ offers: shown(store.switchOffers(gate.unlocked(req.headers.cookie))) }));
+  app.get("/api/switch-offers", async (req) => ({
+    offers: shown(store.switchOffers(gate.unlocked(req.headers.cookie))).map((o) => ({ ...o, fromVersion: store.versionOf(o.mangaId) })),
+  }));
   app.post<{ Params: { id: string } }>("/api/switch-offers/:id/dismiss", async (req) => {
     store.dismissSwitchOffer(Number(req.params.id));
     return { ok: true };

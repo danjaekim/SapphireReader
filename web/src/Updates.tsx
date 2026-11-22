@@ -65,10 +65,29 @@ export function Updates() {
             <li key={o.mangaId} className="feedRow offerRow">
               <img src={thumbnailUrl(o.mangaId)} alt="" width={44} height={60} loading="lazy" />
               <div className="info">
-                <strong>Move {tidyTitle(o.title)} to {o.toSourceName ?? "another source"}?</strong>
-                <div className="muted small">
-                  It has up to {chapterText(o.toLatest)}; {o.fromSourceName ?? "your current source"} stops at {chapterText(o.fromLatest)}. Your place and read chapters come along.
-                </div>
+                {o.kind === "back" ? (
+                  <>
+                    <strong>Back to {o.toVersion ?? "your preferred version"} for {tidyTitle(o.title)}?</strong>
+                    <div className="muted small">
+                      {o.toSourceName ?? "Another source"} ({o.toVersion ?? "preferred"}) has caught up, with up to {chapterText(o.toLatest)}. Your place and read chapters come along.
+                    </div>
+                  </>
+                ) : o.kind === "other-version" ? (
+                  <>
+                    <strong>Continue {tidyTitle(o.title)} in the {o.toVersion ?? "other"} version?</strong>
+                    <div className="muted small">
+                      Chapters after {chapterText(o.fromLatest)} are only out in the {o.toVersion ?? "other"} version so far ({o.toSourceName ?? "another source"}, up to {chapterText(o.toLatest)}).
+                      {" "}Your place comes along, and Sapphire offers to move you back once {o.fromVersion ?? "your version"} catches up.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <strong>Move {tidyTitle(o.title)} to {o.toSourceName ?? "another source"}?</strong>
+                    <div className="muted small">
+                      It has up to {chapterText(o.toLatest)}; {o.fromSourceName ?? "your current source"} stops at {chapterText(o.fromLatest)}. Your place and read chapters come along.
+                    </div>
+                  </>
+                )}
                 <div className="offerActions">
                   <button type="button" className="button small" disabled={busy !== null} onClick={() => void move(o)}>
                     {busy === o.mangaId ? "Moving…" : "Move"}

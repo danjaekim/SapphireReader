@@ -868,6 +868,19 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .mergeInfo { flex: 1; min-width: 0; display: grid; }
 .mergeInfo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .caughtTag { display: inline-flex; align-items: center; margin-left: 8px; padding: 1px 10px; line-height: 1.5; vertical-align: 1px; }
+.versionLine { margin: 8px 0 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.verTag { font-size: 12px; }
+.verTag.pref::before { content: "★ "; color: var(--accent); }
+.versionEdit { margin: 8px 0; padding: 10px; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 8px; }
+.versionEdit input[type="text"], .versionRow input[type="text"] { height: 36px; box-sizing: border-box; padding: 0 10px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.versionPref { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.versionActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.versionHelp { margin: 0 0 8px; }
+.versionRow { display: flex; align-items: center; gap: 8px; }
+.versionRow input[type="text"] { width: 150px; flex: none; }
+.starBtn { flex: none; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--muted); font-size: 18px; cursor: pointer; }
+.starBtn.on { color: var(--accent); border-color: var(--accent); }
+.starBtn:disabled { opacity: 0.45; cursor: default; }
 .displayBody h4 { margin: 16px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .displayBody h4:first-child { margin-top: 4px; }
 .pickList li { display: block; }
