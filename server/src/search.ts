@@ -56,6 +56,8 @@ export interface SeriesGroup {
   key: string;
   title: string;
   hits: SourceHit[];
+  /** For a merged series: the series whose cover to show (its primary listing). */
+  cover?: number;
 }
 
 export interface SearchResult {
@@ -71,8 +73,21 @@ export interface SearchResult {
  * carrying reading across sources, your library) treats them as one series.
  */
 let titleAliases = new Map<string, string>();
-export function setTitleAliases(map: Map<string, string>): void {
+/** How each merged series is shown: its primary listing's name and series id (for the cover). */
+let titlePrimaries = new Map<string, { title: string; mangaId: number | null }>();
+export function setTitleAliases(map: Map<string, string>, primaries: Map<string, { title: string; mangaId: number | null }> = new Map()): void {
   titleAliases = map;
+  titlePrimaries = primaries;
+}
+
+/** The name to show for a title: a merged series' primary name, else the title itself. */
+export function displayTitle(title: string): string {
+  return titlePrimaries.get(normalizeTitle(title))?.title ?? title;
+}
+
+/** The series whose cover a merged series is shown with (its primary listing), or null. */
+export function primaryCover(title: string): number | null {
+  return titlePrimaries.get(normalizeTitle(title))?.mangaId ?? null;
 }
 
 /** The normalized key a title is matched by, with merges applied. */
@@ -97,14 +112,26 @@ export function rawTitleKey(title: string): string {
 
 export const groupKey = normalizeTitle;
 
+/** Titles of series seen in recent results, so a cover can be swapped for a merged series' primary one. */
+const seenTitles = new Map<number, string>();
+export function seenTitle(mangaId: number): string | null {
+  return seenTitles.get(mangaId) ?? null;
+}
+
 export function groupHits(hits: SourceHit[]): SeriesGroup[] {
   const groups = new Map<string, SeriesGroup>();
   for (const hit of hits) {
+    seenTitles.set(hit.mangaId, hit.title);
+    if (seenTitles.size > 20000) seenTitles.delete(seenTitles.keys().next().value!);
     const key = normalizeTitle(hit.title);
     if (!key) continue;
     const group = groups.get(key);
     if (group) group.hits.push(hit);
-    else groups.set(key, { key, title: hit.title, hits: [hit] });
+    else {
+      // A merged series shows as its primary listing (name and cover).
+      const primary = titlePrimaries.get(key);
+      groups.set(key, primary ? { key, title: primary.title, hits: [hit], ...(primary.mangaId !== null ? { cover: primary.mangaId } : {}) } : { key, title: hit.title, hits: [hit] });
+    }
   }
   // Series found on more sources come first; ties keep each source's own ranking.
   return [...groups.values()].sort((a, b) => b.hits.length - a.hits.length);

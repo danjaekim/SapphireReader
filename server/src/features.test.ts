@@ -324,3 +324,36 @@ describe("merging titles", () => {
     }
   });
 });
+
+describe("a merged series' primary listing", () => {
+  it("names and covers the merged series, can be switched, and falls back when its listing is unmerged", async () => {
+    const { groupHits, normalizeTitle, rawTitleKey, setTitleAliases, displayTitle, primaryCover } = await import("./search.js");
+    const store = new Store(":memory:");
+    const canon = rawTitleKey("The Return of the Crazy Demon");
+    store.mergeTitles(rawTitleKey("Return of the Mad Demon"), "Return of the Mad Demon", canon, "The Return of the Crazy Demon", { alias: 2, canon: 1 });
+    setTitleAliases(store.titleAliases(), store.titlePrimaries());
+    try {
+      const hits = [
+        { mangaId: 2, sourceId: "b", sourceName: "Flame", title: "Return of the Mad Demon", thumbnailUrl: null },
+        { mangaId: 1, sourceId: "a", sourceName: "Asura", title: "The Return of the Crazy Demon", thumbnailUrl: null },
+      ];
+      // The first hit is the merged-in listing, but the card shows the primary's name and cover.
+      expect(groupHits(hits)[0]).toMatchObject({ title: "The Return of the Crazy Demon", cover: 1 });
+      expect(displayTitle("Return of the Mad Demon")).toBe("The Return of the Crazy Demon");
+
+      store.setPrimary(normalizeTitle("Return of the Mad Demon"), rawTitleKey("Return of the Mad Demon"));
+      setTitleAliases(store.titleAliases(), store.titlePrimaries());
+      expect(groupHits(hits)[0]).toMatchObject({ title: "Return of the Mad Demon", cover: 2 });
+      expect(primaryCover("The Return of the Crazy Demon")).toBe(2);
+      // Matching doesn't move: the canonical key stays the same.
+      expect(normalizeTitle("Return of the Mad Demon")).toBe(canon);
+
+      store.unmergeTitle(rawTitleKey("Return of the Mad Demon"));
+      setTitleAliases(store.titleAliases(), store.titlePrimaries());
+      expect(displayTitle("The Return of the Crazy Demon")).toBe("The Return of the Crazy Demon");
+      expect(primaryCover("The Return of the Crazy Demon")).toBeNull();
+    } finally {
+      setTitleAliases(new Map());
+    }
+  });
+});

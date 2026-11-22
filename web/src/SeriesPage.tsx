@@ -1,7 +1,7 @@
 import { Loading } from "./Loading";
 import { tidyTitle } from "./titles";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setMainName, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -374,11 +374,14 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
 
   const [merging, setMerging] = useState(false);
   const [mergeNote, setMergeNote] = useState<string | null>(null);
-  async function changeMerge(run: () => Promise<{ mergedWith: { key: string; title: string; canon: boolean }[] }>) {
+  async function changeMerge(run: () => Promise<{ mergedWith: MergedName[]; title?: string }>) {
     setMergeNote(null);
     try {
       const r = await run();
-      setData((d) => (d ? { ...d, mergedWith: r.mergedWith } : d));
+      // The series is shown as its primary listing: take its name (and reload covers, which may have swapped).
+      const main = r.title ?? r.mergedWith.find((m) => m.primary)?.title ?? data?.sourceTitle ?? data?.manga.title;
+      coversChanged();
+      setData((d) => (d ? { ...d, mergedWith: r.mergedWith, manga: { ...d.manga, title: main ?? d.manga.title } } : d));
       clearPagedCache();
       setAltRun((n) => n + 1);
     } catch {
@@ -571,13 +574,21 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   <div className="mergeRow">
                     {(data.mergedWith ?? []).length > 0 && (
                       <>
-                        <span className="muted">Same series as</span>
-                        {(data.mergedWith ?? []).map((m) => (
-                          <span key={m.key} className="mergedName">
-                            {tidyTitle(m.title)}
-                            <button type="button" aria-label={`Unmerge ${m.title}`} title="Unmerge" onClick={() => changeMerge(() => unmergeTitle(mangaId, m.key))}>×</button>
-                          </span>
-                        ))}
+                        <span className="muted">Also listed as</span>
+                        {(data.mergedWith ?? [])
+                          .filter((m) => !m.primary)
+                          .map((m) => (
+                            <span key={m.key} className="mergedName">
+                              <span>
+                                {tidyTitle(m.title)}
+                                {m.own && <span className="muted"> (this source)</span>}
+                              </span>
+                              <button type="button" aria-label={`Show as ${m.title}`} title="Make this the main name and cover" className="mainBtn" onClick={() => changeMerge(() => setMainName(mangaId, m.key))}>Make main</button>
+                              {!m.canon && (
+                                <button type="button" aria-label={`Unmerge ${m.title}`} title="Unmerge" onClick={() => changeMerge(() => unmergeTitle(mangaId, m.key))}>×</button>
+                              )}
+                            </span>
+                          ))}
                       </>
                     )}
                     <button type="button" className="linkish" onClick={() => setMerging(true)}>
@@ -590,9 +601,9 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   <MergeSheet
                     title={data.manga.title}
                     onClose={() => setMerging(false)}
-                    onPick={(t) => {
+                    onPick={(t, otherId) => {
                       setMerging(false);
-                      void changeMerge(() => mergeTitle(mangaId, t));
+                      void changeMerge(() => mergeTitle(mangaId, t, otherId));
                     }}
                   />
                 )}
@@ -878,7 +889,7 @@ function SimilarGrid({ groups }: { groups: SeriesGroup[] }) {
                 {shown.map((g) => (
                   <li key={g.key}>
                     <a href={`#/series/${g.hits[0].mangaId}`} title={g.title}>
-                      <img src={thumbnailUrl(g.hits[0].mangaId)} alt="" loading="lazy" width={120} height={174} />
+                      <img src={thumbnailUrl(g.cover ?? g.hits[0].mangaId)} alt="" loading="lazy" width={120} height={174} />
                       <span className="simTitle">{tidyTitle(g.title)}</span>
                     </a>
                   </li>
@@ -888,7 +899,7 @@ function SimilarGrid({ groups }: { groups: SeriesGroup[] }) {
 }
 
 /** Find the other listing of this series (by any words in its name) and merge it in. */
-function MergeSheet({ title, onPick, onClose }: { title: string; onPick: (title: string) => void; onClose: () => void }) {
+function MergeSheet({ title, onPick, onClose }: { title: string; onPick: (title: string, mangaId: number) => void; onClose: () => void }) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [found, setFound] = useState<SeriesGroup[] | null>(null);
@@ -939,12 +950,12 @@ function MergeSheet({ title, onPick, onClose }: { title: string; onPick: (title:
             <ul className="mergeList">
               {found.map((g) => (
                 <li key={g.key}>
-                  <img src={thumbnailUrl(g.hits[0].mangaId)} alt="" loading="lazy" width={40} height={58} />
+                  <img src={thumbnailUrl(g.cover ?? g.hits[0].mangaId)} alt="" loading="lazy" width={40} height={58} />
                   <span className="mergeInfo">
                     <strong>{tidyTitle(g.title)}</strong>
                     <span className="muted small">{[...new Set(g.hits.map((h) => h.sourceName))].join(", ")}</span>
                   </span>
-                  <button type="button" className="button small secondary" onClick={() => onPick(g.title)}>Merge</button>
+                  <button type="button" className="button small secondary" onClick={() => onPick(g.hits[0].title, g.hits[0].mangaId)}>Merge</button>
                 </li>
               ))}
             </ul>

@@ -99,7 +99,7 @@ function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: Ser
         </button>
       )}
       <a href={seriesHref(target)} className="gridCover">
-        <img src={thumbnailUrl(target)} alt="" loading="lazy" />
+        <img src={thumbnailUrl(group.cover ?? target)} alt="" loading="lazy" />
         {sourceNames.length > 1 && <span className="badge">{sourceNames.length} sources</span>}
         {rating && <span className="badge score" title={`${rating.source} rating`}>★ {rating.value.toFixed(1)}</span>}
       </a>

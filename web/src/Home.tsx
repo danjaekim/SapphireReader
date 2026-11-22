@@ -98,7 +98,7 @@ export function Home() {
             {recs.groups.slice(0, 12).map((g) => (
               <li key={g.key} className="gridCard">
                 <a href={seriesHref(g.hits[0].mangaId)} className="gridCover">
-                  <img src={thumbnailUrl(g.hits[0].mangaId)} alt="" loading="lazy" />
+                  <img src={thumbnailUrl(g.cover ?? g.hits[0].mangaId)} alt="" loading="lazy" />
                   {g.hits.length > 1 && <span className="badge">{g.hits.length} sources</span>}
                 </a>
                 <a href={seriesHref(g.hits[0].mangaId)} className="gridTitle" title={g.title}>{g.title}</a>

@@ -10,6 +10,8 @@ export interface SeriesGroup {
   key: string;
   title: string;
   hits: SourceHit[];
+  /** A merged series is shown with this series' cover (its primary listing). */
+  cover?: number;
   /** AniList average score (0-100) and popularity, when sorting by them. */
   score?: number | null;
   popularity?: number | null;
@@ -106,7 +108,9 @@ export interface SeriesData {
   /** You marked this title not 18+ (it's on an 18+ or mixed source). */
   markedSafe?: boolean;
   /** Other listings merged with this one (the main name first when this is the merged-in one). */
-  mergedWith?: { key: string; title: string; canon: boolean }[];
+  mergedWith?: MergedName[];
+  /** This source's own name for the series (manga.title is the name it's shown under). */
+  sourceTitle?: string;
   reader?: ReaderPrefs & { custom: boolean; level?: "series" | "source" | "default" };
   chapters: ChapterInfo[]; // oldest first
   latest: LatestChapter;
@@ -243,8 +247,18 @@ export interface DeepRow {
 }
 export const deepForYou = (adult = false) => getJson<{ rows: DeepRow[] }>(`/api/for-you/deep${adult ? "?adult=1" : ""}`);
 export const setAdultMark = (mangaId: number, mark: boolean | null) => send("PUT", `/api/manga/${mangaId}/adult`, { mark }) as Promise<{ mark: boolean | null }>;
-type Merged = { mergedWith: { key: string; title: string; canon: boolean }[] };
-export const mergeTitle = (mangaId: number, title: string) => send("POST", `/api/manga/${mangaId}/merge`, { title }) as Promise<Merged>;
+export interface MergedName {
+  key: string;
+  title: string;
+  canon: boolean;
+  /** The name (and cover) the series is shown with. */
+  primary: boolean;
+  /** This source's own name. */
+  own: boolean;
+}
+type Merged = { mergedWith: MergedName[] };
+export const mergeTitle = (mangaId: number, title: string, otherId?: number) => send("POST", `/api/manga/${mangaId}/merge`, { title, mangaId: otherId }) as Promise<Merged>;
+export const setMainName = (mangaId: number, key: string) => send("PUT", `/api/manga/${mangaId}/merge/primary`, { key }) as Promise<Merged & { title: string }>;
 export const unmergeTitle = (mangaId: number, key: string) => send("DELETE", `/api/manga/${mangaId}/merge/${encodeURIComponent(key)}`) as Promise<Merged>;
 export const setLiked = (mangaId: number, on: boolean) => send("PUT", `/api/manga/${mangaId}/like`, { on });
 export const setNotInterested = (mangaId: number, title: string, on: boolean, adult = false) =>
@@ -274,7 +288,12 @@ export const similar = (mangaId: number) => getJson<{ groups: SeriesGroup[]; bas
 export const search = (q: string, page = 1, sort?: string, sourceIds?: string[]) =>
   getJson<BrowseResult>(`/api/search?q=${encodeURIComponent(q)}&page=${page}${sortQs(sort)}${sourceQs(sourceIds)}`);
 export const latest = (mangaId: number) => getJson<LatestChapter>(`/api/manga/${mangaId}/latest`);
-export const thumbnailUrl = (mangaId: number) => `/api/manga/${mangaId}/thumbnail`;
+/** Bumped when merges change which cover a series shows, so images load fresh. */
+let coverVersion = 0;
+export const coversChanged = () => {
+  coverVersion++;
+};
+export const thumbnailUrl = (mangaId: number) => `/api/manga/${mangaId}/thumbnail${coverVersion ? `?v=${coverVersion}` : ""}`;
 
 /** Runs async jobs a few at a time so one search doesn't hit every site at once. */
 export function createQueue(concurrency: number) {

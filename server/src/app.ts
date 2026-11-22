@@ -35,6 +35,9 @@ import {
   setAdultOverrides,
   setTitleAliases,
   rawTitleKey,
+  displayTitle,
+  primaryCover,
+  seenTitle,
   adultOverrideFor,
   groupKey,
   latestFromChapters,
@@ -528,14 +531,14 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   };
 
   app.get("/api/updates", async (req) => ({
-    items: store.updates({ includeAdult: gate.unlocked(req.headers.cookie) }),
+    items: shown(store.updates({ includeAdult: gate.unlocked(req.headers.cookie) })),
     lastCheckedAt: store.lastChecked(),
   }));
 
   // Everything the home page needs that comes from Sapphire's own database (recommendations load separately).
   app.get("/api/home", async (req) => {
     const unlocked = gate.unlocked(req.headers.cookie);
-    const library = store.library(unlocked);
+    const library = shown(store.library(unlocked));
     const continueReading = library
       .filter((i) => i.progress && (i.unread ?? 0) > 0)
       .sort((a, b) => b.progress!.updatedAt.localeCompare(a.progress!.updatedAt))
@@ -543,7 +546,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return {
       libraryCount: library.length,
       continueReading,
-      newChapters: store.updates({ includeAdult: unlocked, caughtUpOnly: true, limit: 8 }),
+      newChapters: shown(store.updates({ includeAdult: unlocked, caughtUpOnly: true, limit: 8 })),
       lastCheckedAt: store.lastChecked(),
       alertsOn: notify !== null,
     };
@@ -626,7 +629,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   }
   setAdultOverrides(loadAdultOverrides());
-  setTitleAliases(store.titleAliases());
+  setTitleAliases(store.titleAliases(), store.titlePrimaries());
+  /** Lists show a merged series under its primary name. */
+  const shown = <T extends { title: string }>(rows: T[]): T[] => rows.map((r) => ({ ...r, title: displayTitle(r.title) }));
 
   app.get("/api/sources", async (req, reply) => {
     try {
@@ -690,7 +695,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     try {
       const manga = await fetchMangaDetails(config, id, fetchImpl);
       // Merged series are listed under other names too, so look each one up.
-      const names = [manga.title, ...mergedWith(manga.title).map((m) => m.title)].slice(0, 4);
+      const names = [...new Set([manga.title, ...mergedWith(manga.title).map((m) => m.title)])].slice(0, 4);
       const found = await Promise.all(names.map((n) => searchAll(config, n, { fetchImpl, onResult: report, scope: scopeFor(req) }).catch(() => null)));
       const key = groupKey(manga.title);
       const hits = found
@@ -893,18 +898,22 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   });
 
   // ---- Merged titles: differently named listings of the same series count as one ----------------
-  /** The other names this title is merged with (the canonical one first), for the series page. */
-  function mergedWith(title: string): { key: string; title: string; canon: boolean }[] {
+  /**
+   * Every name of a merged series (empty when it isn't merged): the canonical one first, which one it's
+   * shown as (primary), and which is this source's own.
+   */
+  function mergedWith(title: string): { key: string; title: string; canon: boolean; primary: boolean; own: boolean }[] {
     const canon = normalizeTitle(title);
+    const others = store.mergedNames(canon);
+    if (others.length === 0) return [];
     const own = rawTitleKey(title);
-    const out: { key: string; title: string; canon: boolean }[] = [];
-    const canonTitle = store.canonTitle(canon);
-    if (canonTitle && canon !== own) out.push({ key: canon, title: canonTitle, canon: true });
-    for (const n of store.mergedNames(canon)) if (n.key !== own) out.push({ ...n, canon: false });
-    return out;
+    const shownAs = displayTitle(title);
+    const c = store.canonOf(canon);
+    const all = [{ key: canon, title: c?.title ?? title, canon: true }, ...others.map((n) => ({ key: n.key, title: n.title, canon: false }))];
+    return all.map((n) => ({ ...n, primary: n.title === shownAs, own: n.key === own }));
   }
   const mergesChanged = () => {
-    setTitleAliases(store.titleAliases());
+    setTitleAliases(store.titleAliases(), store.titlePrimaries());
     forYouCache.clear();
     alsoLikedCache.clear();
     deepCache.clear();
@@ -912,7 +921,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     chapterCache.clear();
   };
   // Merge another listing (by its title) into this series.
-  app.post<{ Params: { id: string }; Body: { title?: unknown } }>("/api/manga/:id/merge", async (req, reply) => {
+  app.post<{ Params: { id: string }; Body: { title?: unknown; mangaId?: unknown } }>("/api/manga/:id/merge", async (req, reply) => {
     const id = Number(req.params.id);
     const other = typeof req.body?.title === "string" ? req.body.title.trim() : "";
     if (!Number.isInteger(id) || id < 0 || !other) return reply.code(400).send({ error: "Needs the series and the title to merge." });
@@ -922,12 +931,29 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const aliasKey = rawTitleKey(other);
     if (!aliasKey || normalizeTitle(other) === canon) return { mergedWith: mergedWith(manga.title) };
     // The series' current name stays the main one; if it's itself merged into another, that one does.
-    store.mergeTitles(aliasKey, other, canon, store.canonTitle(canon) ?? manga.title);
+    const otherId = Number.isInteger(req.body?.mangaId) ? (req.body!.mangaId as number) : null;
+    // This series' own id is the canonical listing's when this is that listing.
+    const canonId = rawTitleKey(manga.title) === canon ? id : null;
     // Anything already merged under the other title follows it.
     const otherCanon = normalizeTitle(other);
-    if (otherCanon !== aliasKey) store.mergeTitles(otherCanon, store.canonTitle(otherCanon) ?? other, canon, store.canonTitle(canon) ?? manga.title);
+    if (otherCanon !== aliasKey) {
+      const oc = store.canonOf(otherCanon);
+      store.mergeTitles(otherCanon, oc?.title ?? other, canon, store.canonTitle(canon) ?? manga.title, { alias: oc?.mangaId ?? null, canon: canonId });
+    }
+    store.mergeTitles(aliasKey, other, canon, store.canonTitle(canon) ?? manga.title, { alias: otherId, canon: canonId });
     mergesChanged();
     return { mergedWith: mergedWith(manga.title) };
+  });
+  // Show a merged series as one of its names (and that listing's cover).
+  app.put<{ Params: { id: string }; Body: { key?: unknown } }>("/api/manga/:id/merge/primary", async (req, reply) => {
+    const id = Number(req.params.id);
+    const key = typeof req.body?.key === "string" ? req.body.key : "";
+    if (!Number.isInteger(id) || id < 0 || !key) return reply.code(400).send({ error: "Needs the series and the name." });
+    const manga = await detailsFor(id).catch(() => null);
+    if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+    store.setPrimary(normalizeTitle(manga.title), key);
+    mergesChanged();
+    return { mergedWith: mergedWith(manga.title), title: displayTitle(manga.title) };
   });
   app.delete<{ Params: { id: string; key: string } }>("/api/manga/:id/merge/:key", async (req, reply) => {
     const id = Number(req.params.id);
@@ -1034,7 +1060,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         }
       }
       return {
-        manga,
+        // Shown under a merged series' primary name; the source's own name stays in sourceTitle.
+        manga: { ...manga, title: displayTitle(manga.title) },
+        sourceTitle: manga.title,
         about: parseDescription(manga.description, manga.title),
         adult,
         adultSource,
@@ -1058,7 +1086,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
 
   // ---- Downloads ----
   app.get("/api/downloads", async (req) => {
-    const items = store.downloads(gate.unlocked(req.headers.cookie));
+    const items = store.downloads(gate.unlocked(req.headers.cookie)).map((d) => ({ ...d, mangaTitle: displayTitle(d.mangaTitle) }));
     return { items, totalBytes: items.reduce((n, d) => n + d.bytes, 0) };
   });
 
@@ -1157,7 +1185,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     },
   );
 
-  app.get("/api/history", async (req) => ({ items: store.history(gate.unlocked(req.headers.cookie)) }));
+  app.get("/api/history", async (req) => ({ items: shown(store.history(gate.unlocked(req.headers.cookie))) }));
   app.delete<{ Params: { id: string } }>("/api/history/:id", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return reply.code(400).send({ error: "Bad id." });
@@ -1192,7 +1220,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return { categories: store.seriesCategories(id) };
   });
 
-  app.get("/api/library", async (req) => ({ items: store.library(gate.unlocked(req.headers.cookie)) }));
+  app.get("/api/library", async (req) => ({ items: shown(store.library(gate.unlocked(req.headers.cookie))) }));
 
   app.put<{ Params: { id: string }; Body: { sourceId?: string; sourceName?: string | null; title?: string } }>(
     "/api/library/:id",
@@ -1384,7 +1412,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   }
 
   // "Further ahead elsewhere" suggestions, shown on the Updates page.
-  app.get("/api/switch-offers", async (req) => ({ offers: store.switchOffers(gate.unlocked(req.headers.cookie)) }));
+  app.get("/api/switch-offers", async (req) => ({ offers: shown(store.switchOffers(gate.unlocked(req.headers.cookie))) }));
   app.post<{ Params: { id: string } }>("/api/switch-offers/:id/dismiss", async (req) => {
     store.dismissSwitchOffer(Number(req.params.id));
     return { ok: true };
@@ -1415,7 +1443,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.post("/api/library/refresh", async (req) => {
     const unlocked = gate.unlocked(req.headers.cookie);
     const result = await runCheck(0);
-    return { items: store.library(unlocked), failed: result.failed };
+    return { items: shown(store.library(unlocked)), failed: result.failed };
   });
 
   app.post("/api/notify/test", async (_req, reply) => {
@@ -1462,9 +1490,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.get<{ Params: { id: string } }>("/api/manga/:id/thumbnail", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    // A merged series is shown with its primary listing's cover.
+    const known = store.knownTitle(id) ?? seenTitle(id);
+    const primary = known ? primaryCover(known) : null;
+    if (primary !== null && primary !== id) return reply.header("cache-control", "no-cache").redirect(`/api/manga/${primary}/thumbnail`);
     const local = downloader.coverFile(id);
     if (local) {
-      return reply.header("content-type", mimeForFile(local)).header("cache-control", "public, max-age=86400").send(createReadStream(local));
+      return reply.header("content-type", mimeForFile(local)).header("cache-control", "public, max-age=3600").send(createReadStream(local));
     }
     try {
       const res = await engineFile(config, `/api/v1/manga/${id}/thumbnail`, fetchImpl);
@@ -1472,7 +1504,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const type = res.headers.get("content-type") ?? "image/jpeg";
       return reply
         .header("content-type", type)
-        .header("cache-control", "public, max-age=86400")
+        // An hour, so a merge (which can swap covers) shows soon.
+        .header("cache-control", "public, max-age=3600")
         .send(Buffer.from(await res.arrayBuffer()));
     } catch (err) {
       req.log.error(err);
