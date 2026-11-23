@@ -6,24 +6,31 @@ import { Store } from "./store.js";
 
 const config = loadConfig({ WEB_DIR: "./does-not-exist" });
 
+// Shaped like the live v1 API (Nov 23, 2026): flat tags_v2 objects, title + native/romanized/secondary titles.
 const OVERGEARED = {
   id: 685,
   state: "active",
+  merged_with: null,
   title: "Overgeared",
-  titles: [{ language: "ko", title: "템빨", is_primary: false }],
+  native_title: "템빨",
+  romanized_title: "Temppal",
+  secondary_titles: { en: [{ type: "alternative", title: "Legendary Blacksmith" }] },
   type: "manhwa",
+  year: 2020,
   content_rating: "safe",
   rating: 79,
   published: { start_date: "2020-04-01" },
-  source: { anilist: { id: 139699 }, my_anime_list: { id: 142425 }, manga_updates: { id: "g9ej9ao" } },
+  source: { anilist: { id: 139699, rating: 79 }, my_anime_list: { id: 142425 }, manga_updates: { id: "g9ej9ao" } },
+  genres: ["action"],
+  tags: ["Crafting"],
   tags_v2: [
-    { tag: { name: "Action", name_path: "Genres > Action", is_genre: true }, weight: "core", is_spoiler: false },
-    { tag: { name: "Incidental Thing", name_path: "Themes > Incidental Thing" }, weight: "incidental", is_spoiler: false },
-    { tag: { name: "Weak to Strong", name_path: "Narrative Tropes > Character Change > Weak to Strong" }, weight: "defining", is_spoiler: false },
-    { tag: { name: "Big Reveal", name_path: "Plot > Big Reveal" }, weight: "core", is_spoiler: true },
+    { id: 1, is_spoiler: false, is_genre: true, is_explicit: true, implied_by_tag_ids: [], parent_id: null, name: "Action", level: 1, name_path: "Genres > Action", series_count: 9, description: null, content_rating: "safe", weight: "core" },
+    { id: 2, is_spoiler: false, is_genre: false, is_explicit: true, implied_by_tag_ids: [], parent_id: 7, name: "Incidental Thing", level: 2, name_path: "Themes > Incidental Thing", series_count: 9, description: null, content_rating: "safe", weight: "incidental" },
+    { id: 3, is_spoiler: false, is_genre: false, is_explicit: true, implied_by_tag_ids: [], parent_id: 8, name: "Weak to Strong", level: 3, name_path: "Narrative Tropes > Character Change > Weak to Strong", series_count: 9, description: null, content_rating: "safe", weight: "defining" },
+    { id: 4, is_spoiler: true, is_genre: false, is_explicit: true, implied_by_tag_ids: [], parent_id: 9, name: "Big Reveal", level: 2, name_path: "Plot > Big Reveal", series_count: 9, description: null, content_rating: "safe", weight: "core" },
   ],
 };
-const DECOY = { id: 9, title: "Overgeared Too", titles: [], source: { anilist: { id: 1 } } };
+const DECOY = { id: 9, title: "Overgeared Too", native_title: null, secondary_titles: null, source: { anilist: { id: 1 } } };
 
 /** Fake MangaBaka plus a fake engine with one series ("Overgeared", id 50). */
 function world(opts: { searchHits?: unknown[]; calls?: string[]; title?: string } = {}): typeof fetch {
@@ -31,8 +38,8 @@ function world(opts: { searchHits?: unknown[]; calls?: string[]; title?: string 
     const url = String(u);
     if (url.startsWith("https://api.mangabaka.org")) {
       opts.calls?.push(url);
-      if (url.includes("/v2/series/search")) return new Response(JSON.stringify({ status: 200, data: opts.searchHits ?? [DECOY, OVERGEARED] }));
-      const m = /\/v2\/series\/(\d+)/.exec(url);
+      if (url.includes("/v1/series/search")) return new Response(JSON.stringify({ status: 200, data: opts.searchHits ?? [DECOY, OVERGEARED] }));
+      const m = /\/v1\/series\/(\d+)/.exec(url);
       if (m && Number(m[1]) === 685) return new Response(JSON.stringify({ status: 200, data: OVERGEARED }));
       if (m && Number(m[1]) === 9) return new Response(JSON.stringify({ status: 200, data: DECOY }));
       return new Response("{}", { status: 404 });
@@ -51,7 +58,7 @@ const quick = (f: typeof fetch) => new MangaBaka(f, { search: 0, other: 0 });
 describe("MangaBaka parsing and matching", () => {
   it("reads tags with weights, paths and spoiler flags, and provider ids", () => {
     const s = parseSeries({ data: OVERGEARED })!;
-    expect(s).toMatchObject({ id: 685, title: "Overgeared", year: "2020", contentRating: "safe", anilistId: 139699, muId: "g9ej9ao", titles: ["Overgeared", "템빨"] });
+    expect(s).toMatchObject({ id: 685, title: "Overgeared", year: "2020", contentRating: "safe", anilistId: 139699, muId: "g9ej9ao", titles: ["Overgeared", "템빨", "Temppal", "Legendary Blacksmith"] });
     expect(s.tags.map((t) => [t.name, t.weight, t.spoiler])).toEqual([
       ["Action", "core", false],
       ["Incidental Thing", "incidental", false],
@@ -61,13 +68,23 @@ describe("MangaBaka parsing and matching", () => {
     expect(s.tags[2].path).toBe("Narrative Tropes > Character Change > Weak to Strong");
   });
 
+  it("also reads a v2-style record (titles list with is_primary, no title field)", () => {
+    const s = parseSeries({ status: 200, data: { id: 833, titles: [{ language: "ko", title: "템빨", is_primary: false }, { language: "en", title: "Overgeared", is_primary: true }] } })!;
+    expect(s.title).toBe("Overgeared");
+    expect(s.titles).toEqual(["Overgeared", "템빨"]);
+  });
+
+  it("matches by another of its names (native or secondary)", async () => {
+    expect((await findOnBaka(quick(world()), ["Legendary Blacksmith"], null))?.id).toBe(685);
+  });
+
   it("matches on an exact title and never on a near miss", async () => {
     expect((await findOnBaka(quick(world()), ["Overgeared"], null))?.id).toBe(685);
     expect(await findOnBaka(quick(world({ searchHits: [DECOY] })), ["Overgeared"], null)).toBeNull();
   });
 
   it("trusts the same AniList entry over the title, and refuses a title match tied to a different AniList entry", async () => {
-    expect((await findOnBaka(quick(world({ searchHits: [{ ...OVERGEARED, title: "Overgeared (Remake)", titles: [] }] })), ["Overgeared"], 139699))?.id).toBe(685);
+    expect((await findOnBaka(quick(world({ searchHits: [{ ...OVERGEARED, title: "Overgeared (Remake)", native_title: null, romanized_title: null, secondary_titles: null }] })), ["Overgeared"], 139699))?.id).toBe(685);
     expect(await findOnBaka(quick(world()), ["Overgeared"], 555)).toBeNull();
   });
 });

@@ -93,7 +93,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `downloader.ts` | Saves chapters to the NAS one at a time; serves saved pages and covers. |
 | `notify.ts` | ntfy client. |
 | `tracker.ts` | AniList tracking (token, search, set progress). |
-| `mangabaka.ts` | MangaBaka client (spaced calls: search 2.5s apart, others 0.5s), tolerant parsing of `tags_v2` (name, path, weight, genre, spoiler), content rating, provider ids; `findOnBaka` matching. |
+| `mangabaka.ts` | MangaBaka client on the **v1** API (v2 records have no tags and no plain title; verified live Nov 23) (spaced calls: search 2.5s apart, others 0.5s), tolerant parsing of `tags_v2` (name, path, weight, genre, spoiler), content rating, provider ids; `findOnBaka` matching. |
 | `updater.ts`, `engineupdate.ts` | "Is a newer version out?" for the app (GHCR digests + commits) and the engine (GitHub releases); asking Watchtower to update. |
 | `extensions.ts` | Install/update/remove extensions through the engine. |
 | `backup.ts` | Daily database snapshot. |
@@ -339,8 +339,7 @@ Keep this list current: add items when they come up, remove them when done or dr
 - Status filter (needs per-series lookups).
 
 **Not yet verified against live sources**
-- MangaBaka matching and tags: response shapes were built from docs and a third-party client, never
-  called live (the cloud container can't reach it). Check matches, `tags_v2` shape and 18+ coverage on the NAS.
+- MangaBaka match quality and 18+ coverage on Dan's real series (response shape now checked against the live v1 API).
 - For you deep rows and AniList "also liked" rows on real sources.
 - Version-aware move offers and the "Also on" memory on Dan's real libraries.
 

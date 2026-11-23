@@ -51,18 +51,30 @@ const num = (v: unknown): number | null => {
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => (v && typeof v === "object" ? (v as Obj) : {});
 
+/** Every string under "title" keys (or plain strings) in a value of any shape: arrays, {en: [...]} maps, objects. */
+function collectTitles(v: unknown, out: string[], depth = 0): void {
+  if (depth > 4 || v == null) return;
+  if (typeof v === "string") {
+    const s = str(v);
+    if (s && !out.includes(s)) out.push(s);
+  } else if (Array.isArray(v)) for (const x of v) collectTitles(x, out, depth + 1);
+  else if (typeof v === "object") {
+    const o = v as Obj;
+    if (typeof o.title === "string") collectTitles(o.title, out, depth + 1);
+    else for (const x of Object.values(o)) if (typeof x === "object") collectTitles(x, out, depth + 1);
+  }
+}
+/** v1 has title / native_title / romanized_title / secondary_titles; v2 only a titles list with is_primary. */
+function mainTitle(r: Obj): string | null {
+  if (str(r.title)) return str(r.title);
+  const list = Array.isArray(r.titles) ? r.titles.map(obj) : [];
+  return str(list.find((t) => t.is_primary === true)?.title) ?? str(list[0]?.title) ?? null;
+}
 function titlesOf(r: Obj): string[] {
   const out: string[] = [];
-  const main = str(r.title);
+  const main = mainTitle(r);
   if (main) out.push(main);
-  for (const t of Array.isArray(r.titles) ? r.titles : []) {
-    const s = typeof t === "string" ? str(t) : str(obj(t).title);
-    if (s && !out.includes(s)) out.push(s);
-  }
-  for (const t of Array.isArray(r.secondary_titles) ? r.secondary_titles : []) {
-    const s = typeof t === "string" ? str(t) : str(obj(t).title);
-    if (s && !out.includes(s)) out.push(s);
-  }
+  for (const k of ["native_title", "romanized_title", "secondary_titles", "titles"]) collectTitles(r[k], out);
   return out;
 }
 const yearOf = (r: Obj) => str(obj(r.published).start_date)?.slice(0, 4) ?? (num(r.year) !== null ? String(num(r.year)) : null);
@@ -87,7 +99,7 @@ function tagOf(raw: unknown): BakaTag | null {
 export function parseSeries(raw: unknown): BakaSeries | null {
   const r = obj(obj(raw).data ?? raw);
   const id = num(r.id);
-  const title = str(r.title);
+  const title = mainTitle(r);
   if (id === null || !title) return null;
   const src = obj(r.source);
   const rawTags = Array.isArray(r.tags_v2) ? r.tags_v2 : Array.isArray(r.tags) ? r.tags : [];
@@ -114,7 +126,7 @@ function parseHits(raw: unknown): BakaHit[] {
   for (const item of list) {
     const r = obj(item);
     const id = num(r.id);
-    const title = str(r.title);
+    const title = mainTitle(r);
     if (id === null || !title) continue;
     if (r.state === "deleted") continue;
     out.push({ id: num(r.merged_with) ?? id, title, titles: titlesOf(r), type: str(r.type), year: yearOf(r), anilistId: anilistOf(r) });
@@ -151,13 +163,14 @@ export class MangaBaka {
     });
   }
 
+  // v1, not v2: v2 records have no tags and no plain title (checked against the live API, Nov 23 2026).
   async search(q: string, limit = 10): Promise<BakaHit[]> {
-    const j = await this.get(`/v2/series/search?q=${encodeURIComponent(q)}&limit=${limit}`, this.gaps.search);
+    const j = await this.get(`/v1/series/search?q=${encodeURIComponent(q)}&limit=${limit}`, this.gaps.search);
     return j === null ? [] : parseHits(j);
   }
 
   async series(id: number): Promise<BakaSeries | null> {
-    const j = await this.get(`/v2/series/${id}`, this.gaps.other);
+    const j = await this.get(`/v1/series/${id}`, this.gaps.other);
     return j === null ? null : parseSeries(j);
   }
 }
@@ -183,4 +196,4 @@ export async function findOnBaka(mb: MangaBaka, names: string[], anilistId: numb
   return titleHit && (anilistId === null || titleHit.anilistId === null || titleHit.anilistId === anilistId) ? titleHit : null;
 }
 
-export const bakaUrl = (id: number) => `https://mangabaka.org/${id}`;
+export const bakaUrl = (id: number) => `https://mangabaka.org/${id}`;  // redirects to the canonical page

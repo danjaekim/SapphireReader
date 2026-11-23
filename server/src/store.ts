@@ -308,6 +308,11 @@ export class Store {
     // Finished "For you" answers, one per kind and page, so they survive restarts and aren't recomputed needlessly.
     // Which MangaBaka entry a series is (per title key), with its tags and content rating; mb_id null = not found.
     this.db.exec("CREATE TABLE IF NOT EXISTS mb_links (title_key TEXT PRIMARY KEY, mb_id INTEGER, manual INTEGER NOT NULL DEFAULT 0, data TEXT, fetched_at TEXT NOT NULL)");
+    // The first release read the wrong API version and recorded every lookup as "not found": forget those once.
+    if (this.getSetting("mb_links_v") !== "2") {
+      this.db.exec("DELETE FROM mb_links WHERE mb_id IS NULL");
+      this.setSetting("mb_links_v", "2");
+    }
     this.db.exec("CREATE TABLE IF NOT EXISTS rec_cache (kind TEXT NOT NULL, adult INTEGER NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (kind, adult))");
   }
 
