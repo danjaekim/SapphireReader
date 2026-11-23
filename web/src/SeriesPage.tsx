@@ -378,8 +378,15 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [merging, setMerging] = useState(false);
   // MangaBaka's detailed tags, loaded after the page so it never waits on them.
   const [baka, setBaka] = useState<BakaInfo | null>(null);
-  const [bakaAll, setBakaAll] = useState(false);
   const [bakaPicking, setBakaPicking] = useState(false);
+  // One sheet for the less-used controls (18+, version, merges, MangaBaka match), so the page stays readable.
+  const [managing, setManaging] = useState(false);
+  useEffect(() => {
+    if (!managing) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setManaging(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [managing]);
   // "Keep it here" on the MangaBaka 18+ question; remembered on this device when 18+ mode is locked (marking needs it unlocked).
   const [bakaAdultKept, setBakaAdultKept] = useState(false);
   useEffect(() => {
@@ -478,7 +485,6 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const hasBakaData = !!data;
   useEffect(() => {
     setBaka(null);
-    setBakaAll(false);
     if (!hasBakaData) return;
     let live = true;
     mangaBaka(mangaId).then((b) => live && setBaka(b)).catch(() => undefined);
@@ -541,7 +547,12 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   // MangaBaka tags the source's own list doesn't have: core and defining ones up front, the rest on request.
   const bakaExtra = baka?.match ? baka.match.tags.filter((t) => !genres.some((g) => canonKey(g) === canonKey(t.name))) : [];
   const bakaMain = bakaExtra.filter((t) => t.weight === "core" || t.weight === "defining");
-  const bakaShown = bakaAll ? bakaExtra : bakaMain;
+  // One tag row: the source's tags, then MangaBaka's central ones (outlined), capped until "+N more"
+  // opens everything, MangaBaka's minor tags included.
+  const tagsShown = allTags
+    ? { source: genres, baka: bakaExtra }
+    : { source: genres.slice(0, TAG_CAP), baka: bakaMain.slice(0, Math.max(0, TAG_CAP - Math.min(genres.length, TAG_CAP)) + 4) };
+  const tagsHidden = allTags ? 0 : genres.length + bakaExtra.length - tagsShown.source.length - tagsShown.baka.length;
   const status = data && statusLabel(data.manga.status) !== "Unknown" ? statusLabel(data.manga.status) : info.status ?? "Unknown";
   const author = data?.manga.author || info.author;
   const artist = data?.manga.artist || info.artist;
@@ -629,127 +640,92 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     <div><dt>Latest</dt><dd>{chapterLabel({ name: "", chapterNumber: data.latest.latestNumber })}</dd></div>
                   )}
                 </dl>
-                {genres.length > 0 && (
-                  <ul className={`genres ${starring ? "starring" : ""}`}>
-                    {(allTags || starring ? genres : genres.slice(0, TAG_CAP)).map((g) => {
-                      const fav = favKeys.has(canonKey(g));
-                      return (
-                        <li key={g}>
-                          {starring ? (
-                            <button type="button" className={`tag starTag ${fav ? "fav" : ""}`} aria-pressed={fav} onClick={() => toggleFav(g)}>
-                              <span aria-hidden="true">{fav ? "★" : "☆"}</span> {g}
+                {managing && (
+                  <div className="sheetBackdrop" onClick={() => setManaging(false)}>
+                    <div className="sheet tall filterSheet manageSheet" role="dialog" aria-modal="true" aria-label="Manage series" onClick={(e) => e.stopPropagation()}>
+                      <div className="sheetHandle" aria-hidden="true" />
+                      <header className="filterSheetHead">
+                        <h3>Manage series</h3>
+                        <button type="button" className="iconBtn" aria-label="Close" onClick={() => setManaging(false)}>×</button>
+                      </header>
+                      <div className="filterSheetBody manageBody">
+                        <section>
+                          <h4>18+</h4>
+                          <p className="muted small">
+                            {data.markedAdult ? "You marked this 18+." : data.markedSafe ? "You marked this not 18+." : data.adultSource ? "18+ because its source is." : "Not 18+."}
+                          </p>
+                          {data.adultSource === true ? (
+                            <button type="button" className="button small secondary" onClick={() => changeAdultMark(data.markedSafe ? null : false)}>
+                              {data.markedSafe ? "Undo: follow the source again" : "Mark as not 18+"}
                             </button>
                           ) : (
-                            <a className={`tag ${fav ? "fav" : ""}`} href={genreHref(g, data.manga.id, data.adult)} title={fav ? "One of your favorite tags" : undefined}>
-                              {fav && <span aria-hidden="true">★ </span>}
-                              {g}
-                            </a>
+                            <button type="button" className="button small secondary" onClick={() => changeAdultMark(data.markedAdult ? null : true)}>
+                              {data.markedAdult ? "Undo: not 18+" : "Mark as 18+"}
+                            </button>
                           )}
-                        </li>
-                      );
-                    })}
-                    {!starring && genres.length > TAG_CAP && (
-                      <li>
-                        <button type="button" className="tag moreTag" onClick={() => setAllTags((v) => !v)}>
-                          {allTags ? "Fewer" : `+${genres.length - TAG_CAP} more`}
-                        </button>
-                      </li>
-                    )}
-                    {favs && (
-                      <li>
-                        <button type="button" className="tag moreTag" onClick={() => setStarring((v) => !v)} title="Favorite tags count strongly toward For you">
-                          {starring ? "Done" : <><span aria-hidden="true">☆</span> Favorite tags</>}
-                        </button>
-                      </li>
-                    )}
-                  </ul>
-                )}
-                {bakaExtra.length > 0 && (
-                  <ul className="genres bakaTags" aria-label="More detailed tags from MangaBaka">
-                    {bakaShown.map((t) => (
-                      <li key={t.path}>
-                        <span className={`tag bakaTag ${t.weight}`} title={`${t.path} (${WEIGHT_LABEL[t.weight]})`}>{t.name}</span>
-                      </li>
-                    ))}
-                    {bakaExtra.length > bakaMain.length && (
-                      <li>
-                        <button type="button" className="tag moreTag" onClick={() => setBakaAll((v) => !v)}>
-                          {bakaAll ? "Fewer" : bakaMain.length === 0 ? `${bakaExtra.length} minor tags` : `+${bakaExtra.length - bakaMain.length} minor`}
-                        </button>
-                      </li>
-                    )}
-                  </ul>
-                )}
-                {baka && (baka.match || baka.status !== "unavailable") && (
-                  <p className="bakaLine muted small">
-                    {baka.match ? (
-                      <>
-                        Detailed tags from{" "}
-                        <a href={baka.match.url} target="_blank" rel="noreferrer" title={`MangaBaka: ${baka.match.title}`}>MangaBaka</a>
-                        {baka.match.contentRating && baka.match.contentRating !== "safe" && <> · rated {baka.match.contentRating}</>}
-                        {" · "}
-                        <button type="button" className="linkish" onClick={() => setBakaPicking(true)}>{baka.match.manual ? "Change" : "Wrong match?"}</button>
-                      </>
-                    ) : (
-                      <>
-                        {baka.status === "none-manual" ? "Marked as not on MangaBaka" : "Not found on MangaBaka"}
-                        {" · "}
-                        <button type="button" className="linkish" onClick={() => setBakaPicking(true)}>Find it</button>
-                      </>
-                    )}
-                  </p>
-                )}
-                {baka?.match && (baka.match.contentRating === "erotica" || baka.match.contentRating === "pornographic") && !data.adult && !data.markedSafe && !bakaAdultKept && (
-                  <div className="bakaAdult small" role="note">
-                    <span>MangaBaka rates this {baka.match.contentRating}. Move it to 18+?</span>
-                    <span className="bakaAdultActions">
-                      <button type="button" className="button small" onClick={() => changeAdultMark(true)}>Mark as 18+</button>
-                      <button type="button" className="button small secondary" onClick={() => void keepNotAdult()} title="Keeps it out of 18+ and stops this question">Keep it here</button>
-                    </span>
+                        </section>
+                        <section>
+                          <h4>Version</h4>
+                          <VersionChip mangaId={mangaId} version={data.version ?? null} preferred={data.preferredVersion ?? null} onChanged={versionsChanged} />
+                        </section>
+                        <section>
+                          <h4>Other names and listings</h4>
+                          {(data.mergedWith ?? []).length > 0 ? (
+                            <div className="mergeRow">
+                              <span className="muted small">Also listed as</span>
+                              {(data.mergedWith ?? [])
+                                .filter((m) => !m.primary)
+                                .map((m) => (
+                                  <span key={m.key} className="mergedName">
+                                    <span>
+                                      {tidyTitle(m.title)}
+                                      {m.own && <span className="muted"> (this source)</span>}
+                                    </span>
+                                    {!m.canon && (
+                                      <button type="button" aria-label={`Unmerge ${m.title}`} title="Unmerge" onClick={() => changeMerge(() => unmergeTitle(mangaId, m.key), `Unmerged ${tidyTitle(m.title)}.`)}>×</button>
+                                    )}
+                                  </span>
+                                ))}
+                            </div>
+                          ) : (
+                            <p className="muted small">Listed under another name somewhere? Merge them so they count as one series.</p>
+                          )}
+                          <div className="manageActions">
+                            {(data.mergedWith ?? []).length > 0 && (
+                              <button type="button" className="button small secondary" onClick={() => { setManaging(false); setEditing(true); }}>Name, cover &amp; description</button>
+                            )}
+                            <button type="button" className="button small secondary" onClick={() => { setManaging(false); setMerging(true); }}>
+                              {(data.mergedWith ?? []).length > 0 ? "Merge another" : "Merge"}
+                            </button>
+                          </div>
+                        </section>
+                        <section>
+                          <h4>MangaBaka</h4>
+                          <p className="muted small">
+                            {baka?.match ? (
+                              <>
+                                Matched to <a href={baka.match.url} target="_blank" rel="noreferrer">{baka.match.title}</a>
+                                {baka.match.manual ? " (picked by you)" : ""}
+                                {baka.match.contentRating ? `, rated ${baka.match.contentRating}` : ""}.
+                              </>
+                            ) : baka?.status === "none-manual" ? (
+                              "Marked as not on MangaBaka."
+                            ) : baka?.status === "unavailable" ? (
+                              "MangaBaka isn't answering right now."
+                            ) : baka ? (
+                              "Not found on MangaBaka."
+                            ) : (
+                              "Looking it up…"
+                            )}
+                          </p>
+                          <button type="button" className="button small secondary" onClick={() => { setManaging(false); setBakaPicking(true); }}>
+                            {baka?.match ? "Change match" : "Find it"}
+                          </button>
+                        </section>
+                      </div>
+                    </div>
                   </div>
                 )}
-                <div className="seriesTools small">
-                  <p className="markAdult">
-                    {data.adultSource === true ? (
-                      <button type="button" className="linkish" onClick={() => changeAdultMark(data.markedSafe ? null : false)}>
-                        {data.markedSafe ? "Marked not 18+ · Undo" : "Not actually 18+? Mark as not 18+"}
-                      </button>
-                    ) : (
-                      <button type="button" className="linkish" onClick={() => changeAdultMark(data.markedAdult ? null : true)}>
-                        {data.markedAdult ? "Marked 18+ · Undo" : "Mark as 18+"}
-                      </button>
-                    )}
-                  </p>
-                  {(data.version || (data.mergedWith ?? []).length > 0 || (others ?? []).length > 0) && (
-                    <VersionChip mangaId={mangaId} version={data.version ?? null} preferred={data.preferredVersion ?? null} onChanged={versionsChanged} />
-                  )}
-                  <div className="mergeRow">
-                    {(data.mergedWith ?? []).length > 0 && (
-                      <>
-                        <span className="muted">Also listed as</span>
-                        {(data.mergedWith ?? [])
-                          .filter((m) => !m.primary)
-                          .map((m) => (
-                            <span key={m.key} className="mergedName">
-                              <span>
-                                {tidyTitle(m.title)}
-                                {m.own && <span className="muted"> (this source)</span>}
-                              </span>
-                              {!m.canon && (
-                                <button type="button" aria-label={`Unmerge ${m.title}`} title="Unmerge" onClick={() => changeMerge(() => unmergeTitle(mangaId, m.key), `Unmerged ${tidyTitle(m.title)}.`)}>×</button>
-                              )}
-                            </span>
-                          ))}
-                      </>
-                    )}
-                    {(data.mergedWith ?? []).length > 0 && (
-                      <button type="button" className="linkish" onClick={() => setEditing(true)}>Edit name, cover &amp; description</button>
-                    )}
-                    <button type="button" className="linkish" onClick={() => setMerging(true)}>
-                      {(data.mergedWith ?? []).length > 0 ? "Merge another" : "Listed under another name? Merge"}
-                    </button>
-                  </div>
-                </div>
                 {bakaPicking && (
                   <BakaSheet
                     title={tidyTitle(data.manga.title)}
@@ -780,16 +756,6 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     }}
                   />
                 )}
-                {(about.facets ?? []).map((f) => (
-                  <div key={f.label} className="facet">
-                    <span className="facetLabel muted small">{f.label}</span>
-                    <ul className="genres">
-                      {f.values.map((v) => (
-                        <li key={v}><a className="tag facetTag" href={searchHref(v)} title={`Search for ${v}`}>{v}</a></li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
                 {others && others.length > 0 && (
                   <div className="card">
                     <h3>Also on</h3>
@@ -818,8 +784,11 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
               <div className="card seriesIntro">
                 <h2>{tidyTitle(data.manga.title)}</h2>
                 {(fullTitles.length > 0) && <AltTitles titles={fullTitles} open={fullAlt} onToggle={() => setFullAlt((v) => !v)} />}
-                {(rank || ratings.length > 0) && (
+                {(rank || ratings.length > 0 || data.version) && (
                   <ul className="ratingRow">
+                    {data.version && (
+                      <li className={`tag verTag ${data.preferredVersion && data.version.toLowerCase() === data.preferredVersion.toLowerCase() ? "pref" : ""}`} title="This listing's version">{data.version}</li>
+                    )}
                     {rank && <li className="rankBadge" title={`From ${data.manga.sourceName ?? "the source"}`}>Rank {rank.value}</li>}
                     {ratings.map((r) => (
                       <li key={r.label} className="ratingChip" title={r.title}>
@@ -836,6 +805,77 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                         {fullDesc ? "Show less" : "Show more"}
                       </button>
                     )}
+                  </div>
+                )}
+                {(genres.length > 0 || bakaExtra.length > 0) && (
+                  <div className="introTags">
+                    <ul className={`genres ${starring ? "starring" : ""}`} aria-label="Tags">
+                      {(starring ? genres : tagsShown.source).map((g) => {
+                        const fav = favKeys.has(canonKey(g));
+                        return (
+                          <li key={g}>
+                            {starring ? (
+                              <button type="button" className={`tag starTag ${fav ? "fav" : ""}`} aria-pressed={fav} onClick={() => toggleFav(g)}>
+                                <span aria-hidden="true">{fav ? "★" : "☆"}</span> {g}
+                              </button>
+                            ) : (
+                              <a className={`tag ${fav ? "fav" : ""}`} href={genreHref(g, data.manga.id, data.adult)} title={fav ? "One of your favorite tags" : undefined}>
+                                {fav && <span aria-hidden="true">★ </span>}
+                                {g}
+                              </a>
+                            )}
+                          </li>
+                        );
+                      })}
+                      {!starring &&
+                        tagsShown.baka.map((t) => (
+                          <li key={t.path}>
+                            <span className={`tag bakaTag ${t.weight}`} title={`${t.path} (${WEIGHT_LABEL[t.weight]}, from MangaBaka)`}>{t.name}</span>
+                          </li>
+                        ))}
+                      {!starring && tagsHidden > 0 && (
+                        <li>
+                          <button type="button" className="tag moreTag" onClick={() => setAllTags(true)}>+{tagsHidden} more</button>
+                        </li>
+                      )}
+                      {!starring && allTags && (
+                        <li>
+                          <button type="button" className="tag moreTag" onClick={() => setAllTags(false)}>Fewer</button>
+                        </li>
+                      )}
+                      {favs && genres.length > 0 && (
+                        <li>
+                          <button type="button" className="tag moreTag" onClick={() => setStarring((v) => !v)} title="Favorite tags count strongly toward For you">
+                            {starring ? "Done" : <><span aria-hidden="true">☆</span> Favorites</>}
+                          </button>
+                        </li>
+                      )}
+                    </ul>
+                    {bakaExtra.length > 0 && baka?.match && !starring && (
+                      <p className="tagsNote muted small">
+                        Outlined tags are from <a href={baka.match.url} target="_blank" rel="noreferrer">MangaBaka</a>
+                        {baka.match.contentRating && baka.match.contentRating !== "safe" ? ` (rated ${baka.match.contentRating})` : ""}.
+                      </p>
+                    )}
+                  </div>
+                )}
+                {(about.facets ?? []).map((f) => (
+                  <div key={f.label} className="facet">
+                    <span className="facetLabel muted small">{f.label}</span>
+                    <ul className="genres">
+                      {f.values.map((v) => (
+                        <li key={v}><a className="tag facetTag" href={searchHref(v)} title={`Search for ${v}`}>{v}</a></li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                {baka?.match && (baka.match.contentRating === "erotica" || baka.match.contentRating === "pornographic") && !data.adult && !data.markedSafe && !bakaAdultKept && (
+                  <div className="bakaAdult small" role="note">
+                    <span>MangaBaka rates this {baka.match.contentRating}. Move it to 18+?</span>
+                    <span className="bakaAdultActions">
+                      <button type="button" className="button small" onClick={() => changeAdultMark(true)}>Mark as 18+</button>
+                      <button type="button" className="button small secondary" onClick={() => void keepNotAdult()} title="Keeps it out of 18+ and stops this question">Keep it here</button>
+                    </span>
                   </div>
                 )}
               </div>
@@ -858,9 +898,15 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     className={`button secondary likeBtn ${data.liked ? "on" : ""}`}
                     onClick={toggleLike}
                     aria-pressed={data.liked === true}
+                    aria-label="Like"
                     title={data.liked ? "Liked: For you suggests more like this (tap to undo)" : "Like it: For you suggests more like this"}
                   >
-                    <span aria-hidden="true">{data.liked ? "♥" : "♡"}</span> {data.liked ? "Liked" : "Like"}
+                    <span aria-hidden="true">{data.liked ? "♥" : "♡"}</span>
+                    <span className="likeLabel"> {data.liked ? "Liked" : "Like"}</span>
+                  </button>
+                  <button type="button" className="button secondary manageBtn" onClick={() => setManaging(true)} aria-haspopup="dialog" aria-label="Manage series" title="18+, version, merged listings, MangaBaka match">
+                    <span aria-hidden="true">⋯</span>
+                    <span className="manageLabel"> Manage</span>
                   </button>
                 </div>
                 {data.inLibrary && shelves.length > 0 && (
