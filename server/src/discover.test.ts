@@ -274,6 +274,16 @@ describe("for you caching", () => {
     expect(searches(log)).toBe(calls);
   });
 
+  it("takes a title you mark 18+ out of the answer without rebuilding it", async () => {
+    const { app, log, get } = await setup();
+    const titles = (v: { groups: { title: string }[] }) => v.groups.map((g) => g.title);
+    expect(titles(await get())).toContain("Nano Machine");
+    const calls = searches(log);
+    await app.inject({ method: "PUT", url: "/api/adult-marks", payload: { titles: ["Nano Machine"], mark: true } });
+    expect(titles(await get())).not.toContain("Nano Machine");
+    expect(searches(log)).toBe(calls);
+  });
+
   it("keeps the ordinary and 18+ pages' answers apart", async () => {
     const { store } = await setup();
     store.recCacheSet("for-you", true, "k", 1, { groups: [{ key: "x" }] });

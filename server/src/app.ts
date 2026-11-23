@@ -775,7 +775,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   async function recScrub(value: unknown, adult: boolean): Promise<unknown> {
     const own = new Set(store.libraryTitles(adult).map(normalizeTitle));
     const notKeys = new Set(store.notInterested(adult).map((n) => n.titleKey));
-    const ok = (g: SeriesGroup) => !own.has(g.key) && !notKeys.has(g.key) && !g.hits.some((h) => store.inLibrary(h.mangaId));
+    // Titles you've marked 18+ leave the ordinary page's answers, and ones marked not 18+ leave the 18+ page's.
+    const moved = adult ? store.safeMarkedKeys() : store.adultMarkedKeys();
+    const ok = (g: SeriesGroup) => !own.has(g.key) && !notKeys.has(g.key) && !moved.has(g.key) && !g.hits.some((h) => store.inLibrary(h.mangaId));
     const v = JSON.parse(JSON.stringify(value)) as { groups?: SeriesGroup[]; shelves?: (RecGroups & { from?: string; examples?: string[] })[]; rows?: (RecGroups & { from?: string; examples?: string[] })[] };
     const clean = async (groups: SeriesGroup[]) => withoutHidden(groups.filter(ok));
     if (v.groups) v.groups = await clean(v.groups);
@@ -947,7 +949,6 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const adultIds = new Set(sources.filter((x) => x.isNsfw).map((x) => x.id));
     const adultNames = new Set(sources.filter((x) => x.isNsfw).map((x) => x.name));
     store.setAdultMark(manga.title, mark, (src) => (!!src.id && adultIds.has(src.id)) || (!!src.name && adultNames.has(src.name)));
-    store.recCacheClear();
     similarCache.clear();
     return { mark };
   });
@@ -972,7 +973,6 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const adultIds = new Set(sources.filter((x) => x.isNsfw).map((x) => x.id));
     const adultNames = new Set(sources.filter((x) => x.isNsfw).map((x) => x.name));
     for (const t of titles) store.setAdultMark(t, mark, (src) => (!!src.id && adultIds.has(src.id)) || (!!src.name && adultNames.has(src.name)));
-    store.recCacheClear();
     similarCache.clear();
     return { marked: titles.length, mark };
   });
