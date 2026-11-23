@@ -23,6 +23,7 @@ import { Downloader, mimeForFile } from "./downloader.js";
 import { backupName, snapshot } from "./backup.js";
 import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
 import { checkLibrary } from "./checker.js";
+import { MangaBaka, bakaUrl, findOnBaka, type BakaSeries, type TagWeight } from "./mangabaka.js";
 import { createNotifier } from "./notify.js";
 import { Store, type ProgressInput, type SwitchOffer } from "./store.js";
 import {
@@ -71,6 +72,8 @@ declare module "fastify" {
 export interface AppOptions {
   fetchImpl?: typeof fetch;
   store?: Store;
+  /** MangaBaka client (tests pass one with no spacing between calls). */
+  baka?: MangaBaka;
 }
 
 /** Results come in pages (infinite scroll); anything odd means page 1. */
@@ -1201,6 +1204,103 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't load chapters from the source.", detail: reasonOf(err) });
+    }
+  });
+
+  // ---- MangaBaka: detailed, weighted tags and a content rating for a series -----------------------
+  const baka = options.baka ?? new MangaBaka(fetchImpl);
+  const BAKA_FRESH_MS = 14 * 24 * 3600 * 1000;
+  const BAKA_MISS_MS = 7 * 24 * 3600 * 1000;
+  const WEIGHT_ORDER: TagWeight[] = ["core", "defining", "recurrent", "incidental", "unweighted"];
+  const bakaView = (d: BakaSeries, manual: boolean) => ({
+    id: d.id,
+    title: d.title,
+    url: bakaUrl(d.id),
+    contentRating: d.contentRating,
+    type: d.type,
+    year: d.year,
+    rating: d.rating,
+    manual,
+    // Spoiler tags never leave the server; the rest come most telling first.
+    tags: d.tags
+      .filter((t) => !t.spoiler)
+      .sort((a, b) => WEIGHT_ORDER.indexOf(a.weight) - WEIGHT_ORDER.indexOf(b.weight))
+      .map((t) => ({ name: t.name, path: t.path, weight: t.weight, genre: t.genre })),
+  });
+  /** The series' MangaBaka entry: remembered for two weeks (a miss for one), looked up again after that. */
+  async function bakaFor(mangaId: number, refresh: boolean) {
+    const manga = await detailsFor(mangaId);
+    const key = normalizeTitle(manga.title);
+    const link = store.bakaLink(key);
+    const age = link ? Date.now() - Date.parse(link.fetchedAt) : Infinity;
+    const data = link?.data as BakaSeries | null | undefined;
+    if (link && !refresh) {
+      if (link.mbId === null && (link.manual || age < BAKA_MISS_MS)) return { status: link.manual ? "none-manual" : "none", match: null };
+      if (link.mbId !== null && data && age < BAKA_FRESH_MS) return { status: "matched", match: bakaView(data, link.manual) };
+    }
+    try {
+      let id = link?.manual || (link?.mbId != null && !refresh) ? link!.mbId : null;
+      if (id === null && !link?.manual) {
+        const description = await shownDescription(manga).catch(() => manga.description);
+        const names = [displayTitle(manga.title), manga.title, ...mergedWith(manga.title).map((m) => m.title), ...parseDescription(description, manga.title).altTitles];
+        const anilistId = store.getTrackerLink(mangaId, "anilist")?.mediaId ?? store.anilistMeta([key]).get(key)?.anilistId ?? null;
+        id = (await findOnBaka(baka, names, anilistId))?.id ?? null;
+      }
+      const series = id !== null ? await baka.series(id) : null;
+      store.putBakaLink(key, series?.id ?? null, link?.manual ?? false, series);
+      return series ? { status: "matched", match: bakaView(series, link?.manual ?? false) } : { status: link?.manual ? "none-manual" : "none", match: null };
+    } catch (err) {
+      app.log.warn(err, "couldn't reach MangaBaka");
+      // Offline or busy: what we knew before is better than nothing.
+      return { status: "unavailable", match: data ? bakaView(data, link?.manual ?? false) : null };
+    }
+  }
+  app.get<{ Params: { id: string }; Querystring: { refresh?: string } }>("/api/manga/:id/mangabaka", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    return bakaFor(id, req.query.refresh === "1").catch(() => reply.code(502).send({ error: "Couldn't read this series from its source." }));
+  });
+  /** Pick the MangaBaka entry by hand (mbId), say it isn't there (null), or go back to automatic (DELETE). */
+  app.put<{ Params: { id: string }; Body: { mbId?: unknown } }>("/api/manga/:id/mangabaka", async (req, reply) => {
+    const id = Number(req.params.id);
+    const mbId = req.body?.mbId;
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    if (mbId !== null && !(Number.isInteger(mbId) && (mbId as number) > 0)) return reply.code(400).send({ error: "Pick a MangaBaka entry." });
+    const manga = await detailsFor(id).catch(() => null);
+    if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+    const key = normalizeTitle(manga.title);
+    if (mbId === null) {
+      store.putBakaLink(key, null, true, null);
+      return { status: "none-manual", match: null };
+    }
+    const series = await baka.series(mbId as number).catch(() => undefined);
+    if (series === undefined) return reply.code(502).send({ error: "Couldn't reach MangaBaka." });
+    if (series === null) return reply.code(404).send({ error: "MangaBaka has no entry with that number." });
+    store.putBakaLink(key, series.id, true, series);
+    return { status: "matched", match: bakaView(series, true) };
+  });
+  app.delete<{ Params: { id: string } }>("/api/manga/:id/mangabaka", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    const manga = await detailsFor(id).catch(() => null);
+    if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+    store.clearBakaLink(normalizeTitle(manga.title));
+    return bakaFor(id, true);
+  });
+  app.get<{ Querystring: { q?: string } }>("/api/mangabaka/search", async (req, reply) => {
+    const q = (req.query.q ?? "").trim();
+    if (!q) return { hits: [] };
+    // A pasted address or number looks that entry up directly.
+    const direct = /^(?:(?:www\.)?mangabaka\.(?:org|dev)\/(?:series\/)?)?(\d{1,9})\/?$/.exec(q.replace(/^https?:\/\//, ""));
+    try {
+      if (direct) {
+        const s = await baka.series(Number(direct[1]));
+        return { hits: s ? [{ id: s.id, title: s.title, titles: s.titles.slice(0, 4), type: s.type, year: s.year, url: bakaUrl(s.id) }] : [] };
+      }
+      const hits = await baka.search(q);
+      return { hits: hits.map((h) => ({ id: h.id, title: h.title, titles: h.titles.slice(0, 4), type: h.type, year: h.year, url: bakaUrl(h.id) })) };
+    } catch {
+      return reply.code(502).send({ error: "Couldn't reach MangaBaka." });
     }
   });
 

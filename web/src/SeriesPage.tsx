@@ -3,7 +3,7 @@ import { toast, toastError } from "./toast";
 import { tidyTitle } from "./titles";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { addToLibrary, mangaBaka, setMangaBaka, autoMangaBaka, searchMangaBaka, type BakaInfo, type BakaHit, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -376,6 +376,10 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   }
 
   const [merging, setMerging] = useState(false);
+  // MangaBaka's detailed tags, loaded after the page so it never waits on them.
+  const [baka, setBaka] = useState<BakaInfo | null>(null);
+  const [bakaAll, setBakaAll] = useState(false);
+  const [bakaPicking, setBakaPicking] = useState(false);
   const [editing, setEditing] = useState(false);
   async function changeMerge(run: () => Promise<{ mergedWith: MergedName[]; title?: string; description?: string | null; about?: SeriesData["about"] }>, done?: string) {
     try {
@@ -447,6 +451,26 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const next = resume && resumeDone ? data!.chapters[data!.chapters.indexOf(resume) + 1] : undefined;
   const caughtUp = resumeDone && !next;
 
+  const hasBakaData = !!data;
+  useEffect(() => {
+    setBaka(null);
+    setBakaAll(false);
+    if (!hasBakaData) return;
+    let live = true;
+    mangaBaka(mangaId).then((b) => live && setBaka(b)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [mangaId, hasBakaData]);
+  const changeBaka = async (run: () => Promise<BakaInfo>, done: string) => {
+    try {
+      setBaka(await run());
+      toast(done);
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : "Couldn't change that.");
+    }
+  };
+
   // Phones: once the title and Read button scroll out of view, a bar pinned to the top keeps them in reach.
   const actionsRef = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(false);
@@ -490,6 +514,10 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   // The description can name details the source's own fields leave out (tags, author, artist, status, year).
   const info = about.info ?? {};
   const genres = data ? [...data.manga.genre, ...(about.tags ?? []).filter((t) => !data.manga.genre.some((g) => canonKey(g) === canonKey(t)))] : [];
+  // MangaBaka tags the source's own list doesn't have: core and defining ones up front, the rest on request.
+  const bakaExtra = baka?.match ? baka.match.tags.filter((t) => !genres.some((g) => canonKey(g) === canonKey(t.name))) : [];
+  const bakaMain = bakaExtra.filter((t) => t.weight === "core" || t.weight === "defining");
+  const bakaShown = bakaAll ? bakaExtra : bakaMain;
   const status = data && statusLabel(data.manga.status) !== "Unknown" ? statusLabel(data.manga.status) : info.status ?? "Unknown";
   const author = data?.manga.author || info.author;
   const artist = data?.manga.artist || info.artist;
@@ -612,6 +640,41 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     )}
                   </ul>
                 )}
+                {bakaExtra.length > 0 && (
+                  <ul className="genres bakaTags" aria-label="More detailed tags from MangaBaka">
+                    {bakaShown.map((t) => (
+                      <li key={t.path}>
+                        <span className={`tag bakaTag ${t.weight}`} title={`${t.path} (${WEIGHT_LABEL[t.weight]})`}>{t.name}</span>
+                      </li>
+                    ))}
+                    {bakaExtra.length > bakaMain.length && (
+                      <li>
+                        <button type="button" className="tag moreTag" onClick={() => setBakaAll((v) => !v)}>
+                          {bakaAll ? "Fewer" : bakaMain.length === 0 ? `${bakaExtra.length} minor tags` : `+${bakaExtra.length - bakaMain.length} minor`}
+                        </button>
+                      </li>
+                    )}
+                  </ul>
+                )}
+                {baka && (baka.match || baka.status !== "unavailable") && (
+                  <p className="bakaLine muted small">
+                    {baka.match ? (
+                      <>
+                        Detailed tags from{" "}
+                        <a href={baka.match.url} target="_blank" rel="noreferrer" title={`MangaBaka: ${baka.match.title}`}>MangaBaka</a>
+                        {baka.match.contentRating && baka.match.contentRating !== "safe" && <> · rated {baka.match.contentRating}</>}
+                        {" · "}
+                        <button type="button" className="linkish" onClick={() => setBakaPicking(true)}>{baka.match.manual ? "Change" : "Wrong match?"}</button>
+                      </>
+                    ) : (
+                      <>
+                        {baka.status === "none-manual" ? "Marked as not on MangaBaka" : "Not found on MangaBaka"}
+                        {" · "}
+                        <button type="button" className="linkish" onClick={() => setBakaPicking(true)}>Find it</button>
+                      </>
+                    )}
+                  </p>
+                )}
                 <div className="seriesTools small">
                   <p className="markAdult">
                     {data.adultSource === true ? (
@@ -654,6 +717,21 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     </button>
                   </div>
                 </div>
+                {bakaPicking && (
+                  <BakaSheet
+                    title={tidyTitle(data.manga.title)}
+                    current={baka}
+                    onClose={() => setBakaPicking(false)}
+                    onPick={(id) => {
+                      setBakaPicking(false);
+                      void changeBaka(() => setMangaBaka(mangaId, id), id === null ? "Marked as not on MangaBaka." : "MangaBaka entry set.");
+                    }}
+                    onAuto={() => {
+                      setBakaPicking(false);
+                      void changeBaka(() => autoMangaBaka(mangaId), "Back to finding it automatically.");
+                    }}
+                  />
+                )}
                 {editing && (data.mergedWith ?? []).length > 0 && (
                   <DisplaySheet mangaId={mangaId} listings={data.mergedWith ?? []} preferred={data.preferredVersion ?? null} onChange={(c) => changeMerge(() => setDisplay(mangaId, c))} onVersions={versionsChanged} onClose={() => setEditing(false)} />
                 )}
@@ -1175,6 +1253,81 @@ function DisplaySheet({ mangaId, listings, preferred, onChange, onVersions, onCl
 
 /** A title as the server compares them: no case, accents or punctuation. */
 const looseKey = (t: string) => t.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/&/g, " and ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+const WEIGHT_LABEL: Record<string, string> = { core: "core to the story", defining: "defining", recurrent: "recurring", incidental: "incidental", unweighted: "unrated" };
+
+/** Pick which MangaBaka entry a series is, say it isn't there, or go back to automatic. */
+function BakaSheet({ title, current, onPick, onAuto, onClose }: { title: string; current: BakaInfo | null; onPick: (id: number | null) => void; onAuto: () => void; onClose: () => void }) {
+  const [q, setQ] = useState(title);
+  const [busy, setBusy] = useState(false);
+  const [found, setFound] = useState<BakaHit[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+  const run = async (e?: FormEvent) => {
+    e?.preventDefault();
+    if (!q.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setFound((await searchMangaBaka(q.trim())).hits);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Search failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const manual = current?.match?.manual || current?.status === "none-manual";
+  return (
+    <div className="sheetBackdrop" onClick={onClose}>
+      <div className="sheet tall filterSheet mergeSheet" role="dialog" aria-modal="true" aria-label="MangaBaka entry" onClick={(e) => e.stopPropagation()}>
+        <div className="sheetHandle" aria-hidden="true" />
+        <header className="filterSheetHead">
+          <h3>MangaBaka entry</h3>
+          <button type="button" className="iconBtn" aria-label="Close" onClick={onClose}>×</button>
+        </header>
+        <p className="muted small">
+          {current?.match ? <>Now: <a href={current.match.url} target="_blank" rel="noreferrer">{current.match.title}</a>{current.match.manual ? " (picked by you)" : " (found automatically)"}. </> : null}
+          Search by name, or paste its MangaBaka address or number.
+        </p>
+        <form className="mergeFind" onSubmit={run}>
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, address or number" aria-label="MangaBaka name, address or number" autoFocus />
+          <button type="submit" className="button small" disabled={busy || !q.trim()}>{busy ? "Searching…" : "Search"}</button>
+        </form>
+        <div className="filterSheetBody">
+          {error && <p className="bad small">{error}</p>}
+          {found && found.length === 0 && <p className="muted">Nothing found.</p>}
+          {found && found.length > 0 && (
+            <ul className="mergeList">
+              {found.map((h) => (
+                <li key={h.id}>
+                  <span className="mergeInfo">
+                    <strong>{h.title}</strong>
+                    <span className="muted small">{[h.type, h.year, ...h.titles.filter((t) => t !== h.title).slice(0, 2)].filter(Boolean).join(" · ")}</span>
+                    <a className="small" href={h.url} target="_blank" rel="noreferrer">Open on MangaBaka</a>
+                  </span>
+                  <button type="button" className="button small secondary" onClick={() => onPick(h.id)} disabled={current?.match?.id === h.id}>{current?.match?.id === h.id ? "Current" : "Use"}</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="sheetActions">
+            {current?.status !== "none-manual" && <button type="button" className="button small secondary" onClick={() => onPick(null)}>It isn't on MangaBaka</button>}
+            {manual && <button type="button" className="button small secondary" onClick={onAuto}>Find it automatically</button>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function MergeSheet({ title, selfIds, selfTitles, onPick, onClose }: { title: string; selfIds: number[]; selfTitles: string[]; onPick: (title: string, mangaId: number) => void; onClose: () => void }) {
   const [q, setQ] = useState("");

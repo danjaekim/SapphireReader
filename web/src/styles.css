@@ -955,3 +955,11 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
   .pinBar .button { flex: none; white-space: nowrap; }
 }
 @media (prefers-reduced-motion: reduce) { .pinBar { transition: none; } }
+
+/* MangaBaka's detailed tags: a quieter outline next to the source's own tags. */
+.bakaTags { margin-top: 6px; }
+.bakaTag { background: transparent; border: 1px solid var(--line); color: var(--fg); cursor: default; }
+.bakaTag.core { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.bakaTag.recurrent, .bakaTag.incidental, .bakaTag.unweighted { color: var(--muted); }
+.bakaLine { margin: 6px 0 0; }
+.bakaLine a { color: inherit; }

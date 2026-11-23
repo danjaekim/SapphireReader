@@ -93,6 +93,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `downloader.ts` | Saves chapters to the NAS one at a time; serves saved pages and covers. |
 | `notify.ts` | ntfy client. |
 | `tracker.ts` | AniList tracking (token, search, set progress). |
+| `mangabaka.ts` | MangaBaka client (spaced calls: search 2.5s apart, others 0.5s), tolerant parsing of `tags_v2` (name, path, weight, genre, spoiler), content rating, provider ids; `findOnBaka` matching. |
 | `updater.ts`, `engineupdate.ts` | "Is a newer version out?" for the app (GHCR digests + commits) and the engine (GitHub releases); asking Watchtower to update. |
 | `extensions.ts` | Install/update/remove extensions through the engine. |
 | `backup.ts` | Daily database snapshot. |
@@ -131,6 +132,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `series_adult`, `adult_override` | Adult classification of mixed-source series; per-title manual marks (1 = 18+, 0 = not 18+). |
 | `source_health` | Per-source success/failure and timing (Sources page). |
 | `anilist_meta`, `mu_meta` | Cached AniList and MangaUpdates ratings. |
+| `mb_links` | MangaBaka entry per title key (`mb_id` null = not found), `manual` flag, cached series JSON (`data`), `fetched_at`. |
 | `tracker_links` | AniList links per series. |
 | `title_alias`, `title_primary` | Manual merges (alias key → canonical key, with listing ids) and how a merged series is shown (name, cover listing, description listing). |
 | `listing_versions`, `version_prefs` | Version labels per listing (Uncensored, Censored…) and the preferred version per series. |
@@ -155,7 +157,7 @@ Schema changes are made in the `Store` constructor with `CREATE TABLE IF NOT EXI
   read/unread, download), "mark earlier chapters read?" prompt, "Also on" other sources with chapter
   counts and version tags, Similar series, AniList tracking, like, add to library with shelves,
   18+ marks, merge tools (merge by name or series number, unmerge, name/cover/description choice,
-  version labels). On phones, once the title and Read button scroll out of view, a bar pinned to the
+  version labels), detailed MangaBaka tags with a match picker (§5.10). On phones, once the title and Read button scroll out of view, a bar pinned to the
   top (back, cover, title, Start reading / Continue) slides in (`pinBar` in `SeriesPage.tsx`, portaled to
   `body` so it sits above the top bar).
 - **Reader**: scroll (webtoon) or paged mode (LTR/RTL), per device with fallback to shared prefs,
@@ -285,6 +287,28 @@ version), and the engine with the newest Suwayomi release. Update now asks Watch
 API; the engine updates only on request. The database is snapshotted daily (7 kept) and can be
 downloaded from Settings.
 
+### 5.10 MangaBaka (detailed tags)
+
+- Why: source tags are often generic. MangaBaka (api.mangabaka.org, public, no key; CC BY-NC-SA,
+  credited on the page) has nested tags weighted per series (core, defining, recurrent, incidental) and
+  a content rating (safe, suggestive, erotica, pornographic; sexual content only).
+- Matching (`findOnBaka`): searches the shown title, source title, merged names and description alt
+  names (max 3 searches). A result with the same AniList id (tracker link, else `anilist_meta`) wins; else
+  an exact normalized title/alt-title match, rejected if it points at a different AniList entry. Near
+  misses never match.
+- Cache: per title key in `mb_links`; a match is re-read after 14 days, a miss retried after 7. Manual
+  picks (or "It isn't on MangaBaka") stick until "Find it automatically". If MangaBaka is unreachable the
+  last known data is served (`status: "unavailable"`).
+- Display (Dan, Nov 23: matching and display first): the series page loads it after the page. It shows
+  core and defining tags the source's list lacks as outlined chips, minor ones behind "+N minor", and
+  spoiler tags never (dropped server-side). A credit line shows the content rating when it isn't safe,
+  plus "Wrong match?" / "Find it", which opens a picker sheet (search by name, address or number).
+- Endpoints: `GET/PUT/DELETE /api/manga/:id/mangabaka` (`?refresh=1`; PUT `{mbId}` or `{mbId: null}`),
+  `GET /api/mangabaka/search?q=`.
+- Not yet: weighted tags in For you / Similar (core 3, defining 2, recurrent 1, incidental small, parent
+  tags partial credit) and "Mark as 18+?" offers from erotica/pornographic ratings. Waiting on a live
+  check of match quality and 18+ coverage.
+
 ## 6. Testing and running
 
 - `cd server && npm ci && npx vitest run`: all server tests (and web logic like `titles.ts`).
@@ -305,6 +329,9 @@ Keep this list current: add items when they come up, remove them when done or dr
 - Tailscale HTTPS (`tailscale serve`) and `PUBLIC_URL` set to the https address: not confirmed done.
 - GHCR package visibility: if private, Watchtower needs `/root/.docker/config.json` mounted.
 
+**Next, after the live MangaBaka check**
+- Feed weighted MangaBaka tags into For you and Similar; offer "Mark as 18+?" from its content rating.
+
 **Deferred by Dan (revisit later)**
 - Alert quiet hours / daily digest.
 - MyAnimeList and MangaUpdates trackers (AniList is done).
@@ -312,6 +339,8 @@ Keep this list current: add items when they come up, remove them when done or dr
 - Status filter (needs per-series lookups).
 
 **Not yet verified against live sources**
+- MangaBaka matching and tags: response shapes were built from docs and a third-party client, never
+  called live (the cloud container can't reach it). Check matches, `tags_v2` shape and 18+ coverage on the NAS.
 - For you deep rows and AniList "also liked" rows on real sources.
 - Version-aware move offers and the "Also on" memory on Dan's real libraries.
 

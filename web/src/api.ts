@@ -290,6 +290,25 @@ export const setPreferredVersion = (mangaId: number, label: string | null) =>
   send("PUT", `/api/manga/${mangaId}/preferred-version`, { label }) as Promise<{ preferredVersion: string | null }>;
 /** Version labels offered first; any other text works too. */
 export const VERSION_PRESETS = ["Uncensored", "Censored", "Colored", "Raw", "Official"];
+/** MangaBaka: detailed tags (weighted per series) and a content rating, found by title or picked by hand. */
+export type BakaWeight = "core" | "defining" | "recurrent" | "incidental" | "unweighted";
+export interface BakaMatch {
+  id: number;
+  title: string;
+  url: string;
+  contentRating: string | null;
+  type: string | null;
+  year: string | null;
+  rating: number | null;
+  manual: boolean;
+  tags: { name: string; path: string; weight: BakaWeight; genre: boolean }[];
+}
+export interface BakaInfo { status: "matched" | "none" | "none-manual" | "unavailable"; match: BakaMatch | null }
+export interface BakaHit { id: number; title: string; titles: string[]; type: string | null; year: string | null; url: string }
+export const mangaBaka = (mangaId: number, refresh = false) => getJson<BakaInfo>(`/api/manga/${mangaId}/mangabaka${refresh ? "?refresh=1" : ""}`);
+export const setMangaBaka = (mangaId: number, mbId: number | null) => send("PUT", `/api/manga/${mangaId}/mangabaka`, { mbId }) as Promise<BakaInfo>;
+export const autoMangaBaka = (mangaId: number) => send("DELETE", `/api/manga/${mangaId}/mangabaka`) as Promise<BakaInfo>;
+export const searchMangaBaka = (q: string) => getJson<{ hits: BakaHit[] }>(`/api/mangabaka/search?q=${encodeURIComponent(q)}`);
 export const mergePreviews = (mangaId: number) =>
   getJson<{ items: { key: string; sourceName: string | null; description: string; available: boolean }[] }>(`/api/manga/${mangaId}/merge/previews`);
 /** A listing's own cover, even when it's part of a merged series that shows another one. */

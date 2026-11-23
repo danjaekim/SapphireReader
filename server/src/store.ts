@@ -306,6 +306,8 @@ export class Store {
       }
     }
     // Finished "For you" answers, one per kind and page, so they survive restarts and aren't recomputed needlessly.
+    // Which MangaBaka entry a series is (per title key), with its tags and content rating; mb_id null = not found.
+    this.db.exec("CREATE TABLE IF NOT EXISTS mb_links (title_key TEXT PRIMARY KEY, mb_id INTEGER, manual INTEGER NOT NULL DEFAULT 0, data TEXT, fetched_at TEXT NOT NULL)");
     this.db.exec("CREATE TABLE IF NOT EXISTS rec_cache (kind TEXT NOT NULL, adult INTEGER NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY (kind, adult))");
   }
 
@@ -344,6 +346,27 @@ export class Store {
     else this.db.prepare("INSERT INTO version_prefs (canon_key, label) VALUES (?, ?) ON CONFLICT(canon_key) DO UPDATE SET label = excluded.label").run(canonKey, clean);
   }
 
+  bakaLink(key: string): { mbId: number | null; manual: boolean; data: unknown; fetchedAt: string } | null {
+    const r = this.db.prepare("SELECT mb_id AS mbId, manual, data, fetched_at AS fetchedAt FROM mb_links WHERE title_key = ?").get(key) as
+      | { mbId: number | null; manual: number; data: string | null; fetchedAt: string }
+      | undefined;
+    if (!r) return null;
+    let data: unknown = null;
+    try {
+      data = r.data ? JSON.parse(r.data) : null;
+    } catch {
+      data = null;
+    }
+    return { mbId: r.mbId, manual: r.manual === 1, data, fetchedAt: r.fetchedAt };
+  }
+  putBakaLink(key: string, mbId: number | null, manual: boolean, data: unknown): void {
+    this.db
+      .prepare("INSERT INTO mb_links (title_key, mb_id, manual, data, fetched_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(title_key) DO UPDATE SET mb_id = excluded.mb_id, manual = excluded.manual, data = excluded.data, fetched_at = excluded.fetched_at")
+      .run(key, mbId, manual ? 1 : 0, data == null ? null : JSON.stringify(data), new Date().toISOString());
+  }
+  clearBakaLink(key: string): void {
+    this.db.prepare("DELETE FROM mb_links WHERE title_key = ?").run(key);
+  }
   recCacheGet(kind: string, adult: boolean): { key: string; at: number; value: unknown } | null {
     const r = this.db.prepare("SELECT key, at, value FROM rec_cache WHERE kind = ? AND adult = ?").get(kind, adult ? 1 : 0) as { key: string; at: number; value: string } | undefined;
     if (!r) return null;
