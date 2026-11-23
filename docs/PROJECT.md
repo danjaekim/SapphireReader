@@ -154,7 +154,9 @@ Schema changes are made in the `Store` constructor with `CREATE TABLE IF NOT EXI
   read/unread, download), "mark earlier chapters read?" prompt, "Also on" other sources with chapter
   counts and version tags, Similar series, AniList tracking, like, add to library with shelves,
   18+ marks, merge tools (merge by name or series number, unmerge, name/cover/description choice,
-  version labels).
+  version labels). On phones, once the title and Read button scroll out of view, a bar pinned to the
+  top (back, cover, title, Start reading / Continue) slides in (`pinBar` in `SeriesPage.tsx`, portaled to
+  `body` so it sits above the top bar).
 - **Reader**: scroll (webtoon) or paged mode (LTR/RTL), per device with fallback to shared prefs,
   remembers place to the pixel, bottom bar on phones, end-of-chapter screen with next chapter and
   like, offline pages when saved on device.

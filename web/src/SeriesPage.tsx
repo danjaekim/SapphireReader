@@ -2,6 +2,7 @@ import { Loading } from "./Loading";
 import { toast, toastError } from "./toast";
 import { tidyTitle } from "./titles";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
@@ -446,6 +447,18 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const next = resume && resumeDone ? data!.chapters[data!.chapters.indexOf(resume) + 1] : undefined;
   const caughtUp = resumeDone && !next;
 
+  // Phones: once the title and Read button scroll out of view, a bar pinned to the top keeps them in reach.
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const [pinned, setPinned] = useState(false);
+  const hasData = !!data;
+  useEffect(() => {
+    const el = actionsRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setPinned(!e.isIntersecting && e.boundingClientRect.top < 0), { threshold: 0 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasData]);
+
   // The chapters as listed (order and "Find chapter" filter applied).
   const listed = data
     ? (newestFirst ? [...data.chapters].reverse() : data.chapters).filter(
@@ -500,6 +513,22 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
         />
       )}
       <a className="back" href="#/" onClick={(e) => { e.preventDefault(); goBack(); }}>← Back</a>
+      {data &&
+        createPortal(
+        <div className={`pinBar ${pinned ? "show" : ""}`} aria-hidden={!pinned}>
+          <button type="button" className="pinBack" aria-label="Back" tabIndex={pinned ? 0 : -1} onClick={() => goBack()}>←</button>
+          <img src={thumbnailUrl(mangaId)} alt="" width={32} height={48} />
+          <span className="pinTitle">{tidyTitle(data.manga.title)}</span>
+          {data.chapters.length > 0 &&
+            (caughtUp ? (
+              <span className="button small caughtUp">Caught up ✓</span>
+            ) : (
+              <a className="button small" tabIndex={pinned ? 0 : -1} href={readHref(mangaId, (next ?? resume ?? data.chapters[0]).id)}>
+                {resume ? "Continue" : "Start reading"}
+              </a>
+            ))}
+        </div>
+      , document.body)}
       {error && (
         <div className="loadError">
           <p className="bad"><strong>{error}</strong></p>
@@ -693,7 +722,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                 )}
               </div>
 
-              <div className="seriesActions">
+              <div className="seriesActions" ref={actionsRef}>
                 <div className="actions">
                   {data.chapters.length > 0 &&
                     (caughtUp ? (
