@@ -1767,6 +1767,41 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return { ok: true };
   });
 
+  /**
+   * The other listings of a library series that Sapphire already knows (found together in "Also on", or
+   * merged), with their chapter numbers. No searching: only listings seen before. At most 4 per series,
+   * on sources in its scope, and only ones sharing most chapter numbers (so it's the same series).
+   */
+  async function otherSourcesOf(mangaId: number, ownNumbers: number[]): Promise<{ mangaId: number; sourceName: string; numbers: number[] }[]> {
+    const item = store.library(true).find((i) => i.mangaId === mangaId);
+    if (!item) return [];
+    const titles = [item.title, ...mergedWith(item.title).map((m) => m.title)];
+    const keys = [...new Set(titles.map(groupKey))];
+    const sources = await listSources(config, fetchImpl).catch(() => [] as EngineSource[]);
+    const allowed = new Set(sources.filter((x) => inScope(x, item.adult ? "all" : "safe")).map((x) => x.id));
+    const listings = store
+      .seenListings(keys)
+      .filter((l) => l.mangaId !== mangaId && l.sourceId !== item.sourceId && allowed.has(l.sourceId))
+      .filter((l, i, all) => all.findIndex((x) => x.mangaId === l.mangaId) === i)
+      .slice(0, 4);
+    const own = new Set(ownNumbers.filter((n) => n >= 0));
+    const out: { mangaId: number; sourceName: string; numbers: number[] }[] = [];
+    for (const l of listings) {
+      try {
+        chapterCache.delete(l.mangaId);
+        const numbers = (await chaptersFor(l.mangaId)).map((c) => c.chapterNumber).filter((n) => n >= 0);
+        const shared = numbers.filter((n) => own.has(n)).length / Math.max(1, own.size);
+        if (own.size < 3 || shared >= 0.6) {
+          const version = store.versionOf(l.mangaId);
+          out.push({ mangaId: l.mangaId, sourceName: version && version !== store.versionOf(mangaId) ? `${l.sourceName} (${version})` : l.sourceName, numbers });
+        }
+      } catch {
+        // That source is having a bad day; try again next check.
+      }
+    }
+    return out;
+  }
+
   // Re-reads every library series from its source; the same check the scheduler runs.
   let checking: Promise<unknown> | null = null;
   const runCheck = (pauseMs?: number) => {
@@ -1785,6 +1820,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         }
         return numbers;
       },
+      elsewhere: otherSourcesOf,
     })
       .then((r) => {
         // After the check: keep reading series a few chapters ahead, and move caught-up series to

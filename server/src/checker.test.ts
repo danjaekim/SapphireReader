@@ -33,6 +33,51 @@ describe("new chapter alerts", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("alerts when another source of a caught-up series has the next chapter first, once, and not again when yours catches up", async () => {
+    const store = setup();
+    const sent: Notification[] = [];
+    const notify = async (n: Notification) => void sent.push(n);
+    const own: Record<number, number[]> = { 1: [1, 2, 3], 2: [1, 2, 3], 3: [1, 2] };
+    let other = [1, 2, 3, 4];
+    const asked: number[] = [];
+    const run = () =>
+      checkLibrary({
+        config,
+        store,
+        notify,
+        pauseMs: 0,
+        loadNumbers: async (id) => own[id],
+        elsewhere: async (id) => {
+          asked.push(id);
+          return id === 1 ? [{ mangaId: 91, sourceName: "MangaFire", numbers: other }] : [];
+        },
+      });
+
+    await run();
+    // Only the caught-up series is looked up elsewhere.
+    expect(asked).toEqual([1]);
+    expect(sent).toEqual([{ title: "Caught Up", message: "Chapter 4 is out on MangaFire (not on A yet)", click: "http://nas:8080/#/series/91" }]);
+    expect(store.updates()[0]).toMatchObject({ mangaId: 91, sourceName: "MangaFire", latestNumber: 4, elsewhere: true });
+
+    await run(); // same chapter: nothing new
+    expect(sent).toHaveLength(1);
+
+    own[1] = [1, 2, 3, 4]; // your source catches up: an update, but no second alert
+    await run();
+    expect(sent).toHaveLength(1);
+    expect(store.updates()[0]).toMatchObject({ mangaId: 1, latestNumber: 4 });
+
+    // Behind again (chapter 4 unread): other sources aren't looked at.
+    asked.length = 0;
+    await run();
+    expect(asked).toEqual([]);
+
+    store.saveProgress(1, { chapterId: 4, chapterNumber: 4, chapterName: "4", pageIndex: 0, pageOffset: 0, finished: true });
+    other = [1, 2, 3, 4, 5]; // caught up, and the other source moves ahead again
+    await run();
+    expect(sent.at(-1)?.message).toBe("Chapter 5 is out on MangaFire (not on A yet)");
+  });
+
   it("keeps going when one source fails and when ntfy is down", async () => {
     const store = setup();
     const result = await checkLibrary({

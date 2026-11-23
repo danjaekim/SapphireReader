@@ -509,6 +509,8 @@ export interface UpdateRow {
   latestNumber: number;
   newCount: number;
   caughtUp: boolean;
+  /** Found on another source of the series before yours has it. */
+  elsewhere?: boolean;
   detectedAt: string;
 }
 export const updatesFeed = () => getJson<{ items: UpdateRow[]; lastCheckedAt: string | null }>("/api/updates");

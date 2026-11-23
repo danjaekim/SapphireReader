@@ -260,6 +260,15 @@ records new chapters, and pushes an ntfy alert for series you were caught up on.
 auto-switch offers (§5.7), auto-download of the next N unread chapters (default 3, 0–10), and
 auto-delete of read NAS downloads (keeps the last one). Sources can be excluded from checks.
 
+**Chapters out on another source first** (Dan, Nov 23): for a series you're caught up on, the check also
+reads the chapter lists of its other listings Sapphire already knows (`seen_listings` for its name and
+merged names, i.e. what "Also on" found; no new searches; up to 4, sources in its 18+ scope, sharing ≥60% of
+chapter numbers). If one has a chapter past yours, it adds an Updates entry for *that* listing
+(`updates.elsewhere = 1`, tag "not on your source yet", Open goes to that listing) and pushes "Chapter N is
+out on X (not on Y yet)" once per new number (`elsewhere.<mangaId>` setting = highest announced). When your
+own source later gets that chapter it's a normal update but no second push. Series you're behind on aren't
+looked up elsewhere. Separate from move offers (§5.7), which still search and ask before moving.
+
 ### 5.5 Recommendations
 
 - **Taste** per side: library series (weighted by reading and recency) and likes, plus favorite tags

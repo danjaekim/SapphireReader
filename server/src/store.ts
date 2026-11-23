@@ -94,6 +94,8 @@ export interface UpdateRow {
   newCount: number;
   caughtUp: boolean;
   detectedAt: string;
+  /** Found on another source of the series; the chapter isn't on the library's source yet. */
+  elsewhere?: boolean;
 }
 
 export interface DownloadRow {
@@ -241,6 +243,12 @@ export class Store {
       );
       CREATE TABLE IF NOT EXISTS anilist_meta (title_key TEXT PRIMARY KEY, anilist_id INTEGER, score INTEGER, popularity INTEGER, fetched_at TEXT NOT NULL);
     `);
+    // An update found on another source of a library series (the chapter isn't on yours yet).
+    try {
+      this.db.exec("ALTER TABLE updates ADD COLUMN elsewhere INTEGER NOT NULL DEFAULT 0");
+    } catch {
+      // Already there.
+    }
     // Banner art came later: add the column and ask AniList again so existing entries get theirs.
     try {
       this.db.exec("ALTER TABLE anilist_meta ADD COLUMN banner TEXT");
@@ -972,13 +980,13 @@ export class Store {
   }
 
   /** Notes that a library series got new chapters, for the Updates page and the home page. */
-  addUpdate(u: { mangaId: number; title: string; sourceName: string | null; adult: boolean; latestNumber: number; newCount: number; caughtUp: boolean }): void {
+  addUpdate(u: { mangaId: number; title: string; sourceName: string | null; adult: boolean; latestNumber: number; newCount: number; caughtUp: boolean; elsewhere?: boolean }): void {
     this.db
       .prepare(
-        `INSERT INTO updates (manga_id, title, source_name, adult, latest_number, new_count, caught_up, detected_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO updates (manga_id, title, source_name, adult, latest_number, new_count, caught_up, detected_at, elsewhere)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(u.mangaId, u.title, u.sourceName, u.adult ? 1 : 0, u.latestNumber, u.newCount, u.caughtUp ? 1 : 0, new Date().toISOString());
+      .run(u.mangaId, u.title, u.sourceName, u.adult ? 1 : 0, u.latestNumber, u.newCount, u.caughtUp ? 1 : 0, new Date().toISOString(), u.elsewhere ? 1 : 0);
   }
 
   updates(opts: { includeAdult?: boolean; caughtUpOnly?: boolean; limit?: number } = {}): UpdateRow[] {
@@ -993,6 +1001,7 @@ export class Store {
       newCount: r.new_count as number,
       caughtUp: r.caught_up === 1,
       detectedAt: r.detected_at as string,
+      elsewhere: r.elsewhere === 1,
     }));
   }
 
