@@ -60,7 +60,10 @@ function world(): typeof fetch {
     const url = String(u);
     const j = (d: unknown) => new Response(JSON.stringify(d));
     if (url.startsWith("https://api.mangabaka.org")) {
-      if (url.includes("tag=")) return j({ status: 200, data: [LUCKY, STRANGER, SPICY] });
+      if (url.includes("/series/685/similar")) {
+        const item = (series: unknown, score: number) => ({ score, shared_tags: [{ id: 5, name: "Crafting", weight: "core" }, { id: 3, name: "Weak to Strong", weight: "defining" }], shared_tags_total: 2, matched_author: false, matched_related: false, series });
+        return j({ status: 200, data: [item(STRANGER, 0.1), item(LUCKY, 0.6), item(SPICY, 0.5)] });
+      }
       if (url.includes("/series/search")) return j({ status: 200, data: [SELF] });
       if (url.includes("/series/685")) return j({ status: 200, data: SELF });
       return new Response("{}", { status: 404 });
@@ -89,7 +92,7 @@ function world(): typeof fetch {
 }
 
 describe("Similar with MangaBaka", () => {
-  it("ranks closer MangaBaka matches first and adds MangaBaka's own picks found on your sources", async () => {
+  it("leads with MangaBaka's own similar series found on your sources, and drops genre matches MangaBaka knows are unrelated", async () => {
     clearFilterCache();
     const store = new Store(":memory:");
     // Two source candidates already known to MangaBaka: one close to Overgeared, one not.
@@ -97,17 +100,31 @@ describe("Similar with MangaBaka", () => {
     store.putBakaLink(normalizeTitle("Far One"), 2, false, { id: 2, title: "Far One", titles: [], tags: [{ name: "Cooking", path: "Activities > Cooking", weight: "core", genre: false, spoiler: false }] });
     const f = world();
     const app = await buildApp(config, { fetchImpl: f, store, baka: new MangaBaka(f, { search: 0, other: 0 }) });
-    const { groups } = (await app.inject({ url: "/api/manga/50/similar" })).json();
-    const titles = groups.map((g: { title: string }) => g.title);
-    expect(titles.indexOf("Close One")).toBeGreaterThanOrEqual(0);
-    expect(titles.indexOf("Close One")).toBeLessThan(titles.indexOf("Far One"));
-    expect(titles).toContain("Lucky Striker");
-    // Results that don't actually carry the tags, and explicit ones for a series that isn't 18+, stay out.
+    const out = (await app.inject({ url: "/api/manga/50/similar" })).json();
+    const titles = out.groups.map((g: { title: string }) => g.title);
+    expect(titles[0]).toBe("Lucky Striker");
+    expect(titles).toContain("Close One");
+    expect(titles).not.toContain("Far One");
+    // Not on your sources, or explicit for a series that isn't 18+.
     expect(titles).not.toContain("Stranger");
     expect(titles).not.toContain("Spicy Smith");
     expect(titles).not.toContain("Overgeared");
-    // What the tag search returned is remembered for later.
+    expect(out.basedOn).toEqual(["Crafting", "Weak to Strong"]);
+    // What MangaBaka returned is remembered for later.
     expect(store.bakaLink(normalizeTitle("Lucky Striker"))?.mbId).toBe(700);
+  });
+
+  it("without MangaBaka picks, ranks genre matches by MangaBaka closeness instead of dropping them", async () => {
+    clearFilterCache();
+    const store = new Store(":memory:");
+    store.putBakaLink(normalizeTitle("Close One"), 1, false, { id: 1, title: "Close One", titles: [], tags: [{ name: "Crafting", path: "Activities > Art Forms > Crafting", weight: "core", genre: false, spoiler: false }] });
+    store.putBakaLink(normalizeTitle("Far One"), 2, false, { id: 2, title: "Far One", titles: [], tags: [{ name: "Cooking", path: "Activities > Cooking", weight: "core", genre: false, spoiler: false }] });
+    const base = world();
+    const f = (async (u: string, init?: RequestInit) => (String(u).includes("/similar") ? new Response(JSON.stringify({ status: 200, data: [] })) : base(u, init))) as unknown as typeof fetch;
+    const app = await buildApp(config, { fetchImpl: f, store, baka: new MangaBaka(f, { search: 0, other: 0 }) });
+    const titles = (await app.inject({ url: "/api/manga/50/similar" })).json().groups.map((g: { title: string }) => g.title);
+    expect(titles.indexOf("Close One")).toBeGreaterThanOrEqual(0);
+    expect(titles.indexOf("Close One")).toBeLessThan(titles.indexOf("Far One"));
   });
 });
 

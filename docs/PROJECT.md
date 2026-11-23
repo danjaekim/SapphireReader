@@ -312,10 +312,13 @@ downloaded from Settings.
   - Taste: liked series' vectors summed by liking weight (not-interested ones at -0.8). For you and the deep
     rows multiply each candidate's fit by `boostFrom(cosine)`: 1 with no data, 0.85 to 1.65 with data, so
     having data is not itself a bonus. Candidates still come from source genre browsing; MangaBaka only re-ranks.
-  - Similar: the same boost against this series' vector, plus MangaBaka picks. `searchByTags` with its 3 (then
-    2) most central non-genre tags; results are kept only if their own tags really contain all of them,
-    explicit ratings are dropped unless this series is 18+, the 6 closest are found on your sources
-    (`findOnSources`, cached a week under `baka_match.*`), and the two lists take turns.
+  - Similar: MangaBaka's own similar list (`GET /v1/series/{id}/similar`: score, shared_tags,
+    shared_tags_total, full series) leads. The best 12 are looked for on your sources (3 at a time, stop at
+    8; `findOnSources`, cached a week under `baka_match.*`); explicit ratings are dropped unless this series
+    is 18+. The genre-based results follow, boosted by closeness to this series' vector, minus any MangaBaka
+    knows are unrelated (cosine < 0.08) when MangaBaka picks exist. "Matched mostly on" then names the tags
+    the MangaBaka picks share most. (Multi-tag search can't do AND: repeated `tag=` keeps only the first,
+    commas match nothing; checked live Nov 23.)
   - Background lookups (`enrichBaka`): liked series and up to 20 candidates per For you / deep / Similar
     build are looked up one at a time; tag-search results are cached too. The For you and deep cache keys
     include how many liked series have MangaBaka tags, so new tags bring a rebuild (within the 3h gap rule).
@@ -350,8 +353,7 @@ Keep this list current: add items when they come up, remove them when done or dr
 - Status filter (needs per-series lookups).
 
 **Not yet verified against live sources**
-- MangaBaka: tag search parameters (`tag=` repeated) unverified live; if Similar never shows MangaBaka
-  picks, check that. Effect of the re-ranking on real For you rows not yet judged by Dan.
+- MangaBaka: effect of the re-ranking on real For you rows, and the new Similar, not yet judged by Dan.
 - For you deep rows and AniList "also liked" rows on real sources.
 - Version-aware move offers and the "Also on" memory on Dan's real libraries.
 

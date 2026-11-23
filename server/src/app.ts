@@ -1195,20 +1195,24 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
           boost: selfVec ? (g) => { const v = groupVec(g); return boostFrom(v ? cosine(selfVec, v) : null); } : undefined,
         }),
-        self ? bakaSimilar(self, { scope, allowExplicit: selfAdult }).catch(() => [] as SeriesGroup[]) : Promise.resolve([] as SeriesGroup[]),
+        self ? bakaSimilar(self, { scope, allowExplicit: selfAdult }).catch(() => ({ groups: [] as SeriesGroup[], shared: [] as string[] })) : Promise.resolve({ groups: [] as SeriesGroup[], shared: [] as string[] }),
       ]);
-      // Take turns: the sources' best, then MangaBaka's, and so on (each list keeps its own order).
+      // MangaBaka's picks lead (they share this series' specific tags, not just its broad genres). After them
+      // come the genre-based ones, closest first, leaving out any MangaBaka knows to share almost nothing.
       const selfKey = normalizeTitle(manga.title);
       const groups: SeriesGroup[] = [];
       const seenKeys = new Set<string>([selfKey]);
-      for (let i = 0; i < Math.max(source.groups.length, fromBaka.length); i++) {
-        for (const g of [source.groups[i], fromBaka[i]]) {
-          if (!g || seenKeys.has(g.key) || g.hits.some((h) => h.mangaId === id)) continue;
-          seenKeys.add(g.key);
-          groups.push(g);
-        }
+      const unrelated = (g: SeriesGroup) => {
+        if (!selfVec || fromBaka.groups.length === 0) return false;
+        const v = groupVec(g);
+        return v !== null && cosine(selfVec, v) < 0.08;
+      };
+      for (const g of [...fromBaka.groups, ...source.groups.filter((g) => !unrelated(g))]) {
+        if (seenKeys.has(g.key) || g.hits.some((h) => h.mangaId === id)) continue;
+        seenKeys.add(g.key);
+        groups.push(g);
       }
-      const basedOn = source.basedOn;
+      const basedOn = fromBaka.groups.length > 0 && fromBaka.shared.length > 0 ? fromBaka.shared : source.basedOn;
       enrichGroups(source.groups, 12);
       if (groups.length > 0) similarCache.set(key, { at: Date.now(), groups, basedOn });
       return { groups: await withoutHidden(groups), basedOn };
@@ -1360,42 +1364,30 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const enrichGroups = (groups: SeriesGroup[], max = 20) => enrichBaka(groups.map((g) => ({ key: g.key, title: g.hits[0]?.title ?? g.title })), max);
 
   /**
-   * "Similar" straight from MangaBaka: series sharing this one's most central tags, checked against their
-   * own tag lists (so an ignored filter can't sneak in strangers), closest first, then found on your sources.
+   * MangaBaka's own Similar series for this one (best first), found on your sources. Explicit ones are left
+   * out unless this series is 18+. Also says which tags they share most, for the "Matched on" line.
    */
-  async function bakaSimilar(self: BakaSeries, opts: { scope: Scope; allowExplicit: boolean }): Promise<SeriesGroup[]> {
-    const central = self.tags
-      .filter((t) => !t.spoiler && !t.genre && typeof t.id === "number" && (t.weight === "core" || t.weight === "defining"))
-      .sort((a, b) => (a.weight === b.weight ? 0 : a.weight === "core" ? -1 : 1));
-    if (central.length < 2) return [];
-    const selfVec = bakaVector(self.tags);
+  async function bakaSimilar(self: BakaSeries, opts: { scope: Scope; allowExplicit: boolean }): Promise<{ groups: SeriesGroup[]; shared: string[] }> {
     const explicit = (r: BakaSeries) => r.contentRating === "erotica" || r.contentRating === "pornographic";
-    let picks: BakaSeries[] = [];
-    for (const n of [3, 2]) {
-      const ids = central.slice(0, n).map((t) => t.id as number);
-      if (ids.length < n) continue;
-      const found = await baka.searchByTags(ids).catch(() => [] as BakaSeries[]);
-      picks = found.filter((r) => r.id !== self.id && ids.every((id) => r.tags.some((t) => t.id === id)) && (opts.allowExplicit || !explicit(r)));
-      // Remember what came back, so these series' tags are known later without another lookup.
-      for (const r of found) {
-        const k = normalizeTitle(r.title);
-        if (k && !store.bakaLink(k)) store.putBakaLink(k, r.id, false, r);
-      }
-      if (picks.length >= 4) break;
+    const items = (await baka.similar(self.id)).filter((x) => x.series.id !== self.id && (opts.allowExplicit || !explicit(x.series)));
+    // Remember what came back, so these series' tags are known later without another lookup.
+    for (const { series } of items) {
+      const k = normalizeTitle(series.title);
+      if (k && !store.bakaLink(k)) store.putBakaLink(k, series.id, false, series);
     }
-    const ranked = picks
-      .map((r) => ({ r, s: cosine(selfVec, bakaVector(r.tags)) }))
-      .sort((a, b) => b.s - a.s)
-      .slice(0, 6)
-      .map((x) => x.r);
+    const counts = new Map<string, number>();
+    for (const x of items.slice(0, 12)) for (const n of x.shared) counts.set(n, (counts.get(n) ?? 0) + 1);
+    const shared = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n);
+    // Most won't be on your sources; look for the best dozen, three at a time, until eight are found.
     const out: SeriesGroup[] = [];
-    for (let i = 0; i < ranked.length; i += 3) {
+    const wanted = items.slice(0, 12);
+    for (let i = 0; i < wanted.length && out.length < 8; i += 3) {
       const batch = await Promise.all(
-        ranked.slice(i, i + 3).map((r) => findOnSources(config, store, { id: r.id, titles: r.titles }, { fetchImpl, scope: opts.scope, onResult: report }, "baka_match").catch(() => null)),
+        wanted.slice(i, i + 3).map((x) => findOnSources(config, store, { id: x.series.id, titles: x.series.titles }, { fetchImpl, scope: opts.scope, onResult: report }, "baka_match").catch(() => null)),
       );
       for (const g of batch) if (g && !out.some((o) => o.key === g.key)) out.push(g);
     }
-    return out;
+    return { groups: out, shared };
   }
 
   app.get<{ Params: { id: string }; Querystring: { refresh?: string } }>("/api/manga/:id/mangabaka", async (req, reply) => {

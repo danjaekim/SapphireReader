@@ -174,14 +174,22 @@ export class MangaBaka {
   }
 
   /**
-   * Series carrying these tags (all of them, or any with mode "or"). Each record comes with its own tags,
-   * which the caller checks, so a filter the API ignored can't pass off unrelated series.
+   * MangaBaka's own "Similar series" (by shared tags, author and relations), best first. Each item carries
+   * the full series record (v1), so its tags come along. (Multi-tag search doesn't work as an AND filter:
+   * repeated tag= keeps only the first, checked live Nov 23 2026, so this is the way to get tag neighbours.)
    */
-  async searchByTags(tagIds: number[], mode: "and" | "or" = "and", limit = 30): Promise<BakaSeries[]> {
-    const qs = [...tagIds.map((t) => `tag=${t}`), ...(mode === "or" ? ["tag_mode=or"] : []), `limit=${limit}`].join("&");
-    const j = await this.get(`/v1/series/search?${qs}`, this.gaps.search);
-    const list = j === null ? [] : (obj(j).data as unknown[] | undefined) ?? [];
-    return (Array.isArray(list) ? list : []).map((x) => parseSeries(x)).filter((x): x is BakaSeries => x !== null && obj(x).id !== undefined);
+  async similar(id: number): Promise<{ score: number; sharedTotal: number; shared: string[]; series: BakaSeries }[]> {
+    const j = await this.get(`/v1/series/${id}/similar`, this.gaps.other);
+    const list = j === null ? [] : obj(j).data;
+    const out: { score: number; sharedTotal: number; shared: string[]; series: BakaSeries }[] = [];
+    for (const item of Array.isArray(list) ? list : []) {
+      const x = obj(item);
+      const series = parseSeries(x.series);
+      if (!series) continue;
+      const shared = (Array.isArray(x.shared_tags) ? x.shared_tags : []).map((t) => str(obj(t).name)).filter((n): n is string => n !== null);
+      out.push({ score: num(x.score) ?? 0, sharedTotal: num(x.shared_tags_total) ?? shared.length, shared, series });
+    }
+    return out.sort((a, b) => b.score - a.score);
   }
 
   async series(id: number): Promise<BakaSeries | null> {
