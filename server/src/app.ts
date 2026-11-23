@@ -2158,6 +2158,11 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           store.saveProgress(id, { chapterId: furthest.id, chapterNumber: furthest.chapterNumber, chapterName: furthest.name, pageIndex: 0, pageOffset: 0, finished: true });
         }
       }
+      // Marking by hand counts like finishing in the reader: read downloads go, the next ones come.
+      if (read && marked.length > 0 && store.inLibrary(id)) {
+        autoDeleteFor(id);
+        void autoDownloadFor(id).catch(() => 0);
+      }
       if (!read && marked.length > 0) {
         // Unmarking at or before your place moves your place back to just before the earliest one.
         const earliest = Math.min(...marked.map((c) => c.chapterNumber));

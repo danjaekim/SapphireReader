@@ -243,6 +243,12 @@ chapter *numbers* are kept so they carry across sources (switching, merged copie
 each source's latest chapter lazily (only near the screen, 4 at a time, 2 retries) and link to the
 furthest-ahead listing.
 
+A chapter counts as read when the reader saves it as finished: in scroll mode when the last page's bottom
+is in view (saved at once, not on the 2-second scroll save), in paged mode on the last page or end
+screen, and always when you go on with "Next" from the end. Leaving a chapter for another one saves your
+place first. (Fix, Nov 23: before this, moving to the next chapter within 2 seconds of reaching the end
+dropped the save, so chapters read straight through were often left unread and their downloads kept.)
+
 ### 5.4 Library check, alerts and automation
 
 Every `CHECK_INTERVAL_HOURS` (6) the checker re-reads each library series (one at a time, paced),
@@ -319,7 +325,8 @@ auto-delete of read NAS downloads (keeps the last one). Sources can be excluded 
 ### 5.8 Downloads and offline
 
 NAS downloads (one chapter at a time) read without the source; covers are saved too. On-device
-offline chapters use Cache Storage and the service worker, and only work over https.
+offline chapters use Cache Storage and the service worker, and only work over https. Auto-delete removes downloaded chapters once they're read (finished in the reader or marked read by
+hand), except the chapter your place is on; finishing or marking also tops up auto-download.
 
 ### 5.9 Updates and backups
 

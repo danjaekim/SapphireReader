@@ -81,7 +81,13 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
   const prev = index > 0 ? data!.chapters[index - 1] : null;
   const next = index >= 0 && index < data!.chapters.length - 1 ? data!.chapters[index + 1] : null;
   // Moving between chapters swaps the page, so Back from any chapter returns to the series, not the last chapter.
-  const go = (c: { id: number } | null) => c && replaceHash(readHref(mangaId, c.id));
+  // Before leaving a chapter, save where you are (the 2-second save may not have run yet). Going on to the
+  // next chapter from the end screen, or with the end in view, marks this one finished.
+  const go = (c: { id: number } | null, finished = false) => {
+    if (!c) return;
+    save.current(false, finished);
+    replaceHash(readHref(mangaId, c.id));
+  };
 
   function restoreFor(i: number, img: HTMLImageElement) {
     if (paged) return;
@@ -107,10 +113,14 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
     return { pageIndex, pageOffset, finished: !!last && last.height > 0 && last.bottom <= window.innerHeight + 80 };
   }
 
-  const save = useRef<(keepalive: boolean) => void>(() => {});
-  save.current = (keepalive) => {
-    if (!pages || !chapter || !restored.current) return;
+  const save = useRef<(keepalive: boolean, finished?: boolean) => void>(() => {});
+  /** Chapter ids already saved as finished, so reaching the end saves once, straight away. */
+  const finishedSaved = useRef(new Set<number>());
+  save.current = (keepalive, finished = false) => {
+    if (!pages || !chapter || (!restored.current && !finished)) return;
     const pos = paged ? { pageIndex: current, pageOffset: 0, finished: atEnd || current >= pages.length - 1 } : scrollPosition();
+    if (finished) pos.finished = true;
+    if (pos.finished) finishedSaved.current.add(chapterId);
     saveProgress(mangaId, { chapterId, chapterNumber: chapter.chapterNumber, chapterName: chapter.name, ...pos }, keepalive).catch(() => {});
   };
 
@@ -121,7 +131,12 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
     let frame = 0;
     const onScroll = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => setCurrent(scrollPosition().pageIndex));
+      frame = requestAnimationFrame(() => {
+        const pos = scrollPosition();
+        setCurrent(pos.pageIndex);
+        // Reaching the end saves at once, so moving on quickly can't lose it.
+        if (pos.finished && restored.current && !finishedSaved.current.has(chapterId)) save.current(false);
+      });
       if (timer === undefined) timer = window.setTimeout(() => { timer = undefined; save.current(false); }, 2000);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -130,7 +145,7 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
       cancelAnimationFrame(frame);
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [pages, paged]);
+  }, [pages, paged, chapterId]);
 
   // Paged mode: save on every page turn.
   useEffect(() => {
@@ -152,7 +167,7 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
   // Paged mode page turns. "Forward" means toward the end of the chapter.
   function forward() {
     if (!pages) return;
-    if (atEnd) return go(next);
+    if (atEnd) return go(next, true);
     if (current < pages.length - 1) setCurrent(current + 1);
     else setAtEnd(true);
   }
@@ -273,7 +288,7 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
     <div className="readerEnd">
       <p className="muted">{chapter ? `End of ${chapterText(chapter)}` : ""}</p>
       {next ? (
-        <a className="button nextChapter" href={readHref(mangaId, next.id)} onClick={(e) => { e.preventDefault(); replaceHash(readHref(mangaId, next.id)); }}>Next: {chapterText(next)} →</a>
+        <a className="button nextChapter" href={readHref(mangaId, next.id)} onClick={(e) => { e.preventDefault(); go(next, true); }}>Next: {chapterText(next)} →</a>
       ) : (
         <>
           <p className="muted">You're caught up. Sapphire will alert you when a new chapter comes out{data?.inLibrary ? "" : " if you add this series to your library"}.</p>
