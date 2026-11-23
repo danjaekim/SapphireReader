@@ -1,3 +1,5 @@
+import { toast, toastError } from "./toast";
+import { tidyTitle } from "./titles";
 import { useEffect, useState } from "react";
 import { addToLibrary, classifyAdult, library, ratingsFor, removeFromLibrary, type Rating } from "./api";
 
@@ -87,9 +89,14 @@ export function useLibraryIds() {
       try {
         if (adding) await addToLibrary(hit.mangaId, hit.sourceId, hit.sourceName, hit.title);
         else await removeFromLibrary(hit.mangaId);
+        // The card's button changes too, but it's small; say what happened, with a way back.
+        toast(adding ? `Added ${tidyTitle(hit.title)} to your library.` : `Removed ${tidyTitle(hit.title)} from your library.`, {
+          action: { label: "Undo", run: () => void this.toggle(hit) },
+        });
       } catch {
         adding ? ids.delete(hit.mangaId) : ids.add(hit.mangaId);
         libChanged();
+        toastError(adding ? "Couldn't add it to your library. Try again." : "Couldn't remove it from your library. Try again.");
       }
     },
   };

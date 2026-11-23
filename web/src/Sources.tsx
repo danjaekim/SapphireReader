@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { toast, toastError } from "./toast";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { changeExtension, checkSources, setSourceAdult, setSourceCheck, extensions, genreSupport, refreshExtensionList, sources, type ExtensionInfo, type GenreSupport, type SourceRow } from "./api";
 
@@ -92,7 +93,6 @@ export function Sources() {
   const [refreshing, setRefreshing] = useState(false);
   const [sourceRows, setSourceRows] = useState<SourceRow[]>([]);
   const [checking, setChecking] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const loadSources = () => sources().then((r) => setSourceRows(r.sources), () => {});
   useEffect(() => void loadSources(), []);
@@ -104,13 +104,13 @@ export function Sources() {
     setChecking(false);
   }
   async function setAdult(r: SourceRow, adult: boolean) {
-    setNote(null);
     try {
       // Back to "whatever the extension says" when the choice matches its own flag.
       await setSourceAdult(r.id, adult === (r.flaggedNsfw ?? r.isNsfw) ? null : adult);
       await loadSources();
+      toast(adult ? `${r.name} is treated as 18+ now.` : `${r.name} is treated as a regular source now.`);
     } catch (e) {
-      setNote(e instanceof Error ? e.message : "That didn't work.");
+      toastError(e instanceof Error ? e.message : "That didn't work.");
     }
   }
   const toggle = (k: string) => setOpen((o) => { const n = new Set(o); n.has(k) ? n.delete(k) : n.add(k); return n; });
@@ -125,8 +125,9 @@ export function Sources() {
     try {
       const { extension } = await changeExtension(e.pkgName, action);
       setList((l) => l?.map((x) => (x.pkgName === e.pkgName ? { ...x, ...extension } : x)) ?? l);
+      toast(`${action === "uninstall" ? "Removed" : action === "update" ? "Updated" : "Installed"} ${displayName(e)}.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "That didn't work.");
+      toastError(err instanceof Error ? err.message : "That didn't work.");
     } finally {
       setWorking((w) => {
         const { [e.pkgName]: _, ...rest } = w;
@@ -294,7 +295,6 @@ export function Sources() {
 
   return (
     <section>
-      {note && <p className="bad">{note}</p>}
       <GenreSupportPanel />
       <h3>Extensions</h3>
       <p className="muted">

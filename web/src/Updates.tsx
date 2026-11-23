@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { tidyTitle } from "./titles";
+import { toast, toastError } from "./toast";
 import { acceptSwitch, dismissSwitch, refreshLibrary, switchOffers, thumbnailUrl, updatesFeed, type SwitchOffer, type UpdateRow } from "./api";
 import { navigate, seriesHref } from "./route";
 import { ago, chapterText } from "./util";
@@ -21,7 +22,6 @@ export function Updates() {
     );
   const [offers, setOffers] = useState<SwitchOffer[]>([]);
   const [busy, setBusy] = useState<number | null>(null);
-  const [offerError, setOfferError] = useState<string | null>(null);
   const loadOffers = () => switchOffers().then(setOffers, () => {});
   useEffect(() => {
     void load();
@@ -30,12 +30,12 @@ export function Updates() {
 
   async function move(o: SwitchOffer) {
     setBusy(o.mangaId);
-    setOfferError(null);
     try {
       const { mangaId } = await acceptSwitch(o.mangaId);
       navigate(seriesHref(mangaId));
+      toast(`Moved to ${o.toSourceName ?? "the other source"}${o.toVersion ? ` (${o.toVersion})` : ""}. Your place came along.`);
     } catch (e) {
-      setOfferError(e instanceof Error ? e.message : "Couldn't move it.");
+      toastError(e instanceof Error ? e.message : "Couldn't move it.");
       setBusy(null);
     }
   }
@@ -99,7 +99,6 @@ export function Updates() {
           ))}
         </ul>
       )}
-      {offerError && <p className="bad">{offerError}</p>}
       {error && <p className="bad">{error}</p>}
       {items && items.length === 0 && <p className="muted">Nothing new yet. Sapphire checks your library every few hours.</p>}
       <ul className="feed">

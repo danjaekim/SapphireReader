@@ -1,5 +1,6 @@
 import { Loading } from "./Loading";
 import { tidyTitle } from "./titles";
+import { toast, toastError } from "./toast";
 import { useEffect, useMemo, useState } from "react";
 import { downloads, removeDownload, removeSeriesDownloads, thumbnailUrl, type DownloadRow } from "./api";
 import { readHref, seriesHref } from "./route";
@@ -47,12 +48,12 @@ export function Downloads() {
     return [...by.entries()];
   }, [items]);
 
-  async function act(fn: () => Promise<unknown>) {
-    setError(null);
+  async function act(fn: () => Promise<unknown>, done: string) {
     try {
       await fn();
+      toast(done);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "That didn't work.");
+      toastError(e instanceof Error ? e.message : "That didn't work.");
     }
     setTick((t) => t + 1);
   }
@@ -83,7 +84,7 @@ export function Downloads() {
                   {s.sourceName ? `${s.sourceName} · ` : ""}
                   {done.length} saved · {size(done.reduce((n, d) => n + d.bytes, 0))}
                 </p>
-                <button type="button" className="linkish" onClick={() => act(() => removeSeriesDownloads(mangaId))}>Remove all</button>
+                <button type="button" className="linkish" onClick={() => act(() => removeSeriesDownloads(mangaId), `Removed ${done.length} saved chapter${done.length === 1 ? "" : "s"} of ${tidyTitle(s.title)} from the NAS.`)}>Remove all</button>
               </div>
             </div>
             <ul className="extList">
@@ -94,7 +95,7 @@ export function Downloads() {
                     {d.status === "done" ? size(d.bytes) : d.status === "failed" ? `failed: ${d.error ?? "unknown error"}` : d.status === "queued" ? "waiting" : "downloading…"}
                   </span>
                   {d.status !== "downloading" && (
-                    <button type="button" className="linkish" onClick={() => act(() => removeDownload(d.chapterId))} aria-label={`Remove ${label(d)}`}>
+                    <button type="button" className="linkish" onClick={() => act(() => removeDownload(d.chapterId), d.status === "done" ? `Removed ${label(d)} from the NAS.` : `Cleared ${label(d)}.`)} aria-label={`Remove ${label(d)}`}>
                       {d.status === "done" ? "Remove" : "Clear"}
                     </button>
                   )}

@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { toast, toastError } from "./toast";
 import { tidyTitle } from "./titles";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { addToLibrary, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
@@ -343,16 +344,17 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     try {
       const r = await markChapters(mangaId, chapterIds, read);
       setData((d) => (d ? { ...d, readChapterIds: r.readChapterIds, progress: r.progress } : d));
+      // One chapter's tick says it all; several at once get a word.
+      if (chapterIds.length > 1) toast(`Marked ${chapterIds.length} chapters ${read ? "read" : "unread"}.`);
     } catch {
       setData(before);
+      toastError(`Couldn't mark ${chapterIds.length === 1 ? "that chapter" : "those chapters"}. Try again.`);
     }
   }
 
-  const [adultNote, setAdultNote] = useState<string | null>(null);
   /** Your own call on 18+: true, false (not 18+), or null (go by the source again). */
   async function changeAdultMark(mark: boolean | null) {
     if (!data) return;
-    setAdultNote(null);
     try {
       await setAdultMark(mangaId, mark);
       setData((d) => (d ? { ...d, markedAdult: mark === true, markedSafe: mark === false, adult: mark ?? d.adultSource === true } : d));
@@ -360,23 +362,21 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
       resetHiddenCache();
       clearPagedCache();
       forgetForYou();
-      setAdultNote(
+      toast(
         mark === true
-          ? "Now with your 18+ series, and hidden while 18+ mode is locked."
+          ? "Marked 18+. It's hidden while 18+ mode is locked."
           : mark === false
-            ? "Now with your regular series, even though its source is 18+."
-            : "Back to following its source.",
+            ? "Marked not 18+. It shows with your regular series."
+            : "Back to following its source on 18+.",
       );
     } catch {
-      setAdultNote(mark === true ? "Couldn't mark it. Try again." : "Unlock 18+ mode to change this.");
+      toastError(mark === true ? "Couldn't mark it. Try again." : "Unlock 18+ mode to change this.");
     }
   }
 
   const [merging, setMerging] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [mergeNote, setMergeNote] = useState<string | null>(null);
-  async function changeMerge(run: () => Promise<{ mergedWith: MergedName[]; title?: string; description?: string | null; about?: SeriesData["about"] }>) {
-    setMergeNote(null);
+  async function changeMerge(run: () => Promise<{ mergedWith: MergedName[]; title?: string; description?: string | null; about?: SeriesData["about"] }>, done?: string) {
     try {
       const r = await run();
       // The series is shown as its primary listing: take its name (and reload covers, which may have swapped).
@@ -394,8 +394,9 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
       );
       clearPagedCache();
       setAltRun((n) => n + 1);
+      if (done) toast(done);
     } catch {
-      setMergeNote("Couldn't change that. Try again.");
+      toastError("Couldn't change that. Try again.");
     }
   }
 
@@ -586,7 +587,6 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                         {data.markedAdult ? "Marked 18+ · Undo" : "Mark as 18+"}
                       </button>
                     )}
-                    {adultNote && <span className="muted adultNote">{adultNote}</span>}
                   </p>
                   {(data.version || (data.mergedWith ?? []).length > 0 || (others ?? []).length > 0) && (
                     <VersionChip mangaId={mangaId} version={data.version ?? null} preferred={data.preferredVersion ?? null} onChanged={versionsChanged} />
@@ -604,7 +604,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                                 {m.own && <span className="muted"> (this source)</span>}
                               </span>
                               {!m.canon && (
-                                <button type="button" aria-label={`Unmerge ${m.title}`} title="Unmerge" onClick={() => changeMerge(() => unmergeTitle(mangaId, m.key))}>×</button>
+                                <button type="button" aria-label={`Unmerge ${m.title}`} title="Unmerge" onClick={() => changeMerge(() => unmergeTitle(mangaId, m.key), `Unmerged ${tidyTitle(m.title)}.`)}>×</button>
                               )}
                             </span>
                           ))}
@@ -616,7 +616,6 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     <button type="button" className="linkish" onClick={() => setMerging(true)}>
                       {(data.mergedWith ?? []).length > 0 ? "Merge another" : "Listed under another name? Merge"}
                     </button>
-                    {mergeNote && <span className="bad">{mergeNote}</span>}
                   </div>
                 </div>
                 {editing && (data.mergedWith ?? []).length > 0 && (
@@ -630,7 +629,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     onClose={() => setMerging(false)}
                     onPick={(t, otherId) => {
                       setMerging(false);
-                      void changeMerge(() => mergeTitle(mangaId, t, otherId));
+                      void changeMerge(() => mergeTitle(mangaId, t, otherId), `Merged with ${tidyTitle(t)}.`);
                     }}
                   />
                 )}

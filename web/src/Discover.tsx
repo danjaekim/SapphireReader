@@ -1,4 +1,5 @@
 import { Loading } from "./Loading";
+import { toast, toastError } from "./toast";
 import { ago } from "./util";
 import { tidyTitle } from "./titles";
 import { alsoLiked, browse, deepForYou, setAdultMarks, discoverList, forYou, setNotInterested, type SearchResult, type DeepRow, type SeriesGroup, type Shelf } from "./api";
@@ -156,7 +157,9 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
   const [refreshing, setRefreshing] = useState(false);
   async function refreshForYou() {
     setRefreshing(true);
-    await Promise.allSettled([forYou(adult, true), deepForYou(adult, true), alsoLiked(adult, true)]);
+    const done = await Promise.allSettled([forYou(adult, true), deepForYou(adult, true), alsoLiked(adult, true)]);
+    if (done[0].status === "fulfilled") toast("Recommendations rebuilt from your current library.");
+    else toastError("Your sources didn't answer, so you're still seeing the earlier recommendations.");
     forgetForYou();
     setNonce((n) => n + 1);
     setRefreshing(false);
@@ -196,7 +199,6 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
   const [picking, setPicking] = useState(false);
   const [chosen, setChosen] = useState<Map<string, SeriesGroup>>(new Map());
   const [gone, setGone] = useState<Set<string>>(new Set());
-  const [pickNote, setPickNote] = useState<string | null>(null);
   const [pickBusy, setPickBusy] = useState(false);
   const selection: Selection = {
     active: picking,
@@ -222,7 +224,6 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
     const groups = [...chosen.values()];
     if (groups.length === 0) return;
     setPickBusy(true);
-    setPickNote(null);
     try {
       await setAdultMarks(groups.map((g) => g.title), mark);
       // They now belong on the other Discover page.
@@ -230,10 +231,10 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       resetHiddenCache();
       clearPagedCache();
       forgetAlsoLiked();
-      setPickNote(`Marked ${groups.length} ${mark ? "18+" : "not 18+"}${mark !== adult ? `. ${groups.length === 1 ? "It's" : "They're"} on ${mark ? "Discover (18+)" : "Discover"} now.` : "."}`);
+      toast(`Marked ${groups.length} ${mark ? "18+" : "not 18+"}${mark !== adult ? `. ${groups.length === 1 ? "It's" : "They're"} on ${mark ? "Discover (18+)" : "Discover"} now.` : "."}`);
       stopPicking();
     } catch (e) {
-      setPickNote(e instanceof Error && /locked/i.test(e.message) ? "Unlock 18+ mode to mark titles not 18+." : "Couldn't mark them. Try again.");
+      toastError(e instanceof Error && /locked/i.test(e.message) ? "Unlock 18+ mode to mark titles not 18+." : "Couldn't mark them. Try again.");
     } finally {
       setPickBusy(false);
     }
@@ -255,13 +256,12 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
         onSort={(next) => navigate(pageHref(page, { genre: genres, seed, sort: next === "relevance" ? undefined : next, source: picked }))}
         // For you picks from your taste across every source, so it isn't limited by source.
         extra={
-          <button type="button" className={`filterBtn ${picking ? "on" : ""}`} aria-pressed={picking} onClick={() => (picking ? stopPicking() : (setPicking(true), setPickNote(null)))}>
+          <button type="button" className={`filterBtn ${picking ? "on" : ""}`} aria-pressed={picking} onClick={() => (picking ? stopPicking() : setPicking(true))}>
             {picking ? "Cancel" : "Select"}
           </button>
         }
         sources={mode === "for-you" && genres.length === 0 ? undefined : { list: sourceList, selected: picked, onChange: (ids) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: genres, seed, sort: sort === "relevance" ? undefined : sort, source: ids })) }}
       />
-      {pickNote && <p className="muted pickNote">{pickNote}</p>}
       {picking && (
         <div className="pickBar" role="toolbar" aria-label="Selected series">
           <span className="pickCount">{chosen.size} selected</span>

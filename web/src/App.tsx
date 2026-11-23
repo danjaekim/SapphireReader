@@ -1,3 +1,4 @@
+import { Toaster, toast, toastError } from "./toast";
 import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
 import { AdultButton, AdultDialog } from "./AdultLock";
@@ -380,7 +381,9 @@ function StatusCard() {
     setTestResult("Sending…");
     const res = await fetch("/api/notify/test", { method: "POST" }).catch(() => null);
     const body = res ? ((await res.json().catch(() => ({}))) as { error?: string }) : {};
-    setTestResult(res?.ok ? "Sent. Check your phone." : (body.error ?? "Couldn't reach the Sapphire server."));
+    setTestResult(null);
+    if (res?.ok) toast("Test notification sent. Check your phone.");
+    else toastError(body.error ?? "Couldn't reach the Sapphire server.");
   }
 
   useEffect(() => {
@@ -500,6 +503,7 @@ export function App() {
       <div className="reading">
         <div className="readerMenu">{nav}</div>
         <Reader mangaId={route.mangaId} chapterId={route.chapterId} startPage={route.page} onMenu={() => setMenuOpen(true)} />
+        <Toaster />
       </div>
     );
   }
@@ -509,6 +513,7 @@ export function App() {
 
   return (
     <div className="shell">
+      <Toaster />
       <TopBar title={route.name === "series" ? "Sapphire" : page === "home" ? "Sapphire" : TITLES[page!]} onMenu={() => setMenuOpen(true)} />
       {nav}
       <main className={`content ${wide ? "" : "narrow"} ${route.name === "series" ? "withBackdrop" : ""}`}>
