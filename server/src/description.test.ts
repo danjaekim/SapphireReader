@@ -22,8 +22,8 @@ describe("parseDescription", () => {
 
   it("leaves an ordinary description alone", () => {
     const d = "A boy wakes up.\nHe fights monsters.";
-    expect(parseDescription(d, "X")).toEqual({ body: d, altTitles: [], stats: [], facets: [] });
-    expect(parseDescription(null, "X")).toEqual({ body: "", altTitles: [], stats: [], facets: [] });
+    expect(parseDescription(d, "X")).toEqual({ body: d, altTitles: [], stats: [], facets: [], tags: [], info: {} });
+    expect(parseDescription(null, "X")).toEqual({ body: "", altTitles: [], stats: [], facets: [], tags: [], info: {} });
   });
 });
 
@@ -38,5 +38,68 @@ describe("facets", () => {
     ]);
     expect(r.stats).toEqual([{ label: "Pages", value: "24" }]);
     expect(r.body).toBe("A short note.");
+  });
+});
+
+describe("details written into the description", () => {
+  it("takes a star rating, year, notes and a links list out (MangaDex-style)", () => {
+    const d = `★★★★✬ 9.1 (89)
+2021
+
+In his past life, Liam was hardworking and honest. Time for some payback.
+
+*Source: Seven Seas Entertainment, Vol. 1*
+
+Alternative Names:
+- Ore wa Seikan Kokka no Akutoku Ryoushu!
+- 俺は星間国家の悪徳領主！
+- I am the Villainous Lord of the Interstellar Nation
+
+Links:
+- [MyAnimeList](https://myanimelist.net/manga/142425/)
+- [AniList](https://anilist.co/manga/139699/)
+- [MangaBaka](https://mangabaka.org/685/)`;
+    const a = parseDescription(d, "I'm the Evil Lord of an Intergalactic Empire!");
+    expect(a.stats).toEqual([{ label: "Rating", value: "9.1" }, { label: "Votes", value: "89" }]);
+    expect(a.info).toEqual({ year: "2021" });
+    expect(a.body).toBe("In his past life, Liam was hardworking and honest. Time for some payback.");
+    expect(a.altTitles).toEqual(["Ore wa Seikan Kokka no Akutoku Ryoushu!", "俺は星間国家の悪徳領主！", "I am the Villainous Lord of the Interstellar Nation"]);
+  });
+
+  it("mines a ToonGod blurb for names, people, year, status and tags, and drops the site's ads", () => {
+    const d = `To regain his peace, Gangchan must welcome his smoking neighbor into his home.
+
+[Someone Stop Her (Uncensored) Manhwa](https://www.toongod.org/webtoon/someone-stop-her-uncensored/) also known as 담배피지 마세요! , お隣さんと俺の××攻防戦 , Arrêtez-la! , Stop Smoking!. This on-going [webtoon](https://www.toongod.org) was released in 2025. This series was written by AA and illustrations by Momobird. [Someone Stop Her (Uncensored) Webtoon](https://www.toongod.org/webtoon/someone-stop-her-uncensored/) is about Comedy, Drama, Romance, Uncensored story.
+
+Read the latest Manhwa Someone Stop Her (Uncensored) all chapters in English at ToonGod. Manhwa Someone Stop Her (Uncensored) is always updated at ToonGod. Don’t forget to read the other Manhwa updates.
+
+Browse more than 1000+ Webtoons online for free. Find your favorite [free premium Manhwa](https://www.toongod.org/) for free.
+
+Connect with ToonGod on Social Media:
+
+Alternative Names:
+- 담배피지 마세요! , お隣さんと俺の××攻防戦 , Arrêtez-la! , Stop Smoking!`;
+    const a = parseDescription(d, "Someone Stop Her (Uncensored)");
+    expect(a.body).toBe("To regain his peace, Gangchan must welcome his smoking neighbor into his home.");
+    expect(a.altTitles).toEqual(["담배피지 마세요!", "お隣さんと俺の××攻防戦", "Arrêtez-la!", "Stop Smoking!"]);
+    expect(a.tags).toEqual(["Comedy", "Drama", "Romance", "Uncensored"]);
+    expect(a.info).toEqual({ author: "AA", artist: "Momobird", status: "Ongoing", year: "2025" });
+  });
+
+  it("drops upload notes and unescapes Markdown, and splits names on slashes", () => {
+    const d = `When I opened my eyes, I was inside a novel.
+\\[The Birth of a Hero\\].
+
+*NOTE: \\*\\* Reupload chapter 9-18 – replace with better version \\*\\**
+
+[Trash of the Count’s Family Manhwa](https://www.toongod.org/webtoon/x/) also known as TCF / Trash Count / 백작가의 망나니가 되었다. This on-going [webtoon](https://www.toongod.org) was released in 2020. This series was written by Elegant Yoo Ryeo Han and illustrations by PAN4. [Trash of the Count’s Family Webtoon](https://www.toongod.org/webtoon/x/) is about Action, Adventure, Fantasy story.
+
+Alternative Names:
+- TCF / Trash Count / 백작가의 망나니가 되었다`;
+    const a = parseDescription(d, "Trash of the Count’s Family");
+    expect(a.body).toBe("When I opened my eyes, I was inside a novel.\n[The Birth of a Hero].");
+    expect(a.altTitles).toEqual(["TCF", "Trash Count", "백작가의 망나니가 되었다"]);
+    expect(a.info).toEqual({ author: "Elegant Yoo Ryeo Han", artist: "PAN4", status: "Ongoing", year: "2020" });
+    expect(a.tags).toEqual(["Action", "Adventure", "Fantasy"]);
   });
 });

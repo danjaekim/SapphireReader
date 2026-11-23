@@ -88,7 +88,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `ratings.ts` | AniList scores/popularity (and MangaUpdates fallback), cached in `anilist_meta` / `mu_meta`; `rankByAnilist` for rating/popular sorts. |
 | `adult.ts` | `AdultGate`: PIN, unlock sessions (cookie `sapphire_18`, 2 h idle lock). |
 | `adultcheck.ts` | Classifies series on mixed sources as adult: known tags, AniList's adult flag, then the source's tags. |
-| `description.ts` | Splits a description into story, alternative titles, stats line and facets. |
+| `description.ts` | Splits a description into story, alternative titles, stats (incl. a leading `★★★★✬ 9.1 (89)` rating line), facets, `tags` and `info` (author, artist, status, year from a leading year line or a ToonGod-style "also known as… written by… is about X story" blurb). Drops upload/source notes, `Links:` lists, and site ad paragraphs ("Read the latest…", "Browse more than…", "Connect with X on Social Media"); unescapes Markdown. |
 | `checker.ts` | The library check: re-reads chapter lists, records new chapters, pushes alerts for caught-up series. |
 | `downloader.ts` | Saves chapters to the NAS one at a time; serves saved pages and covers. |
 | `notify.ts` | ntfy client. |
@@ -150,6 +150,8 @@ Schema changes are made in the `Store` constructor with `CREATE TABLE IF NOT EXI
   source filter, recent searches and browse-by-genre when empty.
 - **Series page**: two-column layout with blurred cover / AniList banner background, tidy title with
   full title and alternative names, ratings (AniList, site stats), description split into story and
+  (description-derived tags, author, artist, status and year fill in only what the source's own fields lack;
+  these tags are display-only and don't feed recommendations or filters),
   facets, tags (star mode for favorite tags), chapters with multi-select (shift-click ranges, mark
   read/unread, download), "mark earlier chapters read?" prompt, "Also on" other sources with chapter
   counts and version tags, Similar series, AniList tracking, like, add to library with shelves,

@@ -101,7 +101,7 @@ export const setReaderPrefs = (mangaId: number, p: ReaderPrefs, scope: PrefsScop
 export interface SeriesData {
   manga: MangaDetails;
   /** The description split into story, other names and the site's own numbers. */
-  about?: { body: string; altTitles: string[]; stats: { label: string; value: string }[]; facets?: { label: string; values: string[] }[] };
+  about?: { body: string; altTitles: string[]; stats: { label: string; value: string }[]; facets?: { label: string; values: string[] }[]; tags?: string[]; info?: { author?: string; artist?: string; status?: string; year?: string } };
   adult?: boolean;
   /** On an 18+ source, so it can't be un-marked. */
   adultSource?: boolean;

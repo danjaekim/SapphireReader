@@ -487,6 +487,12 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     setAnchor(null);
   };
   const isRating = (label: string) => /rating|score/i.test(label);
+  // The description can name details the source's own fields leave out (tags, author, artist, status, year).
+  const info = about.info ?? {};
+  const genres = data ? [...data.manga.genre, ...(about.tags ?? []).filter((t) => !data.manga.genre.some((g) => canonKey(g) === canonKey(t)))] : [];
+  const status = data && statusLabel(data.manga.status) !== "Unknown" ? statusLabel(data.manga.status) : info.status ?? "Unknown";
+  const author = data?.manga.author || info.author;
+  const artist = data?.manga.artist || info.artist;
   const rank = about.stats.find((st) => /^rank$/i.test(st.label));
   // Ratings from every place that has one, shown together under the title.
   const ratings: { label: string; value: string; title: string }[] = [
@@ -562,17 +568,18 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   ))}
                 </ul>
                 <dl className="infoList">
-                  <div><dt>Status</dt><dd>{statusLabel(data.manga.status)}</dd></div>
+                  <div><dt>Status</dt><dd>{status}</dd></div>
+                  {info.year && <div><dt>Year</dt><dd>{info.year}</dd></div>}
                   {data.manga.sourceName && <div><dt>Source</dt><dd>{data.manga.sourceName}</dd></div>}
-                  {data.manga.author && <div><dt>Author</dt><dd><People names={data.manga.author} /></dd></div>}
-                  {data.manga.artist && data.manga.artist !== data.manga.author && <div><dt>Artist</dt><dd><People names={data.manga.artist} /></dd></div>}
+                  {author && <div><dt>Author</dt><dd><People names={author} /></dd></div>}
+                  {artist && artist !== author && <div><dt>Artist</dt><dd><People names={artist} /></dd></div>}
                   {!single && data.latest.latestNumber !== null && (
                     <div><dt>Latest</dt><dd>{chapterLabel({ name: "", chapterNumber: data.latest.latestNumber })}</dd></div>
                   )}
                 </dl>
-                {data.manga.genre.length > 0 && (
+                {genres.length > 0 && (
                   <ul className={`genres ${starring ? "starring" : ""}`}>
-                    {(allTags || starring ? data.manga.genre : data.manga.genre.slice(0, TAG_CAP)).map((g) => {
+                    {(allTags || starring ? genres : genres.slice(0, TAG_CAP)).map((g) => {
                       const fav = favKeys.has(canonKey(g));
                       return (
                         <li key={g}>
@@ -589,10 +596,10 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                         </li>
                       );
                     })}
-                    {!starring && data.manga.genre.length > TAG_CAP && (
+                    {!starring && genres.length > TAG_CAP && (
                       <li>
                         <button type="button" className="tag moreTag" onClick={() => setAllTags((v) => !v)}>
-                          {allTags ? "Fewer" : `+${data.manga.genre.length - TAG_CAP} more`}
+                          {allTags ? "Fewer" : `+${genres.length - TAG_CAP} more`}
                         </button>
                       </li>
                     )}
