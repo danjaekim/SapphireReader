@@ -1,3 +1,4 @@
+import { Merges } from "./Merges";
 import { Toaster, toast, toastError } from "./toast";
 import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
@@ -37,6 +38,7 @@ const NAV: { page: PageName; label: string; icon: string; adultOnly?: boolean }[
   { page: "downloads", label: "Downloads", icon: "⬇️" },
   { page: "updates", label: "Updates", icon: "🔔" },
   { page: "history", label: "History", icon: "🕘" },
+  { page: "merges", label: "Suggested merges", icon: "🔗" },
   { page: "sources", label: "Sources", icon: "🧩" },
   { page: "status", label: "Settings", icon: "⚙️" },
 ];
@@ -52,6 +54,7 @@ const TITLES: Record<PageName, string> = {
   history: "History",
   sources: "Sources",
   status: "Settings",
+  merges: "Suggested merges",
 };
 
 /** Pages made of a grid use the full width; the rest are centered in a readable column. */
@@ -531,6 +534,7 @@ export function App() {
             {page === "updates" && <Updates key={scopeTag} />}
             {page === "history" && <History key={scopeTag} />}
             {page === "sources" && <Sources key={scopeTag} />}
+            {page === "merges" && <Merges key={scopeTag} />}
             {page === "status" && (
               <>
                 <StatusCard />

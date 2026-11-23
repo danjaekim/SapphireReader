@@ -10,9 +10,10 @@ export type PageName =
   | "updates"
   | "history"
   | "sources"
-  | "status";
+  | "status"
+  | "merges";
 
-const PAGES: PageName[] = ["home", "search", "library", "discover", "discover-18", "downloads", "updates", "history", "sources", "status"];
+const PAGES: PageName[] = ["home", "search", "library", "discover", "discover-18", "downloads", "updates", "history", "sources", "status", "merges"];
 
 export type Route =
   | { name: "page"; page: PageName; params: URLSearchParams }

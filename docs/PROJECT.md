@@ -94,6 +94,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `notify.ts` | ntfy client. |
 | `tracker.ts` | AniList tracking (token, search, set progress). |
 | `bakatags.ts` | MangaBaka tag vectors, cosine, taste vector, `boostFrom`. |
+| `mergehints.ts` | Suggested merges: `splitVersion` ("X (Uncensored)" → base + label), `suggestMerges` (pairs by same MangaBaka entry or same base name), `pairKey`. |
 | `mangabaka.ts` | MangaBaka client on the **v1** API (v2 records have no tags and no plain title; verified live Nov 23) (spaced calls: search 2.5s apart, others 0.5s), tolerant parsing of `tags_v2` (name, path, weight, genre, spoiler), content rating, provider ids; `findOnBaka` matching. |
 | `updater.ts`, `engineupdate.ts` | "Is a newer version out?" for the app (GHCR digests + commits) and the engine (GitHub releases); asking Watchtower to update. |
 | `extensions.ts` | Install/update/remove extensions through the engine. |
@@ -105,9 +106,9 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | File | What it does |
 | --- | --- |
 | `main.tsx`, `App.tsx` | Entry, shell (side menu on desktop; top bar, drawer and bottom tab bar on phones), routing, Settings page sections (theme, automation, hidden tags, favorite tags, notifications, backups, updates), `<Toaster/>`. |
-| `route.ts` | Hash routes: `#/` pages (`home, search, library, discover, discover-18, downloads, updates, history, sources, status`=Settings), `#/series/:id`, `#/read/:id/:chapter`. |
+| `route.ts` | Hash routes: `#/` pages (`home, search, library, discover, discover-18, downloads, updates, history, sources, status`=Settings, `merges`), `#/series/:id`, `#/read/:id/:chapter`. |
 | `api.ts` | Typed client for every endpoint, `thumbnailUrl` (with a cover version bump after merges). |
-| `Home.tsx`, `Search.tsx`, `SearchStart.tsx`, `Library.tsx`, `Discover.tsx`, `Updates.tsx`, `History.tsx`, `Downloads.tsx`, `Sources.tsx`, `SeriesPage.tsx`, `Reader.tsx`, `Trackers.tsx`, `AdultLock.tsx` | The pages. |
+| `Home.tsx`, `Search.tsx`, `SearchStart.tsx`, `Library.tsx`, `Discover.tsx`, `Updates.tsx`, `History.tsx`, `Downloads.tsx`, `Sources.tsx`, `SeriesPage.tsx`, `Reader.tsx`, `Trackers.tsx`, `AdultLock.tsx`, `Merges.tsx` | The pages. `Merges.tsx` also exports `CompareSheet`, the side-by-side compare used before any suggested merge. |
 | `Results.tsx` | The card grid used everywhere (lazy chapter lookups for near-screen cards, ratings badge, add-to-library, Not interested, Select mode). |
 | `FilterBar.tsx`, `SortSelect.tsx`, `genres.ts` | Sticky filter bar: tabs, genre sheet, source sheet, sort. |
 | `usePaged.ts` | Paged loading with an in-memory cache that restores lists and scroll on Back (`clearPagedCache`). |
@@ -136,6 +137,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `mb_links` | MangaBaka entry per title key (`mb_id` null = not found), `manual` flag, cached series JSON (`data`), `fetched_at`. |
 | `tracker_links` | AniList links per series. |
 | `title_alias`, `title_primary` | Manual merges (alias key → canonical key, with listing ids) and how a merged series is shown (name, cover listing, description listing). |
+| `merge_dismissed` | Suggested-merge pairs answered "Not the same" (`pair` = sorted title keys), never suggested again. |
 | `listing_versions`, `version_prefs` | Version labels per listing (Uncensored, Censored…) and the preferred version per series. |
 | `seen_listings` | Listings found together as "Also on", so each copy lists the others. |
 | `likes`, `not_interested` | Likes (count toward For you) and "Not interested" (never suggested; tags count against). |
@@ -178,6 +180,9 @@ Schema changes are made in the `Store` constructor with `CREATE TABLE IF NOT EXI
   with sort, source filter, Select mode to mark many series 18+ / not 18+ at once.
 - **Updates**: new chapters, "Check now", and move offers (see §5.7).
 - **History**: everything opened, filterable, removable.
+- **Suggested merges** (nav, route `merges`): pairs of listings that look like one series (§5.6), each with
+  **Compare & merge** and **Not the same**. The series page shows the same kind of pair above Similar
+  ("Same series, another listing?") when Similar finds it.
 - **Downloads**: NAS downloads per series and chapters saved on this device.
 - **Sources**: install/update/remove extensions, health and speed per source, mark a source 18+ or
   not, skip a source in checks, genre support per source.
@@ -268,6 +273,20 @@ auto-delete of read NAS downloads (keeps the last one). Sources can be excluded 
   listing (Edit name, cover & description sheet). The description is read live from the chosen
   listing (falls back to the opened one's). Unmerging a listing the display used resets the display.
   Covers redirect to the chosen listing (`?raw=1` skips that for previews).
+- **Suggested merges** (`mergehints.ts`, `GET /api/merge-suggestions`, `POST /api/merge-suggestions/dismiss
+  {key} | {a, b}`): from every known listing (`knownListings`: opened, library, seen together), pairs that
+  match the same MangaBaka entry (listed first) or have the same name once a version word is taken off
+  ("Uncensored", "Censored", "Raw", "Colored"/"Full color", "Official"; bracketed or trailing). A plain
+  base group alone isn't a pair. Already merged listings share a key so never pair; dismissed pairs stay
+  gone; 18+ listings are left out while 18+ is locked. Similar also splits such listings out of its
+  groups into `sameSeries` for the series-page prompt. Nothing merges without a tap.
+- **Compare before merging** (`CompareSheet`): both listings side by side (cover, full source title,
+  source, chapter count and latest, recent scanlators, description excerpt) plus an optional page
+  preview from the newest chapter number both have (stepping pages in sync), so quality or censorship
+  can be judged. Dan picks which listing is **main** (default: the plainly named one, else the one with
+  more chapters) and each side's version label (prefilled from its set version or its name's version
+  word), then Merge calls the merge endpoint on the main listing and sets changed labels. Decision (Dan,
+  Nov 23): never merge a suggestion without seeing this compare first.
 - **Also on** remembers listings found together (`seen_listings`) so each copy lists the others even
   when a site's own search can't find them by another site's name.
 
@@ -361,6 +380,7 @@ Keep this list current: add items when they come up, remove them when done or dr
 - Status filter (needs per-series lookups).
 
 **Not yet verified against live sources**
+- Suggested merges and the compare sheet on Dan's real listings (page previews depend on the sources serving pages).
 - MangaBaka: effect of the re-ranking on real For you rows, and the new Similar, not yet judged by Dan.
 - For you deep rows and AniList "also liked" rows on real sources.
 - Version-aware move offers and the "Also on" memory on Dan's real libraries.

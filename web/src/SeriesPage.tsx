@@ -1,9 +1,10 @@
 import { Loading } from "./Loading";
 import { toast, toastError } from "./toast";
 import { tidyTitle } from "./titles";
+import { CompareSheet, type CompareSide } from "./Merges";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { addToLibrary, mangaBaka, setMangaBaka, autoMangaBaka, searchMangaBaka, type BakaInfo, type BakaHit, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { dismissMerge, type SameSeries, addToLibrary, mangaBaka, setMangaBaka, autoMangaBaka, searchMangaBaka, type BakaInfo, type BakaHit, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -289,12 +290,16 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const { states, download } = useSeriesDownloads(mangaId);
   const [similarGroups, setSimilarGroups] = useState<SeriesGroup[] | null>(null);
   const [basedOn, setBasedOn] = useState<string[]>([]);
+  // Listings Similar found that look like this same series: offered as a merge instead of a recommendation.
+  const [sameSeries, setSameSeries] = useState<SameSeries[]>([]);
+  const [comparing, setComparing] = useState<[CompareSide, CompareSide] | null>(null);
   const [others, setOthers] = useState<Alternative[] | null>(null);
 
   // Similar series load on their own once the series itself is up, so the page isn't held back.
   const loaded = data !== null;
   useEffect(() => {
     setSimilarGroups(null);
+    setSameSeries([]);
     if (!loaded) return;
     let cancelled = false;
     similar(mangaId).then(
@@ -302,6 +307,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
         if (cancelled) return;
         setSimilarGroups(r.groups);
         setBasedOn(r.basedOn ?? []);
+        setSameSeries(r.sameSeries ?? []);
       },
       () => !cancelled && setSimilarGroups([]),
     );
@@ -756,6 +762,22 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     }}
                   />
                 )}
+                {comparing && (
+                  <CompareSheet
+                    a={comparing[0]}
+                    b={comparing[1]}
+                    onClose={() => setComparing(null)}
+                    onMerged={() => {
+                      const otherId = comparing[1].mangaId;
+                      setComparing(null);
+                      setSameSeries((l) => l.filter((y) => y.mangaId !== otherId));
+                      void changeMerge(async () => {
+                        const d = await series(mangaId);
+                        return { mergedWith: d.mergedWith ?? [], title: d.manga.title, description: d.manga.description ?? null, about: d.about };
+                      }).then(versionsChanged);
+                    }}
+                  />
+                )}
                 {others && others.length > 0 && (
                   <div className="card">
                     <h3>Also on</h3>
@@ -1076,6 +1098,50 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
             </div>
           </div>
 
+          {sameSeries.length > 0 && data && (
+            <div className="card sameSeriesCard">
+              <h3>Same series, another listing?</h3>
+              <p className="muted small">These look like {tidyTitle(data.manga.title)} under a slightly different name. Merge them to keep one series with all its sources.</p>
+              <ul className="mergeList">
+                {sameSeries.map((x) => (
+                  <li key={x.mangaId}>
+                    <img src={thumbnailUrl(x.mangaId)} alt="" loading="lazy" width={40} height={58} />
+                    <span className="mergeInfo">
+                      <a href={`#/series/${x.mangaId}`}><strong>{tidyTitle(x.title)}</strong></a>
+                      <span className="muted small">
+                        {x.sourceName}
+                        {x.label && <span className="tag verTag">{x.label}</span>}
+                      </span>
+                    </span>
+                    <span className="manageActions">
+                      <button
+                        type="button"
+                        className="button small"
+                        onClick={() =>
+                          setComparing([
+                            { mangaId, title: data.sourceTitle ?? data.manga.title, sourceName: data.manga.sourceName ?? null, label: data.version ?? x.selfLabel },
+                            { mangaId: x.mangaId, title: x.title, sourceName: x.sourceName, label: x.label },
+                          ])
+                        }
+                      >
+                        Compare &amp; merge
+                      </button>
+                      <button
+                        type="button"
+                        className="button small secondary"
+                        onClick={() => {
+                          setSameSeries((l) => l.filter((y) => y.mangaId !== x.mangaId));
+                          dismissMerge({ a: data.sourceTitle ?? data.manga.title, b: x.title }).catch(() => undefined);
+                        }}
+                      >
+                        Not the same
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {similarGroups === null && <Loading label="Finding similar series…" size="sm" />}
           {similarGroups && similarGroups.length > 0 && (
             <div className="card similarCard">

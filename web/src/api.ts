@@ -339,7 +339,13 @@ export const setAdultPin = (pin: string, currentPin?: string) =>
   send("POST", "/api/adult/pin", { pin, currentPin }) as Promise<AdultState>;
 export const unlockAdult = (pin: string) => send("POST", "/api/adult/unlock", { pin }) as Promise<AdultState>;
 export const lockAdult = () => send("POST", "/api/adult/lock") as Promise<AdultState>;
-export const similar = (mangaId: number) => getJson<{ groups: SeriesGroup[]; basedOn?: string[] }>(`/api/manga/${mangaId}/similar`);
+/** A listing that looks like this same series (same MangaBaka entry, or same name apart from a version word). */
+export interface SameSeries { mangaId: number; title: string; sourceName: string; label: string | null; selfLabel: string | null }
+export const similar = (mangaId: number) => getJson<{ groups: SeriesGroup[]; basedOn?: string[]; sameSeries?: SameSeries[] }>(`/api/manga/${mangaId}/similar`);
+export interface MergeListing { mangaId: number; title: string; sourceName: string | null; adult: boolean; label: string | null }
+export interface MergeSuggestion { key: string; reason: "mangabaka" | "version"; a: MergeListing; b: MergeListing }
+export const mergeSuggestions = () => getJson<{ suggestions: MergeSuggestion[] }>("/api/merge-suggestions");
+export const dismissMerge = (pair: { key: string } | { a: string; b: string }) => send("POST", "/api/merge-suggestions/dismiss", pair);
 
 export const search = (q: string, page = 1, sort?: string, sourceIds?: string[]) =>
   getJson<BrowseResult>(`/api/search?q=${encodeURIComponent(q)}&page=${page}${sortQs(sort)}${sourceQs(sourceIds)}`);

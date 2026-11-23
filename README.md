@@ -10,7 +10,9 @@ What it does:
   Suwayomi engine. Search covers every source at once, ranked by how well titles match, with filters,
   sorts and a source filter.
 - Series pages with chapters, "Also on" other sources, similar series, AniList scores and banners, likes,
-  and manual merging of the same series across sources (pick which copy's name, cover and description show).
+  and merging of the same series across sources: suggested merges (same MangaBaka entry or same name apart
+  from "Uncensored" and the like), a side-by-side compare to pick the main copy, and a choice of which
+  copy's name, cover and description show.
 - A reader (scroll or paged, set per device) that remembers your place everywhere; History; mark read.
 - A Library with shelves, categories and sorting; new-chapter alerts through ntfy; offers to move a series
   to a source that's further ahead, or to a preferred version (for example Uncensored).

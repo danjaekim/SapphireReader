@@ -306,6 +306,8 @@ export class Store {
       }
     }
     // Finished "For you" answers, one per kind and page, so they survive restarts and aren't recomputed needlessly.
+    // Merge suggestions you said were different series (pair key: the two title keys, sorted, joined by "|").
+    this.db.exec("CREATE TABLE IF NOT EXISTS merge_dismissed (pair TEXT PRIMARY KEY, at TEXT NOT NULL)");
     // Which MangaBaka entry a series is (per title key), with its tags and content rating; mb_id null = not found.
     this.db.exec("CREATE TABLE IF NOT EXISTS mb_links (title_key TEXT PRIMARY KEY, mb_id INTEGER, manual INTEGER NOT NULL DEFAULT 0, data TEXT, fetched_at TEXT NOT NULL)");
     // The first release read the wrong API version and recorded every lookup as "not found": forget those once.
@@ -351,6 +353,35 @@ export class Store {
     else this.db.prepare("INSERT INTO version_prefs (canon_key, label) VALUES (?, ?) ON CONFLICT(canon_key) DO UPDATE SET label = excluded.label").run(canonKey, clean);
   }
 
+  dismissedMerges(): Set<string> {
+    return new Set((this.db.prepare("SELECT pair FROM merge_dismissed").all() as { pair: string }[]).map((r) => r.pair));
+  }
+  dismissMerge(pair: string): void {
+    this.db.prepare("INSERT OR IGNORE INTO merge_dismissed (pair, at) VALUES (?, ?)").run(pair, new Date().toISOString());
+  }
+  /**
+   * Every listing Sapphire has met: opened series (with whether they're 18+), library entries, and
+   * listings seen side by side in "Also on". Newest knowledge per listing wins.
+   */
+  knownListings(): { mangaId: number; title: string; sourceName: string | null; adult: boolean }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT manga_id AS mangaId, title, source_name AS sourceName, adult FROM series_meta
+         UNION ALL SELECT manga_id, title, source_name, NULL FROM library
+         UNION ALL SELECT manga_id, title, source_name, NULL FROM seen_listings`,
+      )
+      .all() as { mangaId: number; title: string; sourceName: string | null; adult: number | null }[];
+    const out = new Map<number, { mangaId: number; title: string; sourceName: string | null; adult: boolean }>();
+    for (const r of rows) {
+      const prev = out.get(r.mangaId);
+      if (prev) {
+        if (r.adult === 1) prev.adult = true;
+        continue;
+      }
+      out.set(r.mangaId, { mangaId: r.mangaId, title: r.title, sourceName: r.sourceName, adult: r.adult === 1 });
+    }
+    return [...out.values()];
+  }
   bakaLink(key: string): { mbId: number | null; manual: boolean; data: unknown; fetchedAt: string } | null {
     const r = this.db.prepare("SELECT mb_id AS mbId, manual, data, fetched_at AS fetchedAt FROM mb_links WHERE title_key = ?").get(key) as
       | { mbId: number | null; manual: number; data: string | null; fetchedAt: string }

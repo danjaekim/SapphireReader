@@ -26,6 +26,7 @@ import { checkLibrary } from "./checker.js";
 import { MangaBaka, bakaUrl, findOnBaka, type BakaSeries, type TagWeight } from "./mangabaka.js";
 import { bakaVector, boostFrom, cosine, tasteVector, type TagVector } from "./bakatags.js";
 import { findOnSources } from "./alsoliked.js";
+import { pairKey, splitVersion, suggestMerges } from "./mergehints.js";
 import { createNotifier } from "./notify.js";
 import { Store, type ProgressInput, type SwitchOffer } from "./store.js";
 import {
@@ -1172,6 +1173,47 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const gone = await withHiddenTags(groups.map((g) => g.hits[0].mangaId)).catch(() => new Set<number>());
     return gone.size === 0 ? groups : groups.filter((g) => !gone.has(g.hits[0].mangaId));
   }
+  // ---- Suggested merges: the same series listed under slightly different names --------------------
+  const mbOf = (key: string) => store.bakaLink(key)?.mbId ?? null;
+  /**
+   * Splits Similar's results into other series and listings that look like this same series (same
+   * MangaBaka entry, or the same name apart from a version word), which are offered as a merge instead.
+   */
+  function splitSame(selfTitle: string, groups: SeriesGroup[]): { groups: SeriesGroup[]; sameSeries: { mangaId: number; title: string; sourceName: string; label: string | null; selfLabel: string | null }[] } {
+    const selfKey = normalizeTitle(selfTitle);
+    const selfMb = mbOf(selfKey);
+    const self = splitVersion(selfTitle);
+    const selfBase = normalizeTitle(self.base);
+    const dismissed = store.dismissedMerges();
+    const keep: SeriesGroup[] = [];
+    const same: { mangaId: number; title: string; sourceName: string; label: string | null; selfLabel: string | null }[] = [];
+    for (const g of groups) {
+      const hit = g.hits[0];
+      const other = splitVersion(hit.title);
+      const sameMb = selfMb !== null && mbOf(g.key) === selfMb;
+      const sameBase = normalizeTitle(other.base) === selfBase && (other.label !== null || self.label !== null);
+      if ((sameMb || sameBase) && g.key !== selfKey && !dismissed.has(pairKey(selfKey, g.key))) {
+        same.push({ mangaId: hit.mangaId, title: hit.title, sourceName: hit.sourceName, label: other.label, selfLabel: self.label });
+      } else keep.push(g);
+    }
+    return { groups: keep, sameSeries: same };
+  }
+  app.get("/api/merge-suggestions", async (req) => {
+    const unlocked = gate.unlocked(req.headers.cookie);
+    const adultSources = new Set((await listSources(config, fetchImpl).catch(() => [])).filter((x) => x.isNsfw).map((x) => x.name));
+    const isAdult = (l: { title: string; sourceName: string | null; adult: boolean }) =>
+      store.adultMark(l.title) ?? (l.adult || (!!l.sourceName && adultSources.has(l.sourceName)));
+    const listings = store.knownListings().filter((l) => unlocked || !isAdult(l));
+    return { suggestions: suggestMerges(listings, mbOf, store.dismissedMerges()).slice(0, 100) };
+  });
+  app.post<{ Body: { key?: unknown; a?: unknown; b?: unknown } }>("/api/merge-suggestions/dismiss", async (req, reply) => {
+    const b = req.body ?? {};
+    const key = typeof b.key === "string" ? b.key : typeof b.a === "string" && typeof b.b === "string" ? pairKey(normalizeTitle(b.a), normalizeTitle(b.b)) : "";
+    if (!key.includes("|")) return reply.code(400).send({ error: "Which pair?" });
+    store.dismissMerge(key);
+    return { ok: true };
+  });
+
   app.get<{ Params: { id: string } }>("/api/manga/:id/similar", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
@@ -1180,7 +1222,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const scope = scopeFor(req);
       const key = `${id}|${scope}`;
       const cached = similarCache.get(key);
-      if (cached && Date.now() - cached.at < 60 * 60 * 1000) return { groups: await withoutHidden(cached.groups as SeriesGroup[]), basedOn: cached.basedOn };
+      if (cached && Date.now() - cached.at < 60 * 60 * 1000) {
+        const split = splitSame(manga.title, cached.groups as SeriesGroup[]);
+        return { groups: await withoutHidden(split.groups), basedOn: cached.basedOn, sameSeries: split.sameSeries };
+      }
       // MangaBaka's view of this series (remembered, so usually instant) sharpens the ranking and adds its own picks.
       const mb = await bakaFor(id, false).catch(() => null);
       const self = mb?.match ? (store.bakaLink(normalizeTitle(manga.title))?.data as BakaSeries | null) : null;
@@ -1215,7 +1260,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const basedOn = fromBaka.groups.length > 0 && fromBaka.shared.length > 0 ? fromBaka.shared : source.basedOn;
       enrichGroups(source.groups, 12);
       if (groups.length > 0) similarCache.set(key, { at: Date.now(), groups, basedOn });
-      return { groups: await withoutHidden(groups), basedOn };
+      const split = splitSame(manga.title, groups);
+      return { groups: await withoutHidden(split.groups), basedOn, sameSeries: split.sameSeries };
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't find similar series." });
