@@ -435,7 +435,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       return null;
     }
   };
-  const needHttps = "Face ID needs the https address (your Tailscale link), not plain http.";
+  const needHttpsFor = (req: { headers: Record<string, unknown> }) => {
+    const seen = String(req.headers.origin ?? req.headers.referer ?? "").slice(0, 120) || "no address";
+    return `Face ID needs the https address (your Tailscale link), not plain http. The server saw: ${seen}`;
+  };
   const openOnly = (req: { headers: { cookie?: string } }) => gate.unlocked(req.headers.cookie);
 
   app.get("/api/adult/passkeys", async (req, reply) => {
@@ -445,13 +448,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.post("/api/adult/passkey/register/options", async (req, reply) => {
     if (!openOnly(req)) return reply.code(403).send({ error: "Turn on 18+ mode first." });
     const rp = passkeyOrigin(req);
-    if (!rp) return reply.code(400).send({ error: needHttps });
+    if (!rp) return reply.code(400).send({ error: needHttpsFor(req) });
     return passkeys.registerOptions(rp.rpID);
   });
   app.post<{ Body: { response?: unknown; challenge?: unknown; name?: unknown } }>("/api/adult/passkey/register/verify", async (req, reply) => {
     if (!openOnly(req)) return reply.code(403).send({ error: "Turn on 18+ mode first." });
     const rp = passkeyOrigin(req);
-    if (!rp) return reply.code(400).send({ error: needHttps });
+    if (!rp) return reply.code(400).send({ error: needHttpsFor(req) });
     const { response, challenge, name } = req.body ?? {};
     if (!response || typeof response !== "object" || typeof challenge !== "string") return reply.code(400).send({ error: "That didn't look right." });
     const label = typeof name === "string" && name.trim() ? name.trim().slice(0, 60) : newPasskeyName();
@@ -466,12 +469,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   });
   app.post("/api/adult/passkey/login/options", async (req, reply) => {
     const rp = passkeyOrigin(req);
-    if (!rp || !passkeys.any()) return reply.code(400).send({ error: rp ? "No Face ID set up yet." : needHttps });
+    if (!rp || !passkeys.any()) return reply.code(400).send({ error: rp ? "No Face ID set up yet." : needHttpsFor(req) });
     return passkeys.loginOptions(rp.rpID);
   });
   app.post<{ Body: { response?: unknown; challenge?: unknown } }>("/api/adult/passkey/login/verify", async (req, reply) => {
     const rp = passkeyOrigin(req);
-    if (!rp) return reply.code(400).send({ error: needHttps });
+    if (!rp) return reply.code(400).send({ error: needHttpsFor(req) });
     const { response, challenge } = req.body ?? {};
     if (!response || typeof response !== "object" || typeof challenge !== "string") return reply.code(400).send({ error: "That didn't look right." });
     if (!(await passkeys.loginVerify(response as never, challenge, rp.origin, rp.rpID))) return reply.code(403).send({ error: "Face ID didn't match." });
