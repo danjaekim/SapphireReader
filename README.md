@@ -4,45 +4,47 @@ A self-hosted manga, manhwa and manhua reader, named after a cat. It runs as a D
 stack on a home NAS and opens in a browser on PC, phone or tablet, with reading progress
 shared across every device.
 
-Planned features:
+What it does:
 
-- Read from many free sources through community-maintained Keiyoushi extensions.
-- Search once, and Sapphire picks the source with the highest chapter.
-- Resume any series where you left off; new-chapter alerts for series you're caught up on.
-- Discover with filters and sorts, recommendations, and "similar to this".
-- A separate, PIN-protected 18+ mode with its own Discover page and recommendations.
+- Reads from many free sources through community-maintained Keiyoushi extensions, run by a headless
+  Suwayomi engine. Search covers every source at once, ranked by how well titles match, with filters,
+  sorts and a source filter.
+- Series pages with chapters, "Also on" other sources, similar series, AniList scores and banners, likes,
+  and manual merging of the same series across sources (pick which copy's name, cover and description show).
+- A reader (scroll or paged, set per device) that remembers your place everywhere; History; mark read.
+- A Library with shelves, categories and sorting; new-chapter alerts through ntfy; offers to move a series
+  to a source that's further ahead, or to a preferred version (for example Uncensored).
+- Discover: For you (taste-based rows, cached and refreshable), Popular, Latest, genre browsing.
+- A separate, PIN-protected 18+ mode with its own library, Discover and recommendations.
+- Downloads to the NAS (auto-download next chapters, auto-delete after reading) and offline reading on a device.
+- Sources and Settings pages: extensions, source health, hidden and favorite tags, light theme, updates, backups.
 
-Plan: [Manhwa Reader: desktop app plan](https://claude.ai/artifact/C1osCfwyKq3pFkWTS26JPp)
+**The full, current description of features, architecture, logic, decisions and open tasks lives in
+[`docs/PROJECT.md`](docs/PROJECT.md).** Start there.
 
-## Status
+Original plan: [Manhwa Reader: desktop app plan](https://claude.ai/artifact/C1osCfwyKq3pFkWTS26JPp)
 
-**Phase 1 and beyond: the Sapphire app.** A Node server and installable web app (PWA) with
-the cat branding and a left-hand menu. What it does today:
+## For agents and contributors
 
-- Search across your sources (grid, infinite scroll), with stackable genre filters.
-- Series pages with chapters, genres, "also on" other sources, similar series, and AniList linking.
-- A reader that remembers your place, plus per-chapter downloads to the NAS and a Downloads page.
-- A Library with reading progress, and push alerts through ntfy when a series you're caught up on gets a new chapter.
-- Discover: For you, Popular, Latest, and genre filters.
-- An 18+ mode behind a PIN with its own library and Discover (18+) page.
-- A Sources page to install, update and remove extensions, and to see which sources are healthy.
-- Daily backups of the library database (`data/app/backups`), plus a download button on the Settings page.
+1. Read [`docs/PROJECT.md`](docs/PROJECT.md) before changing anything. It is the living source of truth.
+2. Every change that adds, removes or alters a feature, endpoint, table, setting, behavior or decision must
+   update `docs/PROJECT.md` in the same commit, including the open questions and tasks list.
+3. Tests: `cd server && npx vitest run`. Web type check and build: `cd web && npm run build`.
 
-- `server/`: Fastify + TypeScript API, serves the built web app.
-- `web/`: React + Vite web app.
-- `Dockerfile`: builds both into one image; GitHub Actions publishes it to
-  `ghcr.io/danjaekim/sapphire` on every push to `main`.
+## Code layout
+
+- `server/`: Fastify + TypeScript API on `node:sqlite`; serves the built web app.
+- `web/`: React + Vite web app (installable PWA).
+- `deploy/`: the Docker stack ([`docker-compose.yml`](deploy/docker-compose.yml)), plus optional
+  [Tailscale](deploy/docker-compose.tailscale.yml).
+- `Dockerfile`: builds both into one image; GitHub Actions publishes it to `ghcr.io/danjaekim/sapphire`
+  on every push to `main`.
 
 Run locally: `cd server && npm ci && npm run dev` and, in another terminal,
 `cd web && npm ci && npm run dev`, then open the address Vite prints.
 
-**Phase 0 (done): engine stack on the NAS.** Runs the source engine, a Cloudflare solver
-and ntfy, and tests which sites work.
-
-- Stack: [`deploy/docker-compose.yml`](deploy/docker-compose.yml)
-- Setup on the UGREEN DXP2800: [`docs/phase-0-setup.md`](docs/phase-0-setup.md)
-- Site test checklist: [`docs/phase-0-site-test.md`](docs/phase-0-site-test.md)
-- Optional remote access: [`deploy/docker-compose.tailscale.yml`](deploy/docker-compose.tailscale.yml)
+NAS setup history: [`docs/phase-0-setup.md`](docs/phase-0-setup.md) and the site test checklist
+[`docs/phase-0-site-test.md`](docs/phase-0-site-test.md).
 
 ## How it fits together
 
@@ -52,7 +54,7 @@ and ntfy, and tests which sites work.
           |  home network (or Tailscale when away)
           v
  +------------------ Docker stack on the NAS ------------------+
- |  Sapphire server (Phase 1+)  ---->  ntfy (push alerts)       |
+ |  Sapphire server  ---------->  ntfy (push alerts)          |
  |          |                                                   |
  |          v                                                   |
  |  engine: Suwayomi-Server, headless --> Cloudflare solver    |
