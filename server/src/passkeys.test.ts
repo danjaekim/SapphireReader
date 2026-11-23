@@ -39,9 +39,9 @@ function phone(rpID = RP, origin = ORIGIN) {
   };
 }
 
-async function setup() {
+async function setup(env: Record<string, string> = {}) {
   const store = new Store(":memory:");
-  const app = await buildApp(loadConfig({ WEB_DIR: "./does-not-exist" }), { fetchImpl: fakeEngine(), store });
+  const app = await buildApp(loadConfig({ WEB_DIR: "./does-not-exist", ...env }), { fetchImpl: fakeEngine(), store });
   const pin = await app.inject({ method: "POST", url: "/api/adult/pin", payload: { pin: "4321" } });
   const cookie = String(pin.headers["set-cookie"]).split(";")[0];
   const post = (url: string, payload: unknown, headers: Record<string, string> = {}) => app.inject({ method: "POST", url, payload: payload as object, headers: { origin: ORIGIN, ...headers } });
@@ -87,6 +87,13 @@ describe("Face ID (passkey) unlock", () => {
     const lo2 = (await post("/api/adult/passkey/login/options", {})).json();
     expect((await post("/api/adult/passkey/login/verify", { response: p.get(lo2.challenge, "https://evil.example"), challenge: lo2.challenge })).statusCode).toBe(403);
     expect((await app.inject({ url: "/api/adult" })).json().unlocked).toBe(false);
+  });
+
+  it("works on the https address even when PUBLIC_URL is still the LAN address", async () => {
+    const { cookie, post } = await setup({ PUBLIC_URL: "http://192.168.1.5:8080" });
+    const r = await post("/api/adult/passkey/register/options", {}, { cookie });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().rp.id).toBe(RP);
   });
 
   it("needs https, and removing a passkey needs 18+ mode on", async () => {

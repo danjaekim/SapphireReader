@@ -422,13 +422,14 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   // Passkeys (Face ID etc.): a way to unlock 18+ mode without typing the PIN. Adding or removing one needs
   // 18+ mode already on (so the PIN); unlocking needs no PIN but the device's own check (Face ID).
   /** The page's own address, which a passkey is tied to. Passkeys only work over https (or localhost). */
+  // The browser's own Origin header (or Referer) names the page; PUBLIC_URL isn't used here, since it's often
+  // still the LAN http address and only matters for notification links.
   const passkeyOrigin = (req: { headers: Record<string, unknown> }): { origin: string; rpID: string } | null => {
-    const raw = typeof req.headers.origin === "string" ? req.headers.origin : "";
+    const raw = typeof req.headers.origin === "string" && req.headers.origin !== "null" ? req.headers.origin : typeof req.headers.referer === "string" ? req.headers.referer : "";
     try {
       const u = new URL(raw);
-      const secure = u.protocol === "https:" || u.hostname === "localhost" || u.hostname === "127.0.0.1";
+      const secure = u.protocol === "https:" || u.hostname === "localhost";
       if (!secure) return null;
-      if (config.publicUrl && new URL(config.publicUrl).origin !== u.origin) return null;
       return { origin: u.origin, rpID: u.hostname };
     } catch {
       return null;

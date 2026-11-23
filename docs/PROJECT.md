@@ -215,7 +215,7 @@ Schema changes are made in the `Store` constructor with `CREATE TABLE IF NOT EXI
   `POST /api/adult/passkey/register/{options,verify}`, `DELETE /api/adult/passkeys/:id`;
   `/api/adult` also says `passkey: true` when one exists (shows "Use Face ID" on the PIN pad). Passkeys only
   work over https or localhost: the server takes the page's `Origin` header as origin and its hostname as the
-  relying-party id, refuses plain http, and if `PUBLIC_URL` is set requires it to match, so use the Tailscale
+  relying-party id and refuses plain http (`PUBLIC_URL` is not checked: it's often still the LAN address), so use the Tailscale
   https address (a passkey made on one address doesn't work on another). Challenges last 5 minutes, one use.
   Not covered: locking the whole app (still the open app-password question).
 - **Mixed sources** (regular sources with some adult series): series are classified by
@@ -390,7 +390,8 @@ Keep this list current: add items when they come up, remove them when done or dr
   answer yet.
 - Discover: keep Popular/Latest/Top rated/Newest/A–Z as tabs, or one "Browse" tab with a Sort
   dropdown? Offered, no answer yet.
-- Tailscale HTTPS (`tailscale serve`) and `PUBLIC_URL` set to the https address: not confirmed done.
+- Tailscale HTTPS works (Dan, Nov 23). `PUBLIC_URL` may still be the LAN http address; set it to the https
+  address so notification taps open over https.
 - GHCR package visibility: if private, Watchtower needs `/root/.docker/config.json` mounted.
 
 **Deferred by Dan (revisit later)**
