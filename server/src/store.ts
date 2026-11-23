@@ -306,6 +306,8 @@ export class Store {
       }
     }
     // Finished "For you" answers, one per kind and page, so they survive restarts and aren't recomputed needlessly.
+    // Passkeys (Face ID etc.) that can turn on 18+ mode: public keys only.
+    this.db.exec("CREATE TABLE IF NOT EXISTS adult_passkeys (id TEXT PRIMARY KEY, public_key BLOB NOT NULL, counter INTEGER NOT NULL DEFAULT 0, transports TEXT NOT NULL DEFAULT '[]', name TEXT NOT NULL, created_at TEXT NOT NULL)");
     // Merge suggestions you said were different series (pair key: the two title keys, sorted, joined by "|").
     this.db.exec("CREATE TABLE IF NOT EXISTS merge_dismissed (pair TEXT PRIMARY KEY, at TEXT NOT NULL)");
     // Which MangaBaka entry a series is (per title key), with its tags and content rating; mb_id null = not found.
@@ -353,6 +355,19 @@ export class Store {
     else this.db.prepare("INSERT INTO version_prefs (canon_key, label) VALUES (?, ?) ON CONFLICT(canon_key) DO UPDATE SET label = excluded.label").run(canonKey, clean);
   }
 
+  passkeys(): { id: string; publicKey: Buffer; counter: number; transports: string[]; name: string; createdAt: string }[] {
+    const rows = this.db.prepare("SELECT id, public_key, counter, transports, name, created_at FROM adult_passkeys ORDER BY created_at").all() as { id: string; public_key: Uint8Array; counter: number; transports: string; name: string; created_at: string }[];
+    return rows.map((r) => ({ id: r.id, publicKey: Buffer.from(r.public_key), counter: r.counter, transports: JSON.parse(r.transports) as string[], name: r.name, createdAt: r.created_at }));
+  }
+  addPasskey(p: { id: string; publicKey: Buffer; counter: number; transports: string[]; name: string }): void {
+    this.db.prepare("INSERT OR REPLACE INTO adult_passkeys (id, public_key, counter, transports, name, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(p.id, p.publicKey, p.counter, JSON.stringify(p.transports), p.name, new Date().toISOString());
+  }
+  touchPasskey(id: string, counter: number): void {
+    this.db.prepare("UPDATE adult_passkeys SET counter = ? WHERE id = ?").run(counter, id);
+  }
+  removePasskey(id: string): void {
+    this.db.prepare("DELETE FROM adult_passkeys WHERE id = ?").run(id);
+  }
   dismissedMerges(): Set<string> {
     return new Set((this.db.prepare("SELECT pair FROM merge_dismissed").all() as { pair: string }[]).map((r) => r.pair));
   }

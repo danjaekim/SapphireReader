@@ -86,6 +86,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `deep.ts` | For you "Best matches" and "Your theme" rows (`findThemes`, `deepRecommendations`). |
 | `alsoliked.ts` | AniList "Readers of X also liked" rows. |
 | `ratings.ts` | AniList scores/popularity (and MangaUpdates fallback), cached in `anilist_meta` / `mu_meta`; `rankByAnilist` for rating/popular sorts. |
+| `passkeys.ts` | `Passkeys`: Face ID / fingerprint unlock for 18+ mode on `@simplewebauthn/server` (registration and login options, verification, one-use challenges). |
 | `adult.ts` | `AdultGate`: PIN, unlock sessions (cookie `sapphire_18`, 2 h idle lock). |
 | `adultcheck.ts` | Classifies series on mixed sources as adult: known tags, AniList's adult flag, then the source's tags. |
 | `description.ts` | Splits a description into story, alternative titles, stats (incl. a leading `★★★★✬ 9.1 (89)` rating line), facets, `tags` and `info` (author, artist, status, year from a leading year line or a ToonGod-style "also known as… written by… is about X story" blurb). Drops upload/source notes, `Links:` lists, and site ad paragraphs ("Read the latest…", "Browse more than…", "Connect with X on Social Media"); unescapes Markdown. Strips `**bold**` and `#` heading marks first so labels like `**Alternative Names:**` are found. |
@@ -108,7 +109,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `main.tsx`, `App.tsx` | Entry, shell (side menu on desktop; top bar, drawer and bottom tab bar on phones), routing, Settings page sections (theme, automation, hidden tags, favorite tags, notifications, backups, updates), `<Toaster/>`. |
 | `route.ts` | Hash routes: `#/` pages (`home, search, library, discover, discover-18, downloads, updates, history, sources, status`=Settings, `merges`), `#/series/:id`, `#/read/:id/:chapter`. |
 | `api.ts` | Typed client for every endpoint, `thumbnailUrl` (with a cover version bump after merges). |
-| `Home.tsx`, `Search.tsx`, `SearchStart.tsx`, `Library.tsx`, `Discover.tsx`, `Updates.tsx`, `History.tsx`, `Downloads.tsx`, `Sources.tsx`, `SeriesPage.tsx`, `Reader.tsx`, `Trackers.tsx`, `AdultLock.tsx`, `Merges.tsx` | The pages. `Merges.tsx` also exports `CompareSheet`, the side-by-side compare used before any suggested merge. |
+| `Home.tsx`, `Search.tsx`, `SearchStart.tsx`, `Library.tsx`, `Discover.tsx`, `Updates.tsx`, `History.tsx`, `Downloads.tsx`, `Sources.tsx`, `SeriesPage.tsx`, `Reader.tsx`, `Trackers.tsx`, `AdultLock.tsx` (PIN pad, Face ID button and setup), `passkey.ts` (browser side of passkeys), `Merges.tsx` | The pages. `Merges.tsx` also exports `CompareSheet`, the side-by-side compare used before any suggested merge. |
 | `Results.tsx` | The card grid used everywhere (lazy chapter lookups for near-screen cards, ratings badge, add-to-library, Not interested, Select mode). |
 | `FilterBar.tsx`, `SortSelect.tsx`, `genres.ts` | Sticky filter bar: tabs, genre sheet, source sheet, sort. |
 | `usePaged.ts` | Paged loading with an in-memory cache that restores lists and scroll on Back (`clearPagedCache`). |
@@ -137,6 +138,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `mb_links` | MangaBaka entry per title key (`mb_id` null = not found), `manual` flag, cached series JSON (`data`), `fetched_at`. |
 | `tracker_links` | AniList links per series. |
 | `title_alias`, `title_primary` | Manual merges (alias key → canonical key, with listing ids) and how a merged series is shown (name, cover listing, description listing). |
+| `adult_passkeys` | Passkeys that can unlock 18+ mode: credential id, public key, signature counter, transports, name. Public keys only. |
 | `merge_dismissed` | Suggested-merge pairs answered "Not the same" (`pair` = sorted title keys), never suggested again. |
 | `listing_versions`, `version_prefs` | Version labels per listing (Uncensored, Censored…) and the preferred version per series. |
 | `seen_listings` | Listings found together as "Also on", so each copy lists the others. |
@@ -205,6 +207,17 @@ Schema changes are made in the `Store` constructor with `CREATE TABLE IF NOT EXI
   survives restarts, locks after 2 h idle; phones start locked on a fresh app open. Locked: no 18+
   sources, no 18+ series anywhere, Discover (18+) hidden. 18+ titles never appear in push
   notifications or tab titles.
+- **Face ID unlock** (`passkeys.ts`, `passkey.ts`, Dan Nov 23, 18+ only for now): a passkey (WebAuthn, platform
+  authenticator, user verification required) turns on 18+ mode instead of the PIN. Setup is in the 18+
+  dialog while it's on ("Set up Face ID on this device", also Remove); adding or removing needs 18+ already
+  on, so the PIN stays the root of trust and the fallback. Unlock: `POST /api/adult/passkey/login/options`
+  then `/login/verify` → same session cookie as the PIN. Endpoints: `GET /api/adult/passkeys`,
+  `POST /api/adult/passkey/register/{options,verify}`, `DELETE /api/adult/passkeys/:id`;
+  `/api/adult` also says `passkey: true` when one exists (shows "Use Face ID" on the PIN pad). Passkeys only
+  work over https or localhost: the server takes the page's `Origin` header as origin and its hostname as the
+  relying-party id, refuses plain http, and if `PUBLIC_URL` is set requires it to match, so use the Tailscale
+  https address (a passkey made on one address doesn't work on another). Challenges last 5 minutes, one use.
+  Not covered: locking the whole app (still the open app-password question).
 - **Mixed sources** (regular sources with some adult series): series are classified by
   `classifyAdult` (cached tags → AniList adult flag → source tags) and hidden while locked.
 - **Manual marks** per title (`adult_override`): "18+" moves a series to the 18+ side everywhere;

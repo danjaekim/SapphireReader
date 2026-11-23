@@ -1029,3 +1029,10 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 @media (max-width: 720px) { .sheet.tall.compareSheet { height: 94dvh; } .compareCol { padding: 8px; } .compareCover img { width: 96px; } }
 .sameSeriesCard .mergeList li { flex-wrap: wrap; }
 .sameSeriesCard .mergeList .manageActions { flex: 1 0 100%; margin-top: 0; padding-left: 50px; }
+
+/* Face ID unlock for 18+ mode. */
+.faceBtn { width: 100%; min-height: 48px; margin: 0 0 10px; }
+.faceBox { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); text-align: left; display: grid; gap: 8px; }
+.faceBox h4 { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.faceRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.faceBox p { margin: 0; }

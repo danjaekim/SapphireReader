@@ -18,7 +18,7 @@ const cookieOf = (res: { headers: Record<string, unknown> }) => String(res.heade
 describe("18+ lock", () => {
   it("sets a PIN, unlocks with it, and locks again", async () => {
     const { app } = await setup();
-    expect((await app.inject({ url: "/api/adult" })).json()).toEqual({ pinSet: false, unlocked: false });
+    expect((await app.inject({ url: "/api/adult" })).json()).toEqual({ pinSet: false, unlocked: false, passkey: false });
     expect((await app.inject({ method: "POST", url: "/api/adult/pin", payload: { pin: "12" } })).statusCode).toBe(400);
 
     const set = await app.inject({ method: "POST", url: "/api/adult/pin", payload: { pin: "4321" } });
@@ -26,7 +26,7 @@ describe("18+ lock", () => {
     expect((await app.inject({ url: "/api/adult", headers: { cookie } })).json().unlocked).toBe(true);
 
     await app.inject({ method: "POST", url: "/api/adult/lock", headers: { cookie } });
-    expect((await app.inject({ url: "/api/adult", headers: { cookie } })).json()).toEqual({ pinSet: true, unlocked: false });
+    expect((await app.inject({ url: "/api/adult", headers: { cookie } })).json()).toEqual({ pinSet: true, unlocked: false, passkey: false });
 
     expect((await app.inject({ method: "POST", url: "/api/adult/unlock", payload: { pin: "0000" } })).statusCode).toBe(403);
     const ok = await app.inject({ method: "POST", url: "/api/adult/unlock", payload: { pin: "4321" } });

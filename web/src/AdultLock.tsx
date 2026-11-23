@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { lockAdult, setAdultPin, unlockAdult, type AdultState } from "./api";
+import { addPasskey, cancelled, listPasskeys, passkeysSupported, removePasskey, unlockWithPasskey, type PasskeyInfo } from "./passkey";
+import { toast, toastError } from "./toast";
 
 /** The 18+ row in the menu: shows whether 18+ mode is on and opens the PIN dialog. */
 export function AdultButton({ state, onOpen }: { state: AdultState; onOpen: () => void }) {
@@ -26,6 +28,40 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const dialog = useRef<HTMLDivElement>(null);
+  const [keys, setKeys] = useState<PasskeyInfo[] | null>(null);
+  const canFace = passkeysSupported();
+
+  // While on, list the Face ID devices so they can be added or removed.
+  useEffect(() => {
+    if (step === "on" && canFace) listPasskeys().then(setKeys, () => setKeys([]));
+  }, [step, canFace]);
+
+  async function faceUnlock() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onChange(await unlockWithPasskey());
+      onClose();
+    } catch (err) {
+      if (!cancelled(err)) setError(err instanceof Error ? err.message : "Face ID didn't work. Use your PIN.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function addFace() {
+    setBusy(true);
+    try {
+      const label = /iPhone|iPad/.test(navigator.userAgent) ? "iPhone or iPad" : /Android/.test(navigator.userAgent) ? "Android phone" : "This computer";
+      setKeys(await addPasskey(label));
+      toast("Face ID is set up. Next time, use it instead of the PIN.");
+      onChange({ ...state, passkey: true });
+    } catch (err) {
+      if (!cancelled(err)) toastError(err instanceof Error ? err.message : "Couldn't set up Face ID.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const prompts: Record<Step, string> = {
     unlock: "Enter your PIN to turn on 18+ mode",
@@ -114,9 +150,35 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
                 Change PIN
               </button>
             </div>
+            {canFace && keys !== null && (
+              <div className="faceBox">
+                <h4>Face ID</h4>
+                {keys.map((k) => (
+                  <div key={k.id} className="faceRow">
+                    <span>{k.name}</span>
+                    <button
+                      type="button"
+                      className="linkish"
+                      onClick={() => void removePasskey(k.id).then((l) => { setKeys(l.passkeys); onChange({ ...state, passkey: l.passkeys.length > 0 }); }, () => toastError("Couldn't remove that."))}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button type="button" className="button secondary small" disabled={busy} onClick={() => void addFace()}>
+                  {keys.length ? "Add this device" : "Set up Face ID on this device"}
+                </button>
+                <p className="muted small">Unlock 18+ mode with Face ID or your fingerprint instead of the PIN. Works on the https (Tailscale) address.</p>
+              </div>
+            )}
           </>
         ) : (
           <>
+            {step === "unlock" && state.passkey && canFace && (
+              <button type="button" className="button faceBtn" disabled={busy} onClick={() => void faceUnlock()}>
+                Use Face ID
+              </button>
+            )}
             <div className={`pinDots ${error ? "shake" : ""}`} aria-live="polite" aria-label={`${pin.length} digits entered`}>
               {Array.from({ length: Math.max(4, pin.length) }, (_, i) => (
                 <span key={i} className={i < pin.length ? "filled" : ""} />

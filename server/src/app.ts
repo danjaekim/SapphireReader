@@ -2,6 +2,7 @@ import { createReadStream, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
+import { Passkeys, newPasskeyName } from "./passkeys.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyCompress from "@fastify/compress";
 import fastifyStatic from "@fastify/static";
@@ -101,6 +102,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   });
   const notify = createNotifier(config, fetchImpl);
   const gate = new AdultGate(store);
+  const passkeys = new Passkeys(store);
   const downloader = new Downloader(config, store, join(config.dataDir, "downloads"), fetchImpl, app.log);
   store.requeueInterruptedDownloads();
   downloader.kick();
@@ -415,7 +417,65 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  app.get("/api/adult", async (req) => ({ pinSet: gate.pinSet(), unlocked: gate.unlocked(req.headers.cookie) }));
+  app.get("/api/adult", async (req) => ({ pinSet: gate.pinSet(), unlocked: gate.unlocked(req.headers.cookie), passkey: passkeys.any() }));
+
+  // Passkeys (Face ID etc.): a way to unlock 18+ mode without typing the PIN. Adding or removing one needs
+  // 18+ mode already on (so the PIN); unlocking needs no PIN but the device's own check (Face ID).
+  /** The page's own address, which a passkey is tied to. Passkeys only work over https (or localhost). */
+  const passkeyOrigin = (req: { headers: Record<string, unknown> }): { origin: string; rpID: string } | null => {
+    const raw = typeof req.headers.origin === "string" ? req.headers.origin : "";
+    try {
+      const u = new URL(raw);
+      const secure = u.protocol === "https:" || u.hostname === "localhost" || u.hostname === "127.0.0.1";
+      if (!secure) return null;
+      if (config.publicUrl && new URL(config.publicUrl).origin !== u.origin) return null;
+      return { origin: u.origin, rpID: u.hostname };
+    } catch {
+      return null;
+    }
+  };
+  const needHttps = "Face ID needs the https address (your Tailscale link), not plain http.";
+  const openOnly = (req: { headers: { cookie?: string } }) => gate.unlocked(req.headers.cookie);
+
+  app.get("/api/adult/passkeys", async (req, reply) => {
+    if (!openOnly(req)) return reply.code(403).send({ error: "Turn on 18+ mode first." });
+    return { passkeys: passkeys.list() };
+  });
+  app.post("/api/adult/passkey/register/options", async (req, reply) => {
+    if (!openOnly(req)) return reply.code(403).send({ error: "Turn on 18+ mode first." });
+    const rp = passkeyOrigin(req);
+    if (!rp) return reply.code(400).send({ error: needHttps });
+    return passkeys.registerOptions(rp.rpID);
+  });
+  app.post<{ Body: { response?: unknown; challenge?: unknown; name?: unknown } }>("/api/adult/passkey/register/verify", async (req, reply) => {
+    if (!openOnly(req)) return reply.code(403).send({ error: "Turn on 18+ mode first." });
+    const rp = passkeyOrigin(req);
+    if (!rp) return reply.code(400).send({ error: needHttps });
+    const { response, challenge, name } = req.body ?? {};
+    if (!response || typeof response !== "object" || typeof challenge !== "string") return reply.code(400).send({ error: "That didn't look right." });
+    const label = typeof name === "string" && name.trim() ? name.trim().slice(0, 60) : newPasskeyName();
+    const ok = await passkeys.registerVerify(response as never, challenge, rp.origin, rp.rpID, label);
+    if (!ok) return reply.code(400).send({ error: "Couldn't set up Face ID. Try again." });
+    return { passkeys: passkeys.list() };
+  });
+  app.delete<{ Params: { id: string } }>("/api/adult/passkeys/:id", async (req, reply) => {
+    if (!openOnly(req)) return reply.code(403).send({ error: "Turn on 18+ mode first." });
+    passkeys.remove(req.params.id);
+    return { passkeys: passkeys.list() };
+  });
+  app.post("/api/adult/passkey/login/options", async (req, reply) => {
+    const rp = passkeyOrigin(req);
+    if (!rp || !passkeys.any()) return reply.code(400).send({ error: rp ? "No Face ID set up yet." : needHttps });
+    return passkeys.loginOptions(rp.rpID);
+  });
+  app.post<{ Body: { response?: unknown; challenge?: unknown } }>("/api/adult/passkey/login/verify", async (req, reply) => {
+    const rp = passkeyOrigin(req);
+    if (!rp) return reply.code(400).send({ error: needHttps });
+    const { response, challenge } = req.body ?? {};
+    if (!response || typeof response !== "object" || typeof challenge !== "string") return reply.code(400).send({ error: "That didn't look right." });
+    if (!(await passkeys.loginVerify(response as never, challenge, rp.origin, rp.rpID))) return reply.code(403).send({ error: "Face ID didn't match." });
+    return reply.header("set-cookie", sessionCookie(gate.open())).send({ pinSet: gate.pinSet(), unlocked: true, passkey: true });
+  });
 
   app.post<{ Body: { pin?: unknown; currentPin?: unknown } }>("/api/adult/pin", async (req, reply) => {
     const { pin, currentPin } = req.body ?? {};
@@ -428,7 +488,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
     gate.setPin(pin);
     gate.closeAll();
-    return reply.header("set-cookie", sessionCookie(gate.open())).send({ pinSet: true, unlocked: true });
+    return reply.header("set-cookie", sessionCookie(gate.open())).send({ pinSet: true, unlocked: true, passkey: passkeys.any() });
   });
 
   app.post<{ Body: { pin?: unknown } }>("/api/adult/unlock", async (req, reply) => {
@@ -437,12 +497,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const check = gate.check(pin);
     if (check === "locked") return reply.code(429).send({ error: "Too many wrong tries. Wait a few minutes." });
     if (check !== "ok") return reply.code(403).send({ error: "Wrong PIN." });
-    return reply.header("set-cookie", sessionCookie(gate.open())).send({ pinSet: true, unlocked: true });
+    return reply.header("set-cookie", sessionCookie(gate.open())).send({ pinSet: true, unlocked: true, passkey: passkeys.any() });
   });
 
   app.post("/api/adult/lock", async (req, reply) => {
     gate.close(req.headers.cookie);
-    return reply.header("set-cookie", clearedCookie).send({ pinSet: gate.pinSet(), unlocked: false });
+    return reply.header("set-cookie", clearedCookie).send({ pinSet: gate.pinSet(), unlocked: false, passkey: passkeys.any() });
   });
 
   // A copy of the whole library, progress and settings, for safekeeping. Includes the 18+ PIN

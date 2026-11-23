@@ -51,7 +51,7 @@ const deviceHeaders = (): Record<string, string> => {
   return id ? { "x-sapphire-device": id } : {};
 };
 
-async function getJson<T>(url: string): Promise<T> {
+export async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: deviceHeaders() });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -175,7 +175,7 @@ export const setFavoriteTags = (tags: string[], adult = false) =>
   send("PUT", `/api/settings/favorite-tags${adult ? "?adult=1" : ""}`, { tags }) as Promise<{ tags: string[] }>;
 export const setAutomation = (a: Partial<Automation>) => send("PUT", "/api/settings/automation", a) as Promise<Automation>;
 
-async function send(method: string, url: string, body?: unknown, keepalive = false) {
+export async function send(method: string, url: string, body?: unknown, keepalive = false) {
   const res = await fetch(url, {
     method,
     keepalive,
@@ -330,6 +330,8 @@ export const forYou = (adult = false, refresh = false) =>
 export interface AdultState {
   pinSet: boolean;
   unlocked: boolean;
+  /** A passkey (Face ID) is set up, so it can unlock without the PIN. */
+  passkey?: boolean;
 }
 export const classifyAdult = (items: { mangaId: number; title: string; sourceId?: string }[]) =>
   send("POST", "/api/classify", { items }) as Promise<{ hide: Record<string, boolean> }>;
