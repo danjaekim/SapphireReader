@@ -88,7 +88,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `ratings.ts` | AniList scores/popularity (and MangaUpdates fallback), cached in `anilist_meta` / `mu_meta`; `rankByAnilist` for rating/popular sorts. |
 | `adult.ts` | `AdultGate`: PIN, unlock sessions (cookie `sapphire_18`, 2 h idle lock). |
 | `adultcheck.ts` | Classifies series on mixed sources as adult: known tags, AniList's adult flag, then the source's tags. |
-| `description.ts` | Splits a description into story, alternative titles, stats (incl. a leading `★★★★✬ 9.1 (89)` rating line), facets, `tags` and `info` (author, artist, status, year from a leading year line or a ToonGod-style "also known as… written by… is about X story" blurb). Drops upload/source notes, `Links:` lists, and site ad paragraphs ("Read the latest…", "Browse more than…", "Connect with X on Social Media"); unescapes Markdown. |
+| `description.ts` | Splits a description into story, alternative titles, stats (incl. a leading `★★★★✬ 9.1 (89)` rating line), facets, `tags` and `info` (author, artist, status, year from a leading year line or a ToonGod-style "also known as… written by… is about X story" blurb). Drops upload/source notes, `Links:` lists, and site ad paragraphs ("Read the latest…", "Browse more than…", "Connect with X on Social Media"); unescapes Markdown. Strips `**bold**` and `#` heading marks first so labels like `**Alternative Names:**` are found. |
 | `checker.ts` | The library check: re-reads chapter lists, records new chapters, pushes alerts for caught-up series. |
 | `downloader.ts` | Saves chapters to the NAS one at a time; serves saved pages and covers. |
 | `notify.ts` | ntfy client. |

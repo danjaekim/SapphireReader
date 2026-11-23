@@ -103,3 +103,27 @@ Alternative Names:
     expect(a.tags).toEqual(["Action", "Adventure", "Fantasy"]);
   });
 });
+
+describe("bold or heading-marked section labels", () => {
+  it("still finds **Alternative Names:** and **Links:**", () => {
+    const d = `In his past life, Liam was honest.
+
+**Alternative Names:**
+- Ore wa Seikan Kokka no Akutoku Ryoushu!
+- 俺は星間国家の悪徳領主！
+
+**Links:**
+- [MyAnimeList](https://myanimelist.net/manga/142425/)
+- [AniList](https://anilist.co/manga/139699/)`;
+    const a = parseDescription(d, "X");
+    expect(a.body).toBe("In his past life, Liam was honest.");
+    expect(a.altTitles).toEqual(["Ore wa Seikan Kokka no Akutoku Ryoushu!", "俺は星間国家の悪徳領主！"]);
+  });
+
+  it("handles ### headings and a Links list before the names", () => {
+    const d = `To regain his peace, Gangchan moves.\n\n### Links:\n* [AniList](https://anilist.co/manga/1/)\n\n### Alternative Names:\n- A one , B two`;
+    const a = parseDescription(d, "X");
+    expect(a.body).toBe("To regain his peace, Gangchan moves.");
+    expect(a.altTitles).toEqual(["A one", "B two"]);
+  });
+});

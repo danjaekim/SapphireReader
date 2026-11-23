@@ -105,7 +105,12 @@ function splitTitles(text: string): string[] {
 
 /** Pulls the stats line and alternative titles out of a source's description so they can be shown on their own. */
 export function parseDescription(description: string | null, title: string): About {
-  let text = (description ?? "").replace(/\r/g, "").trim();
+  // Markdown emphasis and heading marks hide labels like "**Alternative Names:**" or "### Links", so they go first.
+  let text = (description ?? "")
+    .replace(/\r/g, "")
+    .replace(/(\*\*|__)(?=\S)([^\n]*?\S)\1/g, "$2")
+    .replace(/^[ \t]*#{1,6}[ \t]+/gm, "")
+    .trim();
   const stats: About["stats"] = [];
   let alt: string[] = [];
   const found = { alt: [] as string[], tags: [] as string[], info: {} as About["info"] };
