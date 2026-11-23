@@ -77,7 +77,9 @@ export class Passkeys {
     const options = await generateAuthenticationOptions({
       rpID,
       userVerification: "required",
-      allowCredentials: this.store.passkeys().map((p) => ({ id: p.id, transports: p.transports as never })),
+      // A passkey made on this device is asked for on this device only, so the phone goes straight to Face ID
+      // instead of offering "use a phone or security key" first.
+      allowCredentials: this.store.passkeys().map((p) => ({ id: p.id, transports: (p.transports.includes("internal") ? ["internal"] : p.transports) as never })),
     });
     this.remember(options.challenge);
     return options;

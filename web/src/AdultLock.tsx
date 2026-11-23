@@ -36,6 +36,15 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
     if (step === "on" && canFace) listPasskeys().then(setKeys, () => setKeys([]));
   }, [step, canFace]);
 
+  // With Face ID set up, opening the lock goes straight to it; the PIN pad stays underneath as the fallback.
+  const autoTried = useRef(false);
+  useEffect(() => {
+    if (autoTried.current || step !== "unlock" || !state.passkey || !canFace) return;
+    autoTried.current = true;
+    void faceUnlock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function faceUnlock() {
     if (busy) return;
     setBusy(true);

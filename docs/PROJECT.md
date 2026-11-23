@@ -213,7 +213,9 @@ Schema changes are made in the `Store` constructor with `CREATE TABLE IF NOT EXI
   on, so the PIN stays the root of trust and the fallback. Unlock: `POST /api/adult/passkey/login/options`
   then `/login/verify` → same session cookie as the PIN. Endpoints: `GET /api/adult/passkeys`,
   `POST /api/adult/passkey/register/{options,verify}`, `DELETE /api/adult/passkeys/:id`;
-  `/api/adult` also says `passkey: true` when one exists (shows "Use Face ID" on the PIN pad). Passkeys only
+  `/api/adult` also says `passkey: true` when one exists: opening the 18+ lock then asks for Face ID at
+  once (Dan, Nov 23), with the PIN pad and a "Use Face ID" button underneath if it's cancelled. Login asks
+  only for on-device (`internal`) passkeys, so phones skip the "use another device" choice. Passkeys only
   work over https or localhost: the server takes the page's `Origin` header as origin and its hostname as the
   relying-party id and refuses plain http (`PUBLIC_URL` is not checked: it's often still the LAN address), so use the Tailscale
   https address (a passkey made on one address doesn't work on another). Challenges last 5 minutes, one use.
