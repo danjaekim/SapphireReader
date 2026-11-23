@@ -1,4 +1,6 @@
 import { Merges } from "./Merges";
+import { useOffline } from "./connection";
+import { OfflineHome, fillAdultFlags } from "./offline";
 import { Toaster, toast, toastError } from "./toast";
 import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
@@ -455,6 +457,11 @@ export function App() {
     (fresh ? lockAdult().catch(() => undefined) : Promise.resolve()).then(() => adultState().then(setAdult, () => {}));
   }, []);
   const route = useRoute();
+  const offline = useOffline();
+  // Chapters saved on this device before offline mode don't say whether they're 18+; fill that in once.
+  useEffect(() => {
+    if (!offline) void fillAdultFlags().catch(() => undefined);
+  }, [offline]);
 
   // Locking or unlocking changes what searches return, so remembered results are dropped.
   function onAdult(next: AdultState) {
@@ -519,8 +526,18 @@ export function App() {
       <Toaster />
       <TopBar title={route.name === "series" ? "Sapphire" : page === "home" ? "Sapphire" : TITLES[page!]} onMenu={() => setMenuOpen(true)} />
       {nav}
-      <main className={`content ${wide ? "" : "narrow"} ${route.name === "series" ? "withBackdrop" : ""}`}>
-        {route.name === "series" ? (
+      {offline && (
+        <div className="offlineBar" role="status">
+          Offline: the NAS can't be reached. Showing what's saved on this device.
+        </div>
+      )}
+      <main className={`content ${wide && !offline ? "" : "narrow"} ${route.name === "series" && !offline ? "withBackdrop" : ""}`}>
+        {offline && page !== "downloads" ? (
+          <>
+            <h2>{route.name === "series" ? "Saved on this device" : "On this device"}</h2>
+            <OfflineHome adult={adult.unlocked} mangaId={route.name === "series" ? route.mangaId : undefined} />
+          </>
+        ) : route.name === "series" ? (
           <SeriesPage mangaId={route.mangaId} />
         ) : (
           <>

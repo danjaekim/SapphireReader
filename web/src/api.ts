@@ -1,3 +1,4 @@
+import { apiFetch, isOffline, queueProgress, supersede } from "./connection";
 export interface SourceHit {
   mangaId: number;
   sourceId: string;
@@ -52,7 +53,7 @@ const deviceHeaders = (): Record<string, string> => {
 };
 
 export async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: deviceHeaders() });
+  const res = await apiFetch(url, { headers: deviceHeaders() });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const b = body as { error?: string; detail?: string };
@@ -176,7 +177,7 @@ export const setFavoriteTags = (tags: string[], adult = false) =>
 export const setAutomation = (a: Partial<Automation>) => send("PUT", "/api/settings/automation", a) as Promise<Automation>;
 
 export async function send(method: string, url: string, body?: unknown, keepalive = false) {
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method,
     keepalive,
     headers: { ...deviceHeaders(), ...(body ? { "content-type": "application/json" } : {}) },
@@ -200,8 +201,19 @@ export interface ProgressInput {
   pageOffset: number;
   finished?: boolean;
 }
-export const saveProgress = (id: number, p: ProgressInput, keepalive = false) =>
-  send("PUT", `/api/progress/${id}`, p, keepalive);
+/** Saves your place; while the NAS can't be reached, it waits on this device and is sent when it's back. */
+export const saveProgress = (id: number, p: ProgressInput, keepalive = false) => {
+  if (isOffline()) {
+    queueProgress(id, p, deviceId());
+    return Promise.resolve({ ok: true, queued: true });
+  }
+  supersede(id);
+  return send("PUT", `/api/progress/${id}`, p, keepalive).catch((e: unknown) => {
+    if (!isOffline()) throw e;
+    queueProgress(id, p, deviceId());
+    return { ok: true, queued: true };
+  });
+};
 
 export const markChapters = (mangaId: number, chapterIds: number[], read: boolean) =>
   send("POST", `/api/manga/${mangaId}/read`, { chapterIds, read }) as Promise<{ readChapterIds: number[]; progress: Progress | null }>;

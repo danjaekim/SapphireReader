@@ -4,7 +4,8 @@ import { toast, toastError } from "./toast";
 import { useEffect, useMemo, useState } from "react";
 import { downloads, removeDownload, removeSeriesDownloads, thumbnailUrl, type DownloadRow } from "./api";
 import { readHref, seriesHref } from "./route";
-import { offlineSupported, removeOffline, useOfflineChapters } from "./offline";
+import { autoRemoveOn, offlineSupported, removeOffline, setAutoRemove, useOfflineChapters } from "./offline";
+import { pendingCount } from "./connection";
 
 function size(bytes: number) {
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
@@ -112,6 +113,8 @@ export function Downloads() {
 /** Chapters saved in this browser for reading with no connection at all. */
 function OnThisDevice() {
   const items = useOfflineChapters();
+  const [autoRemove, setAuto] = useState(autoRemoveOn());
+  const waiting = pendingCount();
   if (!offlineSupported()) {
     return (
       <section className="card">
@@ -127,7 +130,7 @@ function OnThisDevice() {
     <section className="card">
       <h3>On this device</h3>
       {items === null ? null : items.length === 0 ? (
-        <p className="muted small">Nothing yet. While reading, tap 📱 in the top bar to keep that chapter on this device for offline reading.</p>
+        <p className="muted small">Nothing yet. On a series page, use "Save next 5 to phone" or tick chapters and choose Save to phone; while reading, 📱 in the top bar saves that chapter.</p>
       ) : (
         <ul className="extList">
           {items.map((c) => (
@@ -139,6 +142,14 @@ function OnThisDevice() {
           ))}
         </ul>
       )}
+      <label className="settingRow">
+        <span>
+          <strong>Remove from this device after reading</strong>
+          <span className="muted small">Once you finish a chapter and go on to the next, its copy on this phone is removed to save space.</span>
+        </span>
+        <input type="checkbox" checked={autoRemove} onChange={(e) => { setAutoRemove(e.target.checked); setAuto(e.target.checked); }} />
+      </label>
+      {waiting > 0 && <p className="muted small">{waiting} reading update{waiting === 1 ? "" : "s"} made offline will be sent to the NAS when it can be reached.</p>}
     </section>
   );
 }

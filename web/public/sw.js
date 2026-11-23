@@ -5,6 +5,12 @@
 // - The app itself is kept so it can open offline. The page is always checked for a new version first.
 const OFFLINE = "sapphire-offline-v1";
 const SHELL = "sapphire-shell-v1";
+// Answers given without the NAS carry this header, so the app knows it's offline.
+const markOffline = (res) => {
+  const headers = new Headers(res.headers);
+  headers.set("x-sapphire-offline", "1");
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+};
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
@@ -25,7 +31,9 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(
       fetch(req).catch(() =>
-        caches.match(req, { cacheName: OFFLINE }).then((hit) => hit || new Response(JSON.stringify({ error: "You're offline." }), { status: 503, headers: { "content-type": "application/json" } })),
+        caches
+          .match(req, { cacheName: OFFLINE })
+          .then((hit) => markOffline(hit || new Response(JSON.stringify({ error: "You're offline." }), { status: 503, headers: { "content-type": "application/json" } }))),
       ),
     );
     return;

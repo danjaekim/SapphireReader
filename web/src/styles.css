@@ -1036,3 +1036,19 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .faceBox h4 { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .faceRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .faceBox p { margin: 0; }
+
+/* Offline mode: a bar while the NAS can't be reached, and what's saved on this device. */
+.offlineBar { position: sticky; top: calc(53px + env(safe-area-inset-top)); z-index: 12; margin: 0; padding: 8px 16px; font-size: 14px; text-align: center; background: color-mix(in srgb, #d97706 22%, var(--panel)); color: var(--fg); border-bottom: 1px solid var(--line); }
+@media (min-width: 721px) { .offlineBar { top: 0; } }
+.offlineHome { display: grid; gap: 12px; }
+.offlineHome > p { margin: 0; }
+.offlineSeries header { display: flex; align-items: center; gap: 12px; }
+.offlineSeries header img { border-radius: 6px; object-fit: cover; flex: none; background: var(--bg); }
+.offlineSeriesInfo { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.offlineSeriesInfo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.offlineChapters { list-style: none; margin: 10px 0 0; padding: 0; border-top: 1px solid var(--line); }
+.offlineChapters li { display: flex; align-items: center; gap: 10px; min-height: 44px; border-bottom: 1px solid var(--line); }
+.offlineChapters li:last-child { border-bottom: 0; }
+.offlineChapters li a { flex: 1; color: var(--fg); text-decoration: none; }
+.offlineChapters li.read a { color: var(--muted); }
+.chOffline { font-size: 13px; }

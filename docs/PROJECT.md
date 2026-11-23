@@ -108,6 +108,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | --- | --- |
 | `main.tsx`, `App.tsx` | Entry, shell (side menu on desktop; top bar, drawer and bottom tab bar on phones), routing, Settings page sections (theme, automation, hidden tags, favorite tags, notifications, backups, updates), `<Toaster/>`. |
 | `route.ts` | Hash routes: `#/` pages (`home, search, library, discover, discover-18, downloads, updates, history, sources, status`=Settings, `merges`), `#/series/:id`, `#/read/:id/:chapter`. |
+| `connection.ts` | Online/offline state (`apiFetch`, `useOffline`), the offline progress queue and its flush. |
 | `api.ts` | Typed client for every endpoint, `thumbnailUrl` (with a cover version bump after merges). |
 | `Home.tsx`, `Search.tsx`, `SearchStart.tsx`, `Library.tsx`, `Discover.tsx`, `Updates.tsx`, `History.tsx`, `Downloads.tsx`, `Sources.tsx`, `SeriesPage.tsx`, `Reader.tsx`, `Trackers.tsx`, `AdultLock.tsx` (PIN pad, Face ID button and setup), `passkey.ts` (browser side of passkeys), `Merges.tsx` | The pages. `Merges.tsx` also exports `CompareSheet`, the side-by-side compare used before any suggested merge. |
 | `Results.tsx` | The card grid used everywhere (lazy chapter lookups for near-screen cards, ratings badge, add-to-library, Not interested, Select mode). |
@@ -115,7 +116,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `usePaged.ts` | Paged loading with an in-memory cache that restores lists and scroll on Back (`clearPagedCache`). |
 | `shared.ts` | Library id cache and toggle, ratings batching, hidden-adult checks (`useHiddenAdult`, `resetHiddenCache`). |
 | `titles.ts` | `tidyTitle`: display-only cleanup of doujin-style titles. |
-| `offline.tsx`, `useDownloads.ts` | On-device offline chapters (Cache Storage, https only) and NAS downloads. |
+| `offline.tsx`, `useDownloads.ts` | On-device offline chapters (Cache Storage, https only), `saveManyOffline`, auto-remove setting, `OfflineHome`; NAS downloads. |
 | `toast.tsx` | `toast()` / `toastError()` confirmations. |
 | `update.tsx`, `theme.ts`, `util.ts`, `Loading.tsx`, `styles.css` | Update cards, light/dark/auto theme, helpers, spinner, all styles (CSS variables for both themes). |
 
@@ -327,7 +328,28 @@ auto-delete of read NAS downloads (keeps the last one). Sources can be excluded 
 ### 5.8 Downloads and offline
 
 NAS downloads (one chapter at a time) read without the source; covers are saved too. On-device
-offline chapters use Cache Storage and the service worker, and only work over https. Auto-delete removes downloaded chapters once they're read (finished in the reader or marked read by
+offline chapters use Cache Storage and the service worker, and only work over https.
+
+**Offline mode on phones** (Dan, Nov 23, all four parts):
+- *Detection* (`connection.ts`): every API call goes through `apiFetch`; a failed connection, or a response
+  the service worker answered from its cache (it adds `x-sapphire-offline: 1`), marks the app offline.
+  `/api/health` is pinged every 15 s while offline (and on the browser's `online` event or the app
+  becoming visible) to come back.
+- *Offline home* (`OfflineHome` in `offline.tsx`): while offline, an amber bar shows and every page except
+  Downloads (and series pages, filtered to that series) shows what's saved on this device, grouped by series,
+  with "Read Chapter N" for the first one not read here. 18+ series are listed only if 18+ mode was on;
+  saves from before offline mode are back-filled with the 18+ flag and chapter number when online.
+- *Progress while offline*: `saveProgress` queues saves in localStorage (`sapphire.pending`: the latest
+  place per series plus every finished chapter, each once) and remembers finished chapters locally
+  (`sapphire.readHere`). The queue is sent in order when the NAS is back; a newer online save for a series
+  drops its queued place first. Offline progress can overwrite a place set later on another device.
+- *Saving many*: series page "📱 Save next 5 to phone" (unread from your place on) and "Save to phone" for
+  ticked chapters (`saveManyOffline`); rows show 📱 when saved here.
+- *Tidy*: moving forward from a finished chapter removes its copy on this device (toggle on Downloads ›
+  On this device, `sapphire.offline.autoRemove`, default on). Offline, the reader's previous/next skip to
+  chapters saved here, and the end screen says when none are left.
+- Limits: the app must be opened online once after an update for the phone to pick it up; 18+ can't be
+  unlocked offline (the PIN and Face ID are checked by the NAS). Auto-delete removes downloaded chapters once they're read (finished in the reader or marked read by
 hand), except the chapter your place is on; finishing or marking also tops up auto-download.
 
 ### 5.9 Updates and backups

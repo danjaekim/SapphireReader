@@ -5,7 +5,8 @@ import { chapterPages, saveProgress, series, setLiked, setReaderPrefs, type Pref
 import { DownloadButton } from "./SeriesPage";
 import { backTo, readHref, replaceHash, seriesHref } from "./route";
 import { useSeriesDownloads } from "./useDownloads";
-import { OfflineButton } from "./offline";
+import { OfflineButton, autoRemoveOn, removeOffline, useOfflineChapters } from "./offline";
+import { useOffline } from "./connection";
 import { forgetForYou } from "./Discover";
 
 const chapterText = (c: { chapterNumber: number; name: string }) =>
@@ -78,14 +79,21 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
 
   const index = data ? data.chapters.findIndex((c) => c.id === chapterId) : -1;
   const chapter = index >= 0 ? data!.chapters[index] : null;
-  const prev = index > 0 ? data!.chapters[index - 1] : null;
-  const next = index >= 0 && index < data!.chapters.length - 1 ? data!.chapters[index + 1] : null;
+  const offline = useOffline();
+  const savedHere = useOfflineChapters();
+  // Offline, previous and next skip to the chapters saved on this device.
+  const usable = (c: { id: number }) => !offline || !!savedHere?.some((x) => x.chapterId === c.id);
+  const prev = index > 0 ? [...data!.chapters.slice(0, index)].reverse().find(usable) ?? null : null;
+  const next = index >= 0 ? data!.chapters.slice(index + 1).find(usable) ?? null : null;
   // Moving between chapters swaps the page, so Back from any chapter returns to the series, not the last chapter.
   // Before leaving a chapter, save where you are (the 2-second save may not have run yet). Going on to the
   // next chapter from the end screen, or with the end in view, marks this one finished.
   const go = (c: { id: number } | null, finished = false) => {
     if (!c) return;
-    save.current(false, finished);
+    const done = save.current(false, finished);
+    // A finished chapter saved on this device makes room once you've moved on from it.
+    const forward = (data?.chapters.findIndex((x) => x.id === c.id) ?? -1) > index;
+    if (done && forward && autoRemoveOn() && savedHere?.some((x) => x.chapterId === chapterId)) void removeOffline(chapterId);
     replaceHash(readHref(mangaId, c.id));
   };
 
@@ -113,15 +121,16 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
     return { pageIndex, pageOffset, finished: !!last && last.height > 0 && last.bottom <= window.innerHeight + 80 };
   }
 
-  const save = useRef<(keepalive: boolean, finished?: boolean) => void>(() => {});
+  const save = useRef<(keepalive: boolean, finished?: boolean) => boolean>(() => false);
   /** Chapter ids already saved as finished, so reaching the end saves once, straight away. */
   const finishedSaved = useRef(new Set<number>());
   save.current = (keepalive, finished = false) => {
-    if (!pages || !chapter || (!restored.current && !finished)) return;
+    if (!pages || !chapter || (!restored.current && !finished)) return false;
     const pos = paged ? { pageIndex: current, pageOffset: 0, finished: atEnd || current >= pages.length - 1 } : scrollPosition();
     if (finished) pos.finished = true;
     if (pos.finished) finishedSaved.current.add(chapterId);
     saveProgress(mangaId, { chapterId, chapterNumber: chapter.chapterNumber, chapterName: chapter.name, ...pos }, keepalive).catch(() => {});
+    return pos.finished;
   };
 
   // Scroll mode: update the page counter as you go and save a couple of seconds after scrolling stops.
@@ -291,7 +300,7 @@ export function Reader({ mangaId, chapterId, startPage, onMenu }: { mangaId: num
         <a className="button nextChapter" href={readHref(mangaId, next.id)} onClick={(e) => { e.preventDefault(); go(next, true); }}>Next: {chapterText(next)} →</a>
       ) : (
         <>
-          <p className="muted">You're caught up. Sapphire will alert you when a new chapter comes out{data?.inLibrary ? "" : " if you add this series to your library"}.</p>
+          {offline ? <p className="muted">That's the last chapter saved on this device. More can be saved next time you're online.</p> : <p className="muted">You're caught up. Sapphire will alert you when a new chapter comes out{data?.inLibrary ? "" : " if you add this series to your library"}.</p>}
           {data && (
             <button
               type="button"

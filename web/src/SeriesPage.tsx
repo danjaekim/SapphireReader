@@ -1,5 +1,6 @@
 import { Loading } from "./Loading";
 import { toast, toastError } from "./toast";
+import { offlineSupported, saveManyOffline, useOfflineChapters } from "./offline";
 import { tidyTitle } from "./titles";
 import { CompareSheet, type CompareSide } from "./Merges";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -293,6 +294,21 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   // Listings Similar found that look like this same series: offered as a merge instead of a recommendation.
   const [sameSeries, setSameSeries] = useState<SameSeries[]>([]);
   const [comparing, setComparing] = useState<[CompareSide, CompareSide] | null>(null);
+  // Chapters saved on this phone for offline reading, and a running "save to phone".
+  const deviceSaved = useOfflineChapters();
+  const [phoneSaving, setPhoneSaving] = useState<{ done: number; total: number } | null>(null);
+  async function saveToPhone(ids: number[]) {
+    if (ids.length === 0 || phoneSaving) return;
+    setPhoneSaving({ done: 0, total: ids.length });
+    try {
+      await saveManyOffline(mangaId, ids, (done) => setPhoneSaving({ done, total: ids.length }));
+      toast(`Saved ${ids.length} chapter${ids.length === 1 ? "" : "s"} on this device for offline reading.`);
+    } catch {
+      toastError("Saving to this device stopped. The chapters saved so far are kept; try again for the rest.");
+    } finally {
+      setPhoneSaving(null);
+    }
+  }
   const [others, setOthers] = useState<Alternative[] | null>(null);
 
   // Similar series load on their own once the series itself is up, so the page isn't held back.
@@ -481,6 +497,12 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const fullTitles = data && tidyTitle(data.manga.title) !== data.manga.title ? [data.manga.title, ...about.altTitles] : about.altTitles;
   const unread = data ? data.chapters.filter((c) => !readIds.has(c.id) && states[c.id]?.status !== "done") : [];
   const notSaved = data ? data.chapters.filter((c) => !states[c.id] || states[c.id].status === "failed") : [];
+  const onDevice = new Set((deviceSaved ?? []).map((c) => c.chapterId));
+  // The next unread chapters from your place on, not yet on this device.
+  const nextForPhone = data
+    ? data.chapters.filter((c) => !readIds.has(c.id) && !onDevice.has(c.id) && (!data.progress || c.chapterNumber >= data.progress.chapterNumber)).slice(0, 5)
+    : [];
+  const phoneLabel = phoneSaving ? `Saving ${phoneSaving.done} of ${phoneSaving.total}…` : null;
   const working = Object.values(states).filter((d) => d.status === "queued" || d.status === "downloading").length;
   const resume = data?.progress ? data.chapters.find((c) => c.id === data.progress!.chapterId) : undefined;
   // Finished the chapter you were on: point at the next one, or say you're caught up.
@@ -1018,6 +1040,16 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                       >
                         Download
                       </button>
+                      {offlineSupported() && (
+                        <button
+                          type="button"
+                          className="button small secondary"
+                          disabled={!!phoneSaving || picked.every((c) => onDevice.has(c.id))}
+                          onClick={() => { void saveToPhone(picked.filter((c) => !onDevice.has(c.id)).map((c) => c.id)); clearPicks(); }}
+                        >
+                          {phoneLabel ?? "Save to phone"}
+                        </button>
+                      )}
                       <button type="button" className="iconBtn selClose" aria-label="Clear selection" title="Clear selection (Esc)" onClick={clearPicks}>✕</button>
                     </span>
                   </div>
@@ -1034,6 +1066,11 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     >
                       Download unread
                     </button>
+                    {offlineSupported() && (
+                      <button type="button" className="button small secondary" disabled={!!phoneSaving || nextForPhone.length === 0} onClick={() => void saveToPhone(nextForPhone.map((c) => c.id))}>
+                        {phoneLabel ?? `📱 Save next ${nextForPhone.length || 5} to phone`}
+                      </button>
+                    )}
                     {working > 0 && <span className="muted">Downloading {working} chapter{working === 1 ? "" : "s"} to the NAS…</span>}
                     {data.chapters.length > 1 && <span className="muted small selHint">Tick chapters to act on several at once; shift-click selects a range.</span>}
                   </div>
@@ -1072,6 +1109,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                         >
                           <span>{chapterLabel(c)}</span>
                           {c.name && c.chapterNumber >= 0 && c.name !== chapterLabel(c) && <span className="muted chName"> {c.name}</span>}
+                          {onDevice.has(c.id) && <span className="chOffline" title="Saved on this device" aria-label="Saved on this device"> 📱</span>}
                           <span className="muted date" title={c.uploadDate ? new Date(c.uploadDate).toLocaleDateString() : undefined}>{chapterDate(c.uploadDate)}</span>
                         </a>
                         <button
