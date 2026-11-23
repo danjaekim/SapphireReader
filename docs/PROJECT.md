@@ -156,7 +156,9 @@ Schema changes are made in the `Store` constructor with `CREATE TABLE IF NOT EXI
   ~16 with "+N more" opening all incl. minor; ☆ Favorites toggles star mode), facets, and the MangaBaka 18+
   question. Rarely used controls (18+ mark, version label, merged names/unmerge, name/cover/description,
   merge, MangaBaka match) live in a **Manage** sheet (⋯ button beside Like; Like and Manage are icon-only on
-  phones). The left column keeps cover, counts, info list, Also on and tracking.
+  phones). The left column keeps cover, counts, info list, Also on and tracking. Also on rows: source name over its
+  version chip, latest chapter right-aligned; a source further ahead shows its chapter in the accent color
+  with a "+N" badge (chapters ahead of this listing) instead of a separate "further ahead" tag.
 - **Series page**: two-column layout with blurred cover / AniList banner background, tidy title with
   full title and alternative names, ratings (AniList, site stats), description split into story and
   facets (description-derived tags, author, artist, status and year fill in only what the source's own

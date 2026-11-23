@@ -986,3 +986,16 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .manageBody .versionLine > .muted:first-child { display: none; }
 .manageBody .versionLine { font-size: 14px; }
 @media (max-width: 720px) { .manageLabel, .likeLabel { display: none; } .manageBtn, .likeBtn { min-width: 44px; padding-left: 12px; padding-right: 12px; } }
+
+/* Also on: name and version on the left, latest chapter on the right; a source further ahead shows by how much. */
+.alsoOn { gap: 8px; }
+.alsoOn li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; flex-wrap: nowrap; }
+.alsoOnName { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.alsoOnName .verTag { margin: 0; }
+.alsoOnCh { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.alsoOnCh.ahead { color: var(--accent); font-weight: 600; }
+.aheadBadge { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+/* Name over version, always, so every row has the same shape. */
+.alsoOnName { flex-direction: column; align-items: flex-start; gap: 3px; }
+.alsoOnName a { max-width: 100%; overflow-wrap: anywhere; }
+.alsoOnName .verTag { font-size: 11px; padding: 1px 7px; }

@@ -759,17 +759,22 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                 {others && others.length > 0 && (
                   <div className="card">
                     <h3>Also on</h3>
-                    <ul className="sources">
+                    <ul className="sources alsoOn">
                       {others.map((o) => {
                         const ahead = o.latestNumber !== null && data.latest.latestNumber !== null && o.latestNumber > data.latest.latestNumber;
+                        const by = ahead ? Math.floor(o.latestNumber! - data.latest.latestNumber!) : 0;
                         return (
                           <li key={o.mangaId} className={ahead ? "best" : undefined}>
-                            <a href={`#/series/${o.mangaId}`}>{o.sourceName}</a>
-                            {o.version && (
-                              <span className={`tag verTag ${data.preferredVersion && o.version.toLowerCase() === data.preferredVersion.toLowerCase() ? "pref" : ""}`}>{o.version}</span>
-                            )}
-                            <span className="muted">{o.latestNumber !== null ? chapterLabel({ name: "", chapterNumber: o.latestNumber }) : "no numbered chapters"}</span>
-                            {ahead && <span className="tag">further ahead</span>}
+                            <span className="alsoOnName">
+                              <a href={`#/series/${o.mangaId}`}>{o.sourceName}</a>
+                              {o.version && (
+                                <span className={`tag verTag ${data.preferredVersion && o.version.toLowerCase() === data.preferredVersion.toLowerCase() ? "pref" : ""}`}>{o.version}</span>
+                              )}
+                            </span>
+                            <span className={`alsoOnCh ${ahead ? "ahead" : "muted"}`} title={ahead ? `${by > 0 ? `${by} chapter${by === 1 ? "" : "s"}` : "Further"} ahead of this listing` : undefined}>
+                              {o.latestNumber !== null ? chapterLabel({ name: "", chapterNumber: o.latestNumber }) : "no numbers"}
+                              {ahead && <span className="aheadBadge">{by > 0 ? `+${by}` : "ahead"}</span>}
+                            </span>
                           </li>
                         );
                       })}
