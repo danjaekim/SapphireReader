@@ -72,13 +72,15 @@ export async function anilistRecommendations(store: Store, ids: number[], fetchI
  * result whose title matches one of its names exactly (after normalizing), so a near miss never
  * stands in for it. Remembered for a week, misses included.
  */
-async function findOnSources(
+export async function findOnSources(
   config: Config,
   store: Store,
-  rec: AnilistRec,
+  rec: { id: number; titles: string[] },
   opts: { fetchImpl?: FetchLike; scope: Scope; onResult?: SourceReport },
+  /** Which catalogue the id is from, so AniList and MangaBaka ids never share a remembered answer. */
+  prefix = "anilist_match",
 ): Promise<SeriesGroup | null> {
-  const key = `anilist_match.${opts.scope}.${rec.id}`;
+  const key = `${prefix}.${opts.scope}.${rec.id}`;
   try {
     const c = JSON.parse(store.getSetting(key) ?? "null") as { at: number; group: SeriesGroup | null } | null;
     if (c && Date.now() - c.at < MATCH_TTL) return c.group;

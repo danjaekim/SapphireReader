@@ -11,6 +11,8 @@ type FetchLike = typeof fetch;
 
 export type TagWeight = "core" | "defining" | "recurrent" | "incidental" | "unweighted";
 export interface BakaTag {
+  /** MangaBaka's tag id (for tag searches); missing on data cached before ids were kept. */
+  id?: number;
   name: string;
   /** Where it sits, e.g. "Themes > Horror > Body Horror". */
   path: string;
@@ -87,7 +89,9 @@ function tagOf(raw: unknown): BakaTag | null {
   const name = str(t.name) ?? (typeof raw === "string" ? str(raw) : null);
   if (!name) return null;
   const w = String(t.weight ?? t.relevance ?? "unweighted").toLowerCase();
+  const id = num(x.tag && typeof x.tag === "object" ? obj(x.tag).id : x.id);
   return {
+    ...(id !== null ? { id } : {}),
     name,
     path: str(t.name_path) ?? name,
     weight: (WEIGHTS as string[]).includes(w) ? (w as TagWeight) : "unweighted",
@@ -167,6 +171,17 @@ export class MangaBaka {
   async search(q: string, limit = 10): Promise<BakaHit[]> {
     const j = await this.get(`/v1/series/search?q=${encodeURIComponent(q)}&limit=${limit}`, this.gaps.search);
     return j === null ? [] : parseHits(j);
+  }
+
+  /**
+   * Series carrying these tags (all of them, or any with mode "or"). Each record comes with its own tags,
+   * which the caller checks, so a filter the API ignored can't pass off unrelated series.
+   */
+  async searchByTags(tagIds: number[], mode: "and" | "or" = "and", limit = 30): Promise<BakaSeries[]> {
+    const qs = [...tagIds.map((t) => `tag=${t}`), ...(mode === "or" ? ["tag_mode=or"] : []), `limit=${limit}`].join("&");
+    const j = await this.get(`/v1/series/search?${qs}`, this.gaps.search);
+    const list = j === null ? [] : (obj(j).data as unknown[] | undefined) ?? [];
+    return (Array.isArray(list) ? list : []).map((x) => parseSeries(x)).filter((x): x is BakaSeries => x !== null && obj(x).id !== undefined);
   }
 
   async series(id: number): Promise<BakaSeries | null> {

@@ -380,6 +380,30 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [baka, setBaka] = useState<BakaInfo | null>(null);
   const [bakaAll, setBakaAll] = useState(false);
   const [bakaPicking, setBakaPicking] = useState(false);
+  // "Keep it here" on the MangaBaka 18+ question; remembered on this device when 18+ mode is locked (marking needs it unlocked).
+  const [bakaAdultKept, setBakaAdultKept] = useState(false);
+  useEffect(() => {
+    try {
+      setBakaAdultKept(localStorage.getItem(`bakaAdultKept.${mangaId}`) === "1");
+    } catch {
+      setBakaAdultKept(false);
+    }
+  }, [mangaId]);
+  const keepNotAdult = async () => {
+    try {
+      await setAdultMark(mangaId, false);
+      setData((d) => (d ? { ...d, markedSafe: true, markedAdult: false, adult: false } : d));
+      toast("Kept with your regular series.");
+    } catch {
+      try {
+        localStorage.setItem(`bakaAdultKept.${mangaId}`, "1");
+      } catch {
+        // Private mode: it just asks again next time.
+      }
+      setBakaAdultKept(true);
+      toast("Okay, I won't ask again on this device.");
+    }
+  };
   const [editing, setEditing] = useState(false);
   async function changeMerge(run: () => Promise<{ mergedWith: MergedName[]; title?: string; description?: string | null; about?: SeriesData["about"] }>, done?: string) {
     try {
@@ -674,6 +698,15 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                       </>
                     )}
                   </p>
+                )}
+                {baka?.match && (baka.match.contentRating === "erotica" || baka.match.contentRating === "pornographic") && !data.adult && !data.markedSafe && !bakaAdultKept && (
+                  <div className="bakaAdult small" role="note">
+                    <span>MangaBaka rates this {baka.match.contentRating}. Move it to 18+?</span>
+                    <span className="bakaAdultActions">
+                      <button type="button" className="button small" onClick={() => changeAdultMark(true)}>Mark as 18+</button>
+                      <button type="button" className="button small secondary" onClick={() => void keepNotAdult()} title="Keeps it out of 18+ and stops this question">Keep it here</button>
+                    </span>
+                  </div>
                 )}
                 <div className="seriesTools small">
                   <p className="markAdult">

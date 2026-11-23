@@ -128,9 +128,9 @@ export async function similarTo(
   config: Config,
   title: string,
   genres: string[],
-  opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope; knowledge?: TagKnowledge; selfId?: number } = {},
+  opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope; knowledge?: TagKnowledge; selfId?: number; boost?: (g: SeriesGroup) => number } = {},
 ): Promise<{ groups: SeriesGroup[]; basedOn: string[] }> {
-  const { knowledge = plainKnowledge, selfId, ...browseOpts } = opts;
+  const { knowledge = plainKnowledge, selfId, boost, ...browseOpts } = opts;
   const seen = new Set<string>();
   const tags = genres.filter((g) => {
     const k = canonKey(g);
@@ -183,7 +183,8 @@ export async function similarTo(
     const shared = known ? new Set(known.map(canonKey)) : c.matched;
     let total = 0;
     for (const k of shared) total += own.get(k) ?? 0;
-    return total;
+    // MangaBaka's detailed tags, where known for both, move closer matches up.
+    return total * (boost ? boost(c.group) : 1);
   };
   // Anything that shares none of this series' tags doesn't belong, whatever the site returned.
   const scored = [...candidates.values()].map((c) => ({ c, s: score(c) })).filter((x) => x.s > 0);
@@ -312,9 +313,11 @@ export async function recommendShelves(
     scores?: (titles: string[]) => Promise<Map<string, number | null>>;
     /** How to look up series with these tags (default: your sources in `scope`); the 18+ page adds mixed sources. */
     browse?: (tags: string[], strict: boolean) => Promise<SearchResult | null>;
+    /** Multiplies a candidate's fit by how well its MangaBaka tags match your taste (1 = unknown). */
+    boost?: (g: SeriesGroup) => number;
   } = {},
 ): Promise<{ shelves: Shelf[]; groups: SeriesGroup[]; because: string[] }> {
-  const { knowledge = plainKnowledge, hidden = new Set<string>(), disliked = [], scores, browse, ...browseOpts } = opts;
+  const { knowledge = plainKnowledge, hidden = new Set<string>(), disliked = [], scores, browse, boost, ...browseOpts } = opts;
   // Each "not interested" counts against its tags about as much as an unread library series counts for them.
   const signals = [...liked, ...disliked.map((d) => ({ mangaId: d.mangaId, title: "", tags: d.tags, weight: -0.8 }))];
   const taste = tasteWeights(signals, knowledge.weight, hidden);
@@ -382,6 +385,7 @@ export async function recommendShelves(
     for (const k of keys) total += taste.get(k)?.w ?? 0;
     // Well-rated series move up a little (at most ±15%); unknown scores stay as they are.
     const score = rated.get(g.key) ?? rated.get(normalizeTitle(g.title));
+    if (boost) total *= boost(g);
     return score == null ? total : total * (0.85 + 0.3 * Math.min(100, Math.max(0, score)) / 100);
   };
   const taken = new Set<string>();

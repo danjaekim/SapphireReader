@@ -963,3 +963,5 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .bakaTag.recurrent, .bakaTag.incidental, .bakaTag.unweighted { color: var(--muted); }
 .bakaLine { margin: 6px 0 0; }
 .bakaLine a { color: inherit; }
+.bakaAdult { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.bakaAdultActions { display: flex; gap: 8px; }

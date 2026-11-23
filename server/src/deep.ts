@@ -157,9 +157,11 @@ export async function deepRecommendations(
     browse: (tags: string[], strict: boolean) => Promise<SearchResult | null>;
     hidden?: Set<string>;
     disliked?: { mangaId: number; titleKey: string; tags: string[] }[];
+    /** Multiplies a candidate's fit by how well its MangaBaka tags match your taste (1 = unknown). */
+    boost?: (g: SeriesGroup) => number;
   },
 ): Promise<DeepRow[]> {
-  const { weight, tagsOf, fetchTags, browse, hidden = new Set<string>(), disliked = [] } = opts;
+  const { weight, tagsOf, fetchTags, browse, hidden = new Set<string>(), disliked = [], boost } = opts;
   const signals = [...liked, ...disliked.map((d) => ({ mangaId: d.mangaId, title: "", tags: d.tags, weight: -0.8 }))];
   const taste = tasteWeights(signals, weight, hidden);
   if ([...taste.values()].every((t) => t.w <= 0)) return [];
@@ -205,7 +207,8 @@ export async function deepRecommendations(
 
   const fitOf = (g: SeriesGroup) => {
     const tags = tagsFor.get(g.key);
-    return tags ? tasteFit(tags, taste, weight, hidden) : undefined;
+    const f = tags ? tasteFit(tags, taste, weight, hidden) : undefined;
+    return typeof f === "number" && boost ? f * boost(g) : f;
   };
   const rows: DeepRow[] = [];
   const taken = new Set<string>();

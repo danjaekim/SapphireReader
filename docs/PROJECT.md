@@ -93,6 +93,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `downloader.ts` | Saves chapters to the NAS one at a time; serves saved pages and covers. |
 | `notify.ts` | ntfy client. |
 | `tracker.ts` | AniList tracking (token, search, set progress). |
+| `bakatags.ts` | MangaBaka tag vectors, cosine, taste vector, `boostFrom`. |
 | `mangabaka.ts` | MangaBaka client on the **v1** API (v2 records have no tags and no plain title; verified live Nov 23) (spaced calls: search 2.5s apart, others 0.5s), tolerant parsing of `tags_v2` (name, path, weight, genre, spoiler), content rating, provider ids; `findOnBaka` matching. |
 | `updater.ts`, `engineupdate.ts` | "Is a newer version out?" for the app (GHCR digests + commits) and the engine (GitHub releases); asking Watchtower to update. |
 | `extensions.ts` | Install/update/remove extensions through the engine. |
@@ -305,9 +306,22 @@ downloaded from Settings.
   plus "Wrong match?" / "Find it", which opens a picker sheet (search by name, address or number).
 - Endpoints: `GET/PUT/DELETE /api/manga/:id/mangabaka` (`?refresh=1`; PUT `{mbId}` or `{mbId: null}`),
   `GET /api/mangabaka/search?q=`.
-- Not yet: weighted tags in For you / Similar (core 3, defining 2, recurrent 1, incidental small, parent
-  tags partial credit) and "Mark as 18+?" offers from erotica/pornographic ratings. Waiting on a live
-  check of match quality and 18+ coverage.
+- Recommendations (`bakatags.ts`; Dan's go, Nov 23): a series' MangaBaka tags become a vector: core 3,
+  defining 2, recurrent 1, incidental 0.35, unweighted 0.5; genres x0.3; spoilers dropped. Each tag gives its
+  ancestors 0.35 per level (never the top-level bucket like "Themes"). Similarity is cosine.
+  - Taste: liked series' vectors summed by liking weight (not-interested ones at -0.8). For you and the deep
+    rows multiply each candidate's fit by `boostFrom(cosine)`: 1 with no data, 0.85 to 1.65 with data, so
+    having data is not itself a bonus. Candidates still come from source genre browsing; MangaBaka only re-ranks.
+  - Similar: the same boost against this series' vector, plus MangaBaka picks. `searchByTags` with its 3 (then
+    2) most central non-genre tags; results are kept only if their own tags really contain all of them,
+    explicit ratings are dropped unless this series is 18+, the 6 closest are found on your sources
+    (`findOnSources`, cached a week under `baka_match.*`), and the two lists take turns.
+  - Background lookups (`enrichBaka`): liked series and up to 20 candidates per For you / deep / Similar
+    build are looked up one at a time; tag-search results are cached too. The For you and deep cache keys
+    include how many liked series have MangaBaka tags, so new tags bring a rebuild (within the 3h gap rule).
+- 18+ offer: a series MangaBaka rates erotica or pornographic that isn't 18+ (and not marked not 18+)
+  shows "Move it to 18+?" with Mark as 18+ / Keep it here. Keep marks it not 18+, or when 18+ mode is
+  locked remembers the answer on that device (localStorage `bakaAdultKept.<id>`).
 
 ## 6. Testing and running
 
@@ -329,9 +343,6 @@ Keep this list current: add items when they come up, remove them when done or dr
 - Tailscale HTTPS (`tailscale serve`) and `PUBLIC_URL` set to the https address: not confirmed done.
 - GHCR package visibility: if private, Watchtower needs `/root/.docker/config.json` mounted.
 
-**Next, after the live MangaBaka check**
-- Feed weighted MangaBaka tags into For you and Similar; offer "Mark as 18+?" from its content rating.
-
 **Deferred by Dan (revisit later)**
 - Alert quiet hours / daily digest.
 - MyAnimeList and MangaUpdates trackers (AniList is done).
@@ -339,7 +350,8 @@ Keep this list current: add items when they come up, remove them when done or dr
 - Status filter (needs per-series lookups).
 
 **Not yet verified against live sources**
-- MangaBaka match quality and 18+ coverage on Dan's real series (response shape now checked against the live v1 API).
+- MangaBaka: tag search parameters (`tag=` repeated) unverified live; if Similar never shows MangaBaka
+  picks, check that. Effect of the re-ranking on real For you rows not yet judged by Dan.
 - For you deep rows and AniList "also liked" rows on real sources.
 - Version-aware move offers and the "Also on" memory on Dan's real libraries.
 

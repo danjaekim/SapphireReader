@@ -24,6 +24,8 @@ import { backupName, snapshot } from "./backup.js";
 import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
 import { checkLibrary } from "./checker.js";
 import { MangaBaka, bakaUrl, findOnBaka, type BakaSeries, type TagWeight } from "./mangabaka.js";
+import { bakaVector, boostFrom, cosine, tasteVector, type TagVector } from "./bakatags.js";
+import { findOnSources } from "./alsoliked.js";
 import { createNotifier } from "./notify.js";
 import { Store, type ProgressInput, type SwitchOffer } from "./store.js";
 import {
@@ -832,10 +834,11 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const liked = tasteSignals(adult);
     const titles = store.libraryTitles(adult);
-    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10), l.tags ?? null]), titles.length]);
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10), l.tags ?? null]), titles.length, bakaKnown(liked)]);
     try {
-      return await recommend("for-you", adult, key, req.query.refresh === "1", () =>
-        recommendShelves(config, liked, titles, {
+      return await recommend("for-you", adult, key, req.query.refresh === "1", async () => {
+        const result = await recommendShelves(config, liked, titles, {
+          boost: tasteBoost(liked, store.notInterested(adult)),
           fetchImpl,
           onResult: report,
           scope: adult ? "adult" : "safe",
@@ -850,8 +853,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
             const meta = await ratingsFor(store, list, fetchImpl, {}, false);
             return new Map([...meta].map(([k, m]) => [k, m.score]));
           },
-        }),
-      );
+        });
+        enrichGroups(result.groups, 20);
+        return result;
+      });
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "The source engine isn't answering." });
@@ -891,10 +896,11 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const liked = tasteSignals(adult);
     const titles = store.libraryTitles(adult);
-    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10), l.tags ?? null]), titles.length]);
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10), l.tags ?? null]), titles.length, bakaKnown(liked)]);
     try {
       return await recommend("deep", adult, key, req.query.refresh === "1", async () => {
         const rows = await deepRecommendations(liked, titles, {
+          boost: tasteBoost(liked, store.notInterested(adult)),
           weight: tagWeights(store.tagStats(canonKey)),
           tagsOf: (m) => store.seriesTags(m),
           fetchTags: async (id) => {
@@ -909,6 +915,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           hidden: new Set(hiddenTags().map(canonKey)),
           disliked: store.notInterested(adult),
         });
+        enrichGroups(rows.flatMap((r) => r.groups), 20);
         return { rows };
       });
     } catch (err) {
@@ -1174,13 +1181,35 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const key = `${id}|${scope}`;
       const cached = similarCache.get(key);
       if (cached && Date.now() - cached.at < 60 * 60 * 1000) return { groups: await withoutHidden(cached.groups as SeriesGroup[]), basedOn: cached.basedOn };
-      const { groups, basedOn } = await similarTo(config, manga.title, manga.genre, {
-        fetchImpl,
-        onResult: report,
-        scope,
-        selfId: id,
-        knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
-      });
+      // MangaBaka's view of this series (remembered, so usually instant) sharpens the ranking and adds its own picks.
+      const mb = await bakaFor(id, false).catch(() => null);
+      const self = mb?.match ? (store.bakaLink(normalizeTitle(manga.title))?.data as BakaSeries | null) : null;
+      const selfVec = self ? bakaVector(self.tags) : null;
+      const selfAdult = await adultFor(manga.sourceId, manga.title).catch(() => false);
+      const [source, fromBaka] = await Promise.all([
+        similarTo(config, manga.title, manga.genre, {
+          fetchImpl,
+          onResult: report,
+          scope,
+          selfId: id,
+          knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
+          boost: selfVec ? (g) => { const v = groupVec(g); return boostFrom(v ? cosine(selfVec, v) : null); } : undefined,
+        }),
+        self ? bakaSimilar(self, { scope, allowExplicit: selfAdult }).catch(() => [] as SeriesGroup[]) : Promise.resolve([] as SeriesGroup[]),
+      ]);
+      // Take turns: the sources' best, then MangaBaka's, and so on (each list keeps its own order).
+      const selfKey = normalizeTitle(manga.title);
+      const groups: SeriesGroup[] = [];
+      const seenKeys = new Set<string>([selfKey]);
+      for (let i = 0; i < Math.max(source.groups.length, fromBaka.length); i++) {
+        for (const g of [source.groups[i], fromBaka[i]]) {
+          if (!g || seenKeys.has(g.key) || g.hits.some((h) => h.mangaId === id)) continue;
+          seenKeys.add(g.key);
+          groups.push(g);
+        }
+      }
+      const basedOn = source.basedOn;
+      enrichGroups(source.groups, 12);
       if (groups.length > 0) similarCache.set(key, { at: Date.now(), groups, basedOn });
       return { groups: await withoutHidden(groups), basedOn };
     } catch (err) {
@@ -1228,7 +1257,17 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       .map((t) => ({ name: t.name, path: t.path, weight: t.weight, genre: t.genre })),
   });
   /** The series' MangaBaka entry: remembered for two weeks (a miss for one), looked up again after that. */
-  async function bakaFor(mangaId: number, refresh: boolean) {
+  // The series page and Similar ask at the same moment; share one lookup.
+  const bakaInFlight = new Map<string, Promise<{ status: string; match: ReturnType<typeof bakaView> | null }>>();
+  function bakaFor(mangaId: number, refresh: boolean) {
+    const k = `${mangaId}|${refresh}`;
+    const running = bakaInFlight.get(k);
+    if (running) return running;
+    const p = bakaLookup(mangaId, refresh).finally(() => bakaInFlight.delete(k));
+    bakaInFlight.set(k, p);
+    return p;
+  }
+  async function bakaLookup(mangaId: number, refresh: boolean): Promise<{ status: string; match: ReturnType<typeof bakaView> | null }> {
     const manga = await detailsFor(mangaId);
     const key = normalizeTitle(manga.title);
     const link = store.bakaLink(key);
@@ -1255,6 +1294,110 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       return { status: "unavailable", match: data ? bakaView(data, link?.manual ?? false) : null };
     }
   }
+  /** The MangaBaka tag vector for a title key, if that series has been matched. */
+  const bakaVecFor = (key: string): TagVector | null => {
+    const d = store.bakaLink(key)?.data as BakaSeries | null | undefined;
+    return d && Array.isArray(d.tags) && d.tags.length > 0 ? bakaVector(d.tags) : null;
+  };
+  const groupVec = (g: SeriesGroup): TagVector | null => {
+    for (const k of [g.key, ...g.hits.map((h) => normalizeTitle(h.title))]) {
+      const v = bakaVecFor(k);
+      if (v) return v;
+    }
+    return null;
+  };
+  /**
+   * Looks series up on MangaBaka in the background, one at a time (its limits are per minute), so the next
+   * For you or Similar has their tags. Stops for this round when MangaBaka doesn't answer.
+   */
+  const bakaPending = new Map<string, string>();
+  let bakaRunning = false;
+  function enrichBaka(items: { key: string; title: string }[], max = 20): void {
+    let added = 0;
+    for (const it of items) {
+      if (added >= max) break;
+      if (!it.key || !it.title || bakaPending.has(it.key) || store.bakaLink(it.key)) continue;
+      bakaPending.set(it.key, it.title);
+      added++;
+    }
+    if (bakaRunning || bakaPending.size === 0) return;
+    bakaRunning = true;
+    void (async () => {
+      try {
+        for (const [key, title] of bakaPending) {
+          bakaPending.delete(key);
+          if (store.bakaLink(key)) continue;
+          const anilistId = store.anilistMeta([key]).get(key)?.anilistId ?? null;
+          const hit = await findOnBaka(baka, [title], anilistId);
+          const series = hit ? await baka.series(hit.id) : null;
+          store.putBakaLink(key, series?.id ?? null, false, series);
+        }
+      } catch (err) {
+        app.log.warn(err, "MangaBaka background lookups stopped for now");
+        bakaPending.clear();
+      } finally {
+        bakaRunning = false;
+      }
+    })();
+  }
+  /** Multiplies a candidate's fit by how well its MangaBaka tags match your taste; undefined when there's nothing to go on. */
+  function tasteBoost(liked: LikedSeries[], disliked: { titleKey: string }[]): ((g: SeriesGroup) => number) | undefined {
+    enrichBaka(liked.filter((l) => l.mangaId !== FAVORITES_ID).map((l) => ({ key: normalizeTitle(l.title), title: l.title })));
+    const items = [
+      ...liked.map((l) => ({ weight: l.weight, vec: l.title ? bakaVecFor(normalizeTitle(l.title)) : null })),
+      ...disliked.map((d) => ({ weight: -0.8, vec: bakaVecFor(d.titleKey) })),
+    ].filter((x): x is { weight: number; vec: TagVector } => x.vec !== null);
+    const taste = tasteVector(items);
+    if (taste.size === 0) return undefined;
+    return (g) => {
+      const v = groupVec(g);
+      return boostFrom(v ? cosine(taste, v) : null);
+    };
+  }
+  /** Count of liked series with MangaBaka tags, part of For you's cache key so new tags bring a rebuild. */
+  const bakaKnown = (liked: LikedSeries[]) => liked.filter((l) => l.title && bakaVecFor(normalizeTitle(l.title))).length;
+  /** Queue the candidates of a finished list for MangaBaka lookups. */
+  const enrichGroups = (groups: SeriesGroup[], max = 20) => enrichBaka(groups.map((g) => ({ key: g.key, title: g.hits[0]?.title ?? g.title })), max);
+
+  /**
+   * "Similar" straight from MangaBaka: series sharing this one's most central tags, checked against their
+   * own tag lists (so an ignored filter can't sneak in strangers), closest first, then found on your sources.
+   */
+  async function bakaSimilar(self: BakaSeries, opts: { scope: Scope; allowExplicit: boolean }): Promise<SeriesGroup[]> {
+    const central = self.tags
+      .filter((t) => !t.spoiler && !t.genre && typeof t.id === "number" && (t.weight === "core" || t.weight === "defining"))
+      .sort((a, b) => (a.weight === b.weight ? 0 : a.weight === "core" ? -1 : 1));
+    if (central.length < 2) return [];
+    const selfVec = bakaVector(self.tags);
+    const explicit = (r: BakaSeries) => r.contentRating === "erotica" || r.contentRating === "pornographic";
+    let picks: BakaSeries[] = [];
+    for (const n of [3, 2]) {
+      const ids = central.slice(0, n).map((t) => t.id as number);
+      if (ids.length < n) continue;
+      const found = await baka.searchByTags(ids).catch(() => [] as BakaSeries[]);
+      picks = found.filter((r) => r.id !== self.id && ids.every((id) => r.tags.some((t) => t.id === id)) && (opts.allowExplicit || !explicit(r)));
+      // Remember what came back, so these series' tags are known later without another lookup.
+      for (const r of found) {
+        const k = normalizeTitle(r.title);
+        if (k && !store.bakaLink(k)) store.putBakaLink(k, r.id, false, r);
+      }
+      if (picks.length >= 4) break;
+    }
+    const ranked = picks
+      .map((r) => ({ r, s: cosine(selfVec, bakaVector(r.tags)) }))
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 6)
+      .map((x) => x.r);
+    const out: SeriesGroup[] = [];
+    for (let i = 0; i < ranked.length; i += 3) {
+      const batch = await Promise.all(
+        ranked.slice(i, i + 3).map((r) => findOnSources(config, store, { id: r.id, titles: r.titles }, { fetchImpl, scope: opts.scope, onResult: report }, "baka_match").catch(() => null)),
+      );
+      for (const g of batch) if (g && !out.some((o) => o.key === g.key)) out.push(g);
+    }
+    return out;
+  }
+
   app.get<{ Params: { id: string }; Querystring: { refresh?: string } }>("/api/manga/:id/mangabaka", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
