@@ -1,4 +1,5 @@
 import { adultState, getJson, send, type AdultState } from "./api";
+import { rememberKeys } from "./offlineLock";
 
 /**
  * Face ID / Touch ID / fingerprint unlock for 18+ mode, through the browser's passkey support (WebAuthn).
@@ -54,6 +55,7 @@ export async function addPasskey(name: string): Promise<PasskeyInfo[]> {
     response: { clientDataJSON: toB64u(r.clientDataJSON), attestationObject: toB64u(r.attestationObject), transports: r.getTransports?.() ?? [] },
   };
   const done = (await send("POST", "/api/adult/passkey/register/verify", { response, challenge: o.challenge, name })) as { passkeys: PasskeyInfo[] };
+  rememberKeys([cred.id]);
   return done.passkeys;
 }
 
@@ -71,5 +73,6 @@ export async function unlockWithPasskey(): Promise<AdultState> {
     response: { clientDataJSON: toB64u(r.clientDataJSON), authenticatorData: toB64u(r.authenticatorData), signature: toB64u(r.signature), userHandle: r.userHandle ? toB64u(r.userHandle) : undefined },
   };
   await send("POST", "/api/adult/passkey/login/verify", { response, challenge: o.challenge });
+  rememberKeys([cred.id]);
   return adultState();
 }

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { lockAdult, setAdultPin, unlockAdult, type AdultState } from "./api";
 import { addPasskey, cancelled, listPasskeys, passkeysSupported, removePasskey, unlockWithPasskey, type PasskeyInfo } from "./passkey";
 import { toast, toastError } from "./toast";
+import { isOffline } from "./connection";
+import { checkPinOffline, faceKnownOffline, faceOffline, rememberPin, setKnownKeys } from "./offlineLock";
 
 /** The 18+ row in the menu: shows whether 18+ mode is on and opens the PIN dialog. */
 export function AdultButton({ state, onOpen }: { state: AdultState; onOpen: () => void }) {
@@ -33,29 +35,38 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
 
   // While on, list the Face ID devices so they can be added or removed.
   useEffect(() => {
-    if (step === "on" && canFace) listPasskeys().then(setKeys, () => setKeys([]));
+    if (step === "on" && canFace && !isOffline())
+      listPasskeys().then((l) => {
+        setKeys(l);
+        setKnownKeys(l.map((k) => k.id));
+      }, () => setKeys([]));
   }, [step, canFace]);
 
   // With Face ID set up, opening the lock goes straight to it; the PIN pad stays underneath as the fallback.
   const autoTried = useRef(false);
   useEffect(() => {
-    if (autoTried.current || step !== "unlock" || !state.passkey || !canFace) return;
+    if (autoTried.current || step !== "unlock" || !state.passkey || !canFace || (isOffline() && !faceKnownOffline())) return;
     autoTried.current = true;
     void faceUnlock();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Face ID has its own busy flag, so the PIN pad stays usable while the Face ID prompt is up.
+  const [faceBusy, setFaceBusy] = useState(false);
   async function faceUnlock() {
-    if (busy) return;
-    setBusy(true);
+    if (faceBusy) return;
+    setFaceBusy(true);
     setError(null);
     try {
-      onChange(await unlockWithPasskey());
+      if (isOffline()) {
+        if (!(await faceOffline())) throw new Error("Face ID didn't match.");
+        onChange({ ...state, unlocked: true, offline: true });
+      } else onChange(await unlockWithPasskey());
       onClose();
     } catch (err) {
       if (!cancelled(err)) setError(err instanceof Error ? err.message : "Face ID didn't work. Use your PIN.");
     } finally {
-      setBusy(false);
+      setFaceBusy(false);
     }
   }
   async function addFace() {
@@ -106,8 +117,20 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
     }
     setBusy(true);
     try {
+      if (isOffline()) {
+        // No NAS: the PIN is checked on this phone, and only what's saved here opens up.
+        if (step !== "unlock") throw new Error("Setting or changing the PIN needs the NAS. Try again when you're back online.");
+        const r = await checkPinOffline(pin);
+        if (r === "locked") throw new Error("Too many wrong tries. Wait a few minutes.");
+        if (r === "unknown") throw new Error("Unlock 18+ once while online on this phone, then it works offline too.");
+        if (r === "wrong") throw new Error("Wrong PIN.");
+        onChange({ ...state, unlocked: true, offline: true });
+        onClose();
+        return;
+      }
       const next =
         step === "unlock" ? await unlockAdult(pin) : step === "confirm" ? await setAdultPin(pin) : await setAdultPin(pin, current);
+      void rememberPin(pin);
       onChange(next);
       onClose();
     } catch (err) {
@@ -149,7 +172,7 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
                 type="button"
                 className="button"
                 onClick={async () => {
-                  onChange(await lockAdult().catch(() => state));
+                  onChange(await lockAdult().catch(() => ({ ...state, unlocked: false, offline: false })));
                   onClose();
                 }}
               >
@@ -183,8 +206,8 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
           </>
         ) : (
           <>
-            {step === "unlock" && state.passkey && canFace && (
-              <button type="button" className="button faceBtn" disabled={busy} onClick={() => void faceUnlock()}>
+            {step === "unlock" && state.passkey && canFace && (!isOffline() || faceKnownOffline()) && (
+              <button type="button" className="button faceBtn" disabled={faceBusy} onClick={() => void faceUnlock()}>
                 Use Face ID
               </button>
             )}

@@ -108,6 +108,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | --- | --- |
 | `main.tsx`, `App.tsx` | Entry, shell (side menu on desktop; top bar, drawer and bottom tab bar on phones), routing, Settings page sections (theme, automation, hidden tags, favorite tags, notifications, backups, updates), `<Toaster/>`. |
 | `route.ts` | Hash routes: `#/` pages (`home, search, library, discover, discover-18, downloads, updates, history, sources, status`=Settings, `merges`), `#/series/:id`, `#/read/:id/:chapter`. |
+| `offlineLock.ts` | 18+ unlock with no NAS: local PIN hash, passkey ids, last known lock state. |
 | `connection.ts` | Online/offline state (`apiFetch`, `useOffline`), the offline progress queue and its flush. |
 | `api.ts` | Typed client for every endpoint, `thumbnailUrl` (with a cover version bump after merges). |
 | `Home.tsx`, `Search.tsx`, `SearchStart.tsx`, `Library.tsx`, `Discover.tsx`, `Updates.tsx`, `History.tsx`, `Downloads.tsx`, `Sources.tsx`, `SeriesPage.tsx`, `Reader.tsx`, `Trackers.tsx`, `AdultLock.tsx` (PIN pad, Face ID button and setup), `passkey.ts` (browser side of passkeys), `Merges.tsx` | The pages. `Merges.tsx` also exports `CompareSheet`, the side-by-side compare used before any suggested merge. |
@@ -348,8 +349,16 @@ offline chapters use Cache Storage and the service worker, and only work over ht
 - *Tidy*: moving forward from a finished chapter removes its copy on this device (toggle on Downloads ›
   On this device, `sapphire.offline.autoRemove`, default on). Offline, the reader's previous/next skip to
   chapters saved here, and the end screen says when none are left.
-- Limits: the app must be opened online once after an update for the phone to pick it up; 18+ can't be
-  unlocked offline (the PIN and Face ID are checked by the NAS). Auto-delete removes downloaded chapters once they're read (finished in the reader or marked read by
+- *18+ offline* (`offlineLock.ts`, Dan Nov 23): with no NAS the phone checks the lock itself, since it only
+  guards what's saved there. The PIN is checked against a PBKDF2-SHA256 hash (310k rounds, random salt) kept
+  in localStorage after the PIN last worked online (5 wrong tries → 5-minute wait); Face ID asks for this
+  site's passkey with user verification and accepts it if the authenticator data shows the same site and
+  the UV flag (no signature check: there's no NAS to issue a challenge). Passkey ids are learned when Face ID
+  is set up or used, and replaced by the NAS's list whenever the 18+ dialog opens online. The last known
+  "PIN set / Face ID set up" is kept so the lock looks right offline. Setting or changing the PIN needs the
+  NAS. An offline unlock (`AdultState.offline`) ends when the NAS is back; its own lock decides again.
+  Trade-off: someone who could read the phone's app storage could brute-force a short PIN's hash offline.
+- Limits: the app must be opened online once after an update for the phone to pick it up. Auto-delete removes downloaded chapters once they're read (finished in the reader or marked read by
 hand), except the chapter your place is on; finishing or marking also tops up auto-download.
 
 ### 5.9 Updates and backups

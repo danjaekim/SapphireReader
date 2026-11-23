@@ -344,6 +344,8 @@ export interface AdultState {
   unlocked: boolean;
   /** A passkey (Face ID) is set up, so it can unlock without the PIN. */
   passkey?: boolean;
+  /** Unlocked on this phone while the NAS couldn't be reached: only what's saved here is shown. */
+  offline?: boolean;
 }
 export const classifyAdult = (items: { mangaId: number; title: string; sourceId?: string }[]) =>
   send("POST", "/api/classify", { items }) as Promise<{ hide: Record<string, boolean> }>;

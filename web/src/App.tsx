@@ -1,6 +1,7 @@
 import { Merges } from "./Merges";
 import { useOffline } from "./connection";
 import { OfflineHome, fillAdultFlags } from "./offline";
+import { knownState, rememberState } from "./offlineLock";
 import { Toaster, toast, toastError } from "./toast";
 import { Loading } from "./Loading";
 import { useEffect, useState } from "react";
@@ -454,17 +455,32 @@ export function App() {
     } catch {
       // No session storage: never lock on every load.
     }
-    (fresh ? lockAdult().catch(() => undefined) : Promise.resolve()).then(() => adultState().then(setAdult, () => {}));
+    // With no NAS, the lock still knows whether a PIN and Face ID exist (from the last time it could ask).
+    (fresh ? lockAdult().catch(() => undefined) : Promise.resolve()).then(() =>
+      adultState().then(
+        (a) => {
+          rememberState(a);
+          setAdult(a);
+        },
+        () => setAdult(knownState()),
+      ),
+    );
   }, []);
   const route = useRoute();
   const offline = useOffline();
   // Chapters saved on this device before offline mode don't say whether they're 18+; fill that in once.
   useEffect(() => {
     if (!offline) void fillAdultFlags().catch(() => undefined);
+    // Back online: the NAS's own lock decides again (an offline unlock only covered this phone).
+    if (!offline) adultState().then((a) => {
+      rememberState(a);
+      setAdult((cur) => (cur.offline || cur.pinSet !== a.pinSet || cur.passkey !== a.passkey ? a : cur));
+    }, () => {});
   }, [offline]);
 
   // Locking or unlocking changes what searches return, so remembered results are dropped.
   function onAdult(next: AdultState) {
+    if (!next.offline) rememberState(next);
     clearPagedCache();
     resetHiddenCache();
     setAdult(next);
