@@ -193,6 +193,27 @@ describe("Similar for explicit series", () => {
   });
 });
 
+describe("Old MangaBaka records", () => {
+  it("are fetched again when their tags have no ids, so Similar can search by tag", async () => {
+    clearFilterCache();
+    const store = new Store(":memory:");
+    // Saved before tag ids were kept: names only.
+    store.putBakaLink(normalizeTitle("Overgeared"), 685, false, { id: 685, title: "Overgeared", titles: [], contentRating: "safe", tags: [{ name: "Crafting", path: "Activities > Art Forms > Crafting", weight: "core", genre: false, spoiler: false }] });
+    (store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): void } } }).db.prepare("UPDATE mb_links SET fetched_at = ?").run(new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString());
+    const calls: string[] = [];
+    const base = world();
+    const f = (async (u: string, init?: RequestInit) => {
+      if (String(u).includes("tag=")) calls.push(String(u));
+      return base(u, init);
+    }) as unknown as typeof fetch;
+    const app = await buildApp(config, { fetchImpl: f, store, baka: new MangaBaka(f, { search: 0, other: 0 }) });
+    const out = (await app.inject({ url: "/api/manga/50/similar?debug=1" })).json();
+    expect(out.debug.mangabaka.withIds).toBe(3);
+    expect(out.debug.baka.telling.length).toBe(3);
+    expect(calls.length).toBe(3);
+  });
+});
+
 describe("Similar keeps to the same content rating", () => {
   it("an explicit series only suggests explicit ones; series of unknown rating are left out", async () => {
     clearFilterCache();

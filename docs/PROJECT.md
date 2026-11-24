@@ -422,6 +422,8 @@ downloaded from Settings.
     a series costs 4 to 5 tag searches (2.5 s apart) plus source searches; later opens reuse the caches.
     `GET /api/manga/:id/similar?debug=1` skips the hour cache and adds `debug` (MangaBaka id/rating, tags
     searched, pool size, candidates ranked/tried/found, genre results found/kept) for checking on the NAS.
+    MangaBaka records saved before tag ids were kept (all tags lack `id`) are fetched again on the next
+    lookup (at most hourly), since without ids no tag searches can run (Dan's debug output, Nov 24: `telling: []`).
     (Multi-tag search can't do AND: repeated `tag=` keeps only the first, commas match nothing; checked live
     Nov 23. Whether v1 search honours `content_rating` is not yet checked live; if ignored, nothing is lost.)
   - Background lookups (`enrichBaka`): liked series and up to 20 candidates per For you / deep / Similar

@@ -1365,7 +1365,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         return {
           ...result,
           debug: {
-            mangabaka: self ? { id: self.id, rating: self.contentRating, tags: self.tags.length } : null,
+            mangabaka: self ? { id: self.id, rating: self.contentRating, tags: self.tags.length, withIds: self.tags.filter((t) => t.id !== undefined).length } : null,
             explicit: selfExplicit,
             baka: fromBaka.stats,
             genre: { found: source.groups.length, kept: source.groups.filter((g) => !unrelated(g) && fits(g)).length },
@@ -1436,7 +1436,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const data = link?.data as BakaSeries | null | undefined;
     if (link && !refresh) {
       if (link.mbId === null && (link.manual || age < BAKA_MISS_MS)) return { status: link.manual ? "none-manual" : "none", match: null };
-      if (link.mbId !== null && data && age < BAKA_FRESH_MS) return { status: "matched", match: bakaView(data, link.manual) };
+      // Records saved before tag ids were kept can't drive tag searches (Similar's "telling" tags came back
+      // empty, Dan's debug output Nov 24), so those are fetched again, at most hourly.
+      const noIds = !!data && data.tags.length > 0 && data.tags.every((t) => t.id === undefined) && age > 3600 * 1000;
+      if (link.mbId !== null && data && age < BAKA_FRESH_MS && !noIds) return { status: "matched", match: bakaView(data, link.manual) };
     }
     try {
       let id = link?.manual || (link?.mbId != null && !refresh) ? link!.mbId : null;
