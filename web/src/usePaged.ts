@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { SearchResult, SeriesGroup } from "./api";
+import { thumbnailUrl, type SearchResult, type SeriesGroup } from "./api";
 import { parseHash } from "./route";
 
 /** Adds a later page's series to the ones already shown, merging sources for the same series. */
@@ -48,6 +48,42 @@ function remember(key: string, entry: CacheEntry) {
   while (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value as string);
 }
 
+/**
+ * Warms the browser cache with a page's covers before its cards are near the screen, a few at a time and
+ * at low priority so covers you can see go first. Covers come from the source site through the engine, which
+ * is slow the first time; by the time you scroll there they're already loaded.
+ */
+const warmed = new Set<string>();
+const coverWaiting: string[] = [];
+let coverRunning = 0;
+function pumpCovers() {
+  while (coverRunning < 4 && coverWaiting.length > 0) {
+    const url = coverWaiting.shift()!;
+    coverRunning++;
+    const img = new Image();
+    (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = "low";
+    img.decoding = "async";
+    const done = () => {
+      coverRunning--;
+      pumpCovers();
+    };
+    img.onload = done;
+    img.onerror = done;
+    img.src = url;
+  }
+}
+export function warmCovers(groups: SeriesGroup[]): void {
+  for (const g of groups) {
+    const id = g.cover ?? g.hits[0]?.mangaId;
+    if (id === undefined) continue;
+    const url = thumbnailUrl(id);
+    if (warmed.has(url)) continue;
+    warmed.add(url);
+    coverWaiting.push(url);
+  }
+  pumpCovers();
+}
+
 export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key: string | null) {
   const [result, setResult] = useState<SearchResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -60,6 +96,15 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
   fetchRef.current = fetchPage;
 
   const restoreTo = useRef<number | null>(null);
+  // The next page, asked for as soon as the current one is shown, so "load more" usually has it ready.
+  const ahead = useRef<{ run: number; page: number; promise: Promise<SearchResult> } | null>(null);
+  const fetchAhead = useCallback((runId: number, nextPage: number) => {
+    if (ahead.current?.run === runId && ahead.current.page === nextPage) return;
+    const promise = fetchRef.current(nextPage);
+    // Covers for the next page start loading in the background too.
+    promise.then((r) => runId === run.current && warmCovers(r.groups), () => undefined);
+    ahead.current = { run: runId, page: nextPage, promise };
+  }, []);
 
   useEffect(() => {
     const id = ++run.current;
@@ -72,6 +117,7 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
       setBusy(false);
       return;
     }
+    ahead.current = null;
     const cached = cache.get(key);
     if (cached) {
       page.current = cached.page;
@@ -79,6 +125,7 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
       setResult(cached.result);
       setMore(cached.more);
       setBusy(false);
+      if (cached.more) fetchAhead(id, cached.page + 1);
       return;
     }
     restoreTo.current = null;
@@ -94,6 +141,10 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
         setMore(r.groups.length > 0);
         setBusy(false);
         remember(key, { result: r, page: 1, more: r.groups.length > 0, scrollY: 0 });
+        if (r.groups.length > 0) {
+          warmCovers(r.groups);
+          fetchAhead(id, 2);
+        }
       },
       (e: unknown) => {
         if (id !== run.current) return;
@@ -137,8 +188,9 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
     loading.current = true;
     const id = run.current;
     const next = page.current + 1;
-    fetchRef
-      .current(next)
+    // Usually already on its way (or here) from fetchAhead.
+    fetchAhead(id, next);
+    ahead.current!.promise
       .then((r) => {
         if (id !== run.current) return;
         page.current = next;
@@ -146,12 +198,18 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
         setResult(merged);
         setMore(added > 0);
         if (key !== null) remember(key, { result: merged, page: next, more: added > 0, scrollY: cache.get(key)?.scrollY ?? 0 });
+        if (added > 0) fetchAhead(id, next + 1);
       })
-      .catch(() => id === run.current && setMore(false))
+      .catch(() => {
+        if (id !== run.current) return;
+        // Forget the failed page, so a later visit asks for it again.
+        if (ahead.current?.page === next) ahead.current = null;
+        setMore(false);
+      })
       .finally(() => {
         loading.current = false;
       });
-  }, [more, result, key]);
+  }, [more, result, key, fetchAhead]);
 
   return { result, busy, error, more, loadMore };
 }

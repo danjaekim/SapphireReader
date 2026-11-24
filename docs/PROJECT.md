@@ -114,7 +114,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `Home.tsx`, `Search.tsx`, `SearchStart.tsx`, `Library.tsx`, `Discover.tsx`, `Updates.tsx`, `History.tsx`, `Downloads.tsx`, `Sources.tsx`, `SeriesPage.tsx`, `Reader.tsx`, `Trackers.tsx`, `AdultLock.tsx` (PIN pad, Face ID button and setup), `passkey.ts` (browser side of passkeys), `Merges.tsx` | The pages. `Merges.tsx` also exports `CompareSheet`, the side-by-side compare used before any suggested merge. |
 | `Results.tsx` | The card grid used everywhere (lazy chapter lookups for near-screen cards, ratings badge, add-to-library, Not interested, Select mode). |
 | `FilterBar.tsx`, `SortSelect.tsx`, `genres.ts` | Sticky filter bar: tabs, genre sheet, source sheet, sort. |
-| `usePaged.ts` | Paged loading with an in-memory cache that restores lists and scroll on Back (`clearPagedCache`). |
+| `usePaged.ts` | Paged loading with an in-memory cache that restores lists and scroll on Back (`clearPagedCache`), one-page-ahead prefetch and background cover warming (`warmCovers`). |
 | `shared.ts` | Library id cache and toggle, ratings batching, hidden-adult checks (`useHiddenAdult`, `resetHiddenCache`). |
 | `titles.ts` | `tidyTitle`: display-only cleanup of doujin-style titles. |
 | `offline.tsx`, `useDownloads.ts` | On-device offline chapters (Cache Storage, https only), `saveManyOffline`, auto-remove setting, `OfflineHome`; NAS downloads. |
@@ -239,6 +239,15 @@ by rank, then `rankByQuery` orders by title match: exact (100) > starts with que
 (60) > all words (40) > some words (<30); ties go to more sources, then site order. Sorting other
 than best match goes through each source's own sort filter (`browse.ts`); sources without that
 sort are listed as unsorted. Ratings sorts use AniList (`rankByAnilist`).
+
+Loading more (Search and Discover grids; Dan, Nov 24: "load more is slow", both the next page and its
+covers). A page waits on every source it asks (10 s cap each), then AniList ranking, so `usePaged` asks for
+the next page as soon as the current one is shown and holds it; scrolling within 2.5 screens of the end
+(`rootMargin: 0 0 250% 0`, was 600px) appends it, usually at once, and asks for the one after. Costs one
+extra page request per list opened even if you never scroll. When a page arrives (page 1 too) its covers
+are loaded in the background (`warmCovers`: low priority, 4 at a time, each URL once per tab), so they're
+in the browser cache (`max-age=3600`) before their cards are near. Skeleton cards stand at the end of the
+grid while more exist, and covers fade in over their placeholder instead of drawing in pieces.
 
 ### 5.3 Chapters, progress and "best source"
 

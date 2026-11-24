@@ -1,4 +1,3 @@
-import { Loading } from "./Loading";
 import { tidyTitle } from "./titles";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { seriesHref } from "./route";
@@ -37,6 +36,25 @@ function useNearScreen<T extends Element>(margin = "300px") {
     return () => io.disconnect();
   }, [near, margin]);
   return [ref, near] as const;
+}
+
+/** A cover that fades in once loaded, over the card's placeholder (no pop-in of half-drawn images). */
+function CoverImg({ src }: { src: string }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className={shown ? "loaded" : "loading"}
+      ref={(el) => {
+        if (el?.complete && el.naturalWidth > 0 && !shown) setShown(true);
+      }}
+      onLoad={() => setShown(true)}
+      onError={() => setShown(true)}
+    />
+  );
 }
 
 function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: SeriesGroup; queue: Queue; lookups: boolean; hideBad: boolean; onBad: (key: string, bad: boolean) => void; onDismiss?: (group: SeriesGroup, on: boolean) => void }) {
@@ -120,7 +138,7 @@ function Card({ group, queue, lookups, hideBad, onBad, onDismiss }: { group: Ser
         </button>
       )}
       <a href={seriesHref(target)} className="gridCover">
-        <img src={thumbnailUrl(group.cover ?? target)} alt="" loading="lazy" />
+        <CoverImg src={thumbnailUrl(group.cover ?? target)} />
         {sourceNames.length > 1 && <span className="badge">{sourceNames.length} sources</span>}
         {rating && <span className="badge score" title={`${rating.source} rating`}>★ {rating.value.toFixed(1)}</span>}
       </a>
@@ -200,7 +218,9 @@ export function Results({
   useEffect(() => {
     const el = end.current;
     if (!el || !hasMore || !onMore) return;
-    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && onMore(), { rootMargin: "600px" });
+    // Two and a half screens early: the next page is usually fetched already (usePaged asks one page ahead),
+    // so its cards land well before you get there.
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && onMore(), { rootMargin: "0px 0px 250% 0px" });
     io.observe(el);
     return () => io.disconnect();
   }, [hasMore, onMore, result]);
@@ -228,8 +248,18 @@ export function Results({
           <Card key={group.key} group={group} queue={queue} lookups={lookups} hideBad={hideBad} onBad={onBad} onDismiss={onDismiss} />
         ))}
       </ul>
+      {!compact && hasMore && (
+        <ul className="grid skelMore" aria-hidden="true">
+          {Array.from({ length: 6 }, (_, i) => (
+            <li key={i} className="gridCard">
+              <div className="skel skelCard" />
+              <div className="skel skelLine" style={{ width: "80%" }} />
+            </li>
+          ))}
+        </ul>
+      )}
       {!compact && <div ref={end} className="gridEnd muted">
-        {hasMore ? <Loading label="Loading more…" size="sm" /> : result.groups.length > 0 ? "That's everything." : ""}
+        {hasMore ? <span className="srOnly" role="status">Loading more…</span> : result.groups.length > 0 ? "That's everything." : ""}
       </div>}
     </>
   );

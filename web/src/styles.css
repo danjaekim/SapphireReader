@@ -1072,3 +1072,11 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
   .skeletonPage .skelCover { width: min(150px, 40vw); align-self: center; }
 }
 @media (prefers-reduced-motion: reduce) { .skel, .miniSpin { animation: none; } }
+
+/* Grids: covers fade in over the placeholder; skeleton cards stand where the next page will land. */
+.gridCover img.loading { opacity: 0; }
+.gridCover img.loaded { opacity: 1; transition: opacity 0.25s, transform 0.15s; }
+.skelMore { margin-top: 12px; }
+.skelMore .gridCard { display: flex; flex-direction: column; gap: 8px; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .gridCover img.loaded { transition: none; } }
