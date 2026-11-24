@@ -164,6 +164,35 @@ describe("Similar by MangaBaka tags", () => {
   });
 });
 
+describe("Similar for explicit series", () => {
+  it("skips broad tags, searches tags within the series' own rating, and explains itself with ?debug=1", async () => {
+    clearFilterCache();
+    const store = new Store(":memory:");
+    const calls: string[] = [];
+    const SEINEN = { ...t2(20, "Seinen", "Demographic > Seinen", "core") };
+    const LEAD = t2(21, "Male Lead", "Cast > Male Lead", "core");
+    const base = world("pornographic");
+    const f = (async (u: string, init?: RequestInit) => {
+      const url = String(u);
+      if (url.includes("tag=")) calls.push(url);
+      if (url.includes("/series/685") && !url.includes("similar")) return new Response(JSON.stringify({ status: 200, data: { ...SELF_SAFE, content_rating: "pornographic", tags_v2: [SEINEN, LEAD, CRAFT, WEAK, VR] } }));
+      if (url.includes("/series/search") && !url.includes("tag=")) return new Response(JSON.stringify({ status: 200, data: [{ ...SELF_SAFE, content_rating: "pornographic", tags_v2: [SEINEN, LEAD, CRAFT, WEAK, VR] }] }));
+      if (url.includes("tag=")) return new Response(JSON.stringify({ status: 200, data: [{ ...TAGGED, content_rating: "pornographic" }] }));
+      return base(u, init);
+    }) as unknown as typeof fetch;
+    const app = await buildApp(config, { fetchImpl: f, store, baka: new MangaBaka(f, { search: 0, other: 0 }) });
+    const out = (await app.inject({ url: "/api/manga/50/similar?debug=1" })).json();
+    expect(calls.some((c) => c.includes("tag=20") || c.includes("tag=21"))).toBe(false);
+    expect(calls.length).toBe(3);
+    expect(calls.every((c) => c.includes("content_rating=pornographic"))).toBe(true);
+    expect(out.groups.map((g: { title: string }) => g.title)).toContain("Forge Master");
+    expect(out.basedOn).not.toContain("Seinen");
+    expect(out.debug.explicit).toBe(true);
+    expect(out.debug.baka.telling).toEqual(["Crafting", "Virtual Reality", "Weak to Strong"]);
+    expect(out.debug.baka.found).toBeGreaterThan(0);
+  });
+});
+
 describe("Similar keeps to the same content rating", () => {
   it("an explicit series only suggests explicit ones; series of unknown rating are left out", async () => {
     clearFilterCache();

@@ -408,15 +408,22 @@ downloaded from Settings.
     having data is not itself a bonus. Candidates still come from source genre browsing; MangaBaka only re-ranks.
   - Similar (rebuilt Nov 24 at Dan's ask, "match on the detailed tags"): the candidate pool is MangaBaka's
     own similar list (`GET /v1/series/{id}/similar`, +0.1 head start since it also weighs author/relations)
-    plus the series carrying this one's 3 most telling tags (core, then defining, then recurrent; rarer first by
-    `series_count`; no genres or spoilers), one `GET /v1/series/search?tag=ID&limit=50` each, cached a week
-    as `mb_tag.<id>`. Every candidate is ranked by cosine of its whole weighted tag vector against this
-    series (kept above 0.12), held to the same content rating, and the best 30 are looked for on your sources
-    (4 at a time, stop at 12; `findOnSources`, cached a week under `baka_match.*`). The genre-based results
-    follow, boosted by closeness, minus any MangaBaka knows are unrelated (cosine < 0.08). "Matched mostly
-    on" names this series' tags the found ones share most. First open of a series costs ~3 tag searches
-    (2.5 s apart) plus source searches; later opens reuse the caches. (Multi-tag search can't do AND:
-    repeated `tag=` keeps only the first, commas match nothing; checked live Nov 23.)
+    plus the series carrying this one's most telling tags (4, or 5 for explicit series; core, then defining,
+    then recurrent; rarer first by `series_count`; no genres, spoilers or broad tags: demographics like
+    Seinen, Male/Female Lead, Adult/Smut-style labels, any tag on over 15,000 series), one
+    `GET /v1/series/search?tag=ID&limit=50` each, cached a week as `mb_tag.<id>`. For an explicit series the
+    search adds `content_rating=<its rating>` (cached as `mb_tag.<id>.<rating>`), since unfiltered pools were
+    mostly safe titles that the rating gate then dropped (Dan, Nov 24: "very thin"). Every candidate is ranked
+    by cosine of its whole weighted tag vector against this series (kept above 0.12), held to the same content
+    rating, and the best are looked for on your sources (4 at a time; best 30 stopping at 12, or best 60
+    stopping at 16 for explicit series; `findOnSources`, cached a week under `baka_match.*`). The genre-based
+    results follow, boosted by closeness, minus any MangaBaka knows are unrelated (cosine < 0.08). "Matched
+    mostly on" names this series' specific tags (broad ones left out) the found ones share most. First open of
+    a series costs 4 to 5 tag searches (2.5 s apart) plus source searches; later opens reuse the caches.
+    `GET /api/manga/:id/similar?debug=1` skips the hour cache and adds `debug` (MangaBaka id/rating, tags
+    searched, pool size, candidates ranked/tried/found, genre results found/kept) for checking on the NAS.
+    (Multi-tag search can't do AND: repeated `tag=` keeps only the first, commas match nothing; checked live
+    Nov 23. Whether v1 search honours `content_rating` is not yet checked live; if ignored, nothing is lost.)
   - Background lookups (`enrichBaka`): liked series and up to 20 candidates per For you / deep / Similar
     build are looked up one at a time; tag-search results are cached too. The For you and deep cache keys
     include how many liked series have MangaBaka tags, so new tags bring a rebuild (within the 3h gap rule).

@@ -200,8 +200,10 @@ export class MangaBaka {
    * Series carrying one tag, as full records (with their tags and rating). One tag per call: repeated tag=
    * keeps only the first (checked live Nov 23 2026).
    */
-  async byTag(tagId: number, limit = 50): Promise<BakaSeries[]> {
-    const j = await this.get(`/v1/series/search?tag=${tagId}&limit=${limit}`, this.gaps.search);
+  async byTag(tagId: number, limit = 50, rating?: string): Promise<BakaSeries[]> {
+    // A content rating narrows the list to that rating, so an explicit series' pool isn't mostly safe titles.
+    const r = rating ? `&content_rating=${encodeURIComponent(rating)}` : "";
+    const j = await this.get(`/v1/series/search?tag=${tagId}&limit=${limit}${r}`, this.gaps.search);
     const j2 = obj(j);
     const list = Array.isArray(j2.data) ? j2.data : Array.isArray(j2.results) ? j2.results : [];
     return list.filter((x) => obj(x).state !== "deleted").map((x) => parseSeries(x)).filter((x): x is BakaSeries => x !== null);

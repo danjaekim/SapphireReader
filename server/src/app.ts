@@ -24,7 +24,7 @@ import { Downloader, mimeForFile } from "./downloader.js";
 import { backupName, snapshot } from "./backup.js";
 import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
 import { checkLibrary } from "./checker.js";
-import { MangaBaka, bakaUrl, findOnBaka, type BakaSeries, type TagWeight } from "./mangabaka.js";
+import { MangaBaka, bakaUrl, findOnBaka, type BakaSeries, type BakaTag, type TagWeight } from "./mangabaka.js";
 import { bakaVector, boostFrom, cosine, tasteVector, type TagVector } from "./bakatags.js";
 import { findOnSources } from "./alsoliked.js";
 import { pairKey, splitVersion, suggestMerges } from "./mergehints.js";
@@ -1304,15 +1304,16 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return out;
   }
 
-  app.get<{ Params: { id: string } }>("/api/manga/:id/similar", async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { debug?: string } }>("/api/manga/:id/similar", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
       const manga = await detailsFor(id);
       const scope = scopeFor(req);
       const key = `${id}|${scope}`;
+      const debug = req.query.debug === "1";
       const cached = similarCache.get(key);
-      if (cached && Date.now() - cached.at < 60 * 60 * 1000) {
+      if (cached && !debug && Date.now() - cached.at < 60 * 60 * 1000) {
         const split = splitSame(manga.title, cached.groups as SeriesGroup[]);
         return { groups: await withoutHidden(split.groups), basedOn: cached.basedOn, sameSeries: split.sameSeries };
       }
@@ -1330,7 +1331,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
           boost: selfVec ? (g) => { const v = groupVec(g); return boostFrom(v ? cosine(selfVec, v) : null); } : undefined,
         }),
-        self ? bakaSimilar(self, { scope, explicit: self.contentRating ? EXPLICIT.has(self.contentRating) : selfAdult }).catch(() => ({ groups: [] as SeriesGroup[], shared: [] as string[] })) : Promise.resolve({ groups: [] as SeriesGroup[], shared: [] as string[] }),
+        self ? bakaSimilar(self, { scope, explicit: self.contentRating ? EXPLICIT.has(self.contentRating) : selfAdult }).catch(() => ({ groups: [] as SeriesGroup[], shared: [] as string[], stats: null })) : Promise.resolve({ groups: [] as SeriesGroup[], shared: [] as string[], stats: null }),
       ]);
       // MangaBaka's picks lead (they share this series' specific tags, not just its broad genres). After them
       // come the genre-based ones, closest first, leaving out any MangaBaka knows to share almost nothing.
@@ -1358,7 +1359,20 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       enrichGroups(source.groups, 12);
       if (groups.length > 0) similarCache.set(key, { at: Date.now(), groups, basedOn });
       const split = splitSame(manga.title, groups);
-      return { groups: await withoutHidden(split.groups), basedOn, sameSeries: split.sameSeries };
+      const result = { groups: await withoutHidden(split.groups), basedOn, sameSeries: split.sameSeries };
+      // ?debug=1 says how the list was built, for checking against live MangaBaka and sources.
+      if (debug) {
+        return {
+          ...result,
+          debug: {
+            mangabaka: self ? { id: self.id, rating: self.contentRating, tags: self.tags.length } : null,
+            explicit: selfExplicit,
+            baka: fromBaka.stats,
+            genre: { found: source.groups.length, kept: source.groups.filter((g) => !unrelated(g) && fits(g)).length },
+          },
+        };
+      }
+      return result;
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't find similar series." });
@@ -1511,44 +1525,57 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
    * out unless this series is 18+. Also says which tags they share most, for the "Matched on" line.
    */
   /** Series carrying a MangaBaka tag, remembered for a week (the tag search is rate-limited). */
-  async function bakaTagPool(tagId: number): Promise<BakaSeries[]> {
-    const key = `mb_tag.${tagId}`;
+  async function bakaTagPool(tagId: number, rating?: string): Promise<BakaSeries[]> {
+    const key = `mb_tag.${tagId}${rating ? `.${rating}` : ""}`;
     try {
       const c = JSON.parse(store.getSetting(key) ?? "null") as { at: number; list: BakaSeries[] } | null;
       if (c && Date.now() - c.at < 7 * 24 * 3600 * 1000) return c.list;
     } catch {
       // Ask again.
     }
-    const list = await baka.byTag(tagId, 50);
+    const list = await baka.byTag(tagId, 50, rating);
     store.setSetting(key, JSON.stringify({ at: Date.now(), list }));
     return list;
   }
 
-  /** The tags that say most about a series: central ones first, rarer ones before common ones, no genres or spoilers. */
+  /**
+   * Tags too broad to find neighbours by: reader demographics and who the lead is. Thousands of series carry
+   * them, so a 50-title search on one returns the most popular of everything (Dan, Nov 24: "Matched mostly on
+   * Seinen, Big Breasts, Male Lead" for a thin list).
+   */
+  const BROAD_TAG = /^(seinen|shou?nen|josei|shou?jo|kodomo|male lead|female lead|male protagonist|female protagonist|adult|mature|ecchi|smut|hentai|pornographic|erotica|manhwa|manhua|manga|webtoon|full colou?r|long strip)$/i;
+  const broadTag = (t: BakaTag) => BROAD_TAG.test(t.name.trim()) || /^demographic/i.test(t.path) || (t.count !== undefined && t.count > 15000);
+
+  /** The tags that say most about a series: central ones first, rarer ones before common ones, no genres, spoilers or broad tags. */
   function tellingTags(s: BakaSeries, n: number) {
     const rank: Record<string, number> = { core: 0, defining: 1, recurrent: 2 };
     return s.tags
-      .filter((t) => t.id !== undefined && !t.genre && !t.spoiler && t.weight in rank)
+      .filter((t) => t.id !== undefined && !t.genre && !t.spoiler && t.weight in rank && !broadTag(t))
       .sort((a, b) => rank[a.weight] - rank[b.weight] || (a.count ?? 1e9) - (b.count ?? 1e9))
       .slice(0, n);
   }
 
+  interface SimilarStats { telling: string[]; listed: number; pool: number; ranked: number; tried: number; found: number }
+
   /**
    * Similar series by MangaBaka's detailed tags. The pool is MangaBaka's own "similar" list plus the series
-   * carrying this one's most telling tags (one tag search each); every candidate is ranked by how closely its
-   * whole weighted tag set matches this one (cosine), kept to the same content rating, and the best are
-   * looked up on your sources until a dozen are found.
+   * carrying this one's most telling tags (one tag search each, narrowed to this series' content rating);
+   * every candidate is ranked by how closely its whole weighted tag set matches this one (cosine), kept to
+   * the same content rating, and the best are looked up on your sources until enough are found. Explicit
+   * series get a bigger search: their neighbours are less often on any one source.
    */
-  async function bakaSimilar(self: BakaSeries, opts: { scope: Scope; explicit: boolean }): Promise<{ groups: SeriesGroup[]; shared: string[] }> {
+  async function bakaSimilar(self: BakaSeries, opts: { scope: Scope; explicit: boolean }): Promise<{ groups: SeriesGroup[]; shared: string[]; stats: SimilarStats }> {
     const fits = (r: BakaSeries) => r.id !== self.id && (opts.explicit ? EXPLICIT.has(r.contentRating ?? "") : !EXPLICIT.has(r.contentRating ?? ""));
     const selfVec = bakaVector(self.tags);
     const pool = new Map<number, { series: BakaSeries; bonus: number }>();
     const listed = await baka.similar(self.id).catch(() => []);
     // MangaBaka's own list also weighs author and relations, so its picks get a small head start.
     for (const x of listed) if (fits(x.series)) pool.set(x.series.id, { series: x.series, bonus: 0.1 });
-    const telling = tellingTags(self, 3);
+    const telling = tellingTags(self, opts.explicit ? 5 : 4);
+    // An explicit series searches its own rating; others search unfiltered and drop explicit ones below.
+    const rating = opts.explicit ? (self.contentRating && EXPLICIT.has(self.contentRating) ? self.contentRating : "pornographic") : undefined;
     for (const t of telling) {
-      for (const r of await bakaTagPool(t.id!).catch(() => [] as BakaSeries[])) if (fits(r) && !pool.has(r.id)) pool.set(r.id, { series: r, bonus: 0 });
+      for (const r of await bakaTagPool(t.id!, rating).catch(() => [] as BakaSeries[])) if (fits(r) && !pool.has(r.id)) pool.set(r.id, { series: r, bonus: 0 });
     }
     const ranked = [...pool.values()]
       .map((x) => ({ ...x, score: cosine(selfVec, bakaVector(x.series.tags)) + x.bonus }))
@@ -1559,13 +1586,17 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const k = normalizeTitle(series.title);
       if (k && !store.bakaLink(k)) store.putBakaLink(k, series.id, false, series);
     }
-    // Most won't be on your sources; look through the best 30, four at a time, until 12 are found.
+    // Most won't be on your sources; look through the best, four at a time, until enough are found.
+    const [budget, enough] = opts.explicit ? [60, 16] : [30, 12];
     const out: SeriesGroup[] = [];
     const found: BakaSeries[] = [];
-    const wanted = ranked.slice(0, 30);
-    for (let i = 0; i < wanted.length && out.length < 12; i += 4) {
+    const wanted = ranked.slice(0, budget);
+    let tried = 0;
+    for (let i = 0; i < wanted.length && out.length < enough; i += 4) {
+      const slice = wanted.slice(i, i + 4);
+      tried += slice.length;
       const batch = await Promise.all(
-        wanted.slice(i, i + 4).map((x) => findOnSources(config, store, { id: x.series.id, titles: x.series.titles }, { fetchImpl, scope: opts.scope, onResult: report }, "baka_match").then((g) => ({ g, s: x.series }), () => null)),
+        slice.map((x) => findOnSources(config, store, { id: x.series.id, titles: x.series.titles }, { fetchImpl, scope: opts.scope, onResult: report }, "baka_match").then((g) => ({ g, s: x.series }), () => null)),
       );
       for (const b of batch) {
         if (!b?.g || out.some((o) => o.key === b.g!.key)) continue;
@@ -1575,12 +1606,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         if (!store.bakaLink(b.g.key)) store.putBakaLink(b.g.key, b.s.id, false, b.s);
       }
     }
-    // "Matched on": this series' telling tags that the found ones share most.
-    const names = new Set(self.tags.filter((t) => !t.genre && !t.spoiler).map((t) => t.name));
+    // "Matched on": this series' specific tags that the found ones share most.
+    const names = new Set(self.tags.filter((t) => !t.genre && !t.spoiler && !broadTag(t)).map((t) => t.name));
     const counts = new Map<string, number>();
     for (const f of found) for (const t of f.tags) if (names.has(t.name)) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
     const shared = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n);
-    return { groups: out, shared: shared.length ? shared : telling.map((t) => t.name) };
+    const stats = { telling: telling.map((t) => t.name), listed: listed.length, pool: pool.size, ranked: ranked.length, tried, found: out.length };
+    return { groups: out, shared: shared.length ? shared : telling.map((t) => t.name), stats };
   }
 
   app.get<{ Params: { id: string }; Querystring: { refresh?: string } }>("/api/manga/:id/mangabaka", async (req, reply) => {
