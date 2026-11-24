@@ -248,6 +248,9 @@ extra page request per list opened even if you never scroll. When a page arrives
 are loaded in the background (`warmCovers`: low priority, 4 at a time, each URL once per tab), so they're
 in the browser cache (`max-age=3600`) before their cards are near. Skeleton cards stand at the end of the
 grid while more exist, and covers fade in over their placeholder instead of drawing in pieces.
+First loads show skeletons too (Dan, Nov 24): Search and Discover show the status line over a grid of
+placeholder cards (`SkeletonResults` in `Results.tsx`), For you shows placeholder shelves (`SkeletonShelves`),
+and its "Best matches" and "Readers also liked" rows show placeholder cards while they're worked out.
 
 ### 5.3 Chapters, progress and "best source"
 

@@ -38,6 +38,48 @@ function useNearScreen<T extends Element>(margin = "300px") {
   return [ref, near] as const;
 }
 
+/** Placeholder cards in the grid's own layout (and a shelf's, inside one) while results are on their way. */
+export function SkeletonCards({ count = 12, className = "" }: { count?: number; className?: string }) {
+  return (
+    <ul className={`grid skelCards ${className}`} aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => (
+        <li key={i} className="gridCard">
+          <div className="skel skelCard" />
+          <div className="skel skelLine" style={{ width: `${62 + ((i * 13) % 30)}%` }} />
+          <div className="skel skelLine skelSmall" style={{ width: `${35 + ((i * 7) % 20)}%` }} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** A first load: what's happening in words (for screen readers too), over a grid of placeholder cards. */
+export function SkeletonResults({ label, count = 12 }: { label: string; count?: number }) {
+  return (
+    <div aria-busy="true">
+      <p className="muted resultMeta" role="status">{label}</p>
+      <SkeletonCards count={count} />
+    </div>
+  );
+}
+
+/** Placeholder shelves (For you rows) while they're worked out. */
+export function SkeletonShelves({ count = 2, label }: { count?: number; label?: string }) {
+  return (
+    <div className="shelves" aria-busy="true">
+      {label && <p className="muted resultMeta" role="status">{label}</p>}
+      {Array.from({ length: count }, (_, i) => (
+        <section key={i} className="shelf">
+          <header className="shelfHead">
+            <span className="skel skelLine" style={{ width: `${40 + i * 12}%`, height: 18 }} />
+          </header>
+          <SkeletonCards count={6} />
+        </section>
+      ))}
+    </div>
+  );
+}
+
 /** A cover that fades in once loaded, over the card's placeholder (no pop-in of half-drawn images). */
 function CoverImg({ src }: { src: string }) {
   const [shown, setShown] = useState(false);
@@ -248,16 +290,7 @@ export function Results({
           <Card key={group.key} group={group} queue={queue} lookups={lookups} hideBad={hideBad} onBad={onBad} onDismiss={onDismiss} />
         ))}
       </ul>
-      {!compact && hasMore && (
-        <ul className="grid skelMore" aria-hidden="true">
-          {Array.from({ length: 6 }, (_, i) => (
-            <li key={i} className="gridCard">
-              <div className="skel skelCard" />
-              <div className="skel skelLine" style={{ width: "80%" }} />
-            </li>
-          ))}
-        </ul>
-      )}
+      {!compact && hasMore && <SkeletonCards count={6} className="skelMore" />}
       {!compact && <div ref={end} className="gridEnd muted">
         {hasMore ? <span className="srOnly" role="status">Loading more…</span> : result.groups.length > 0 ? "That's everything." : ""}
       </div>}

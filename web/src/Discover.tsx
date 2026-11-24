@@ -1,11 +1,10 @@
-import { Loading } from "./Loading";
 import { toast, toastError } from "./toast";
 import { ago } from "./util";
 import { tidyTitle } from "./titles";
 import { alsoLiked, browse, deepForYou, setAdultMarks, discoverList, forYou, setNotInterested, type SearchResult, type DeepRow, type SeriesGroup, type Shelf } from "./api";
 import { canonLabel } from "./genres";
 import { FilterBar, useSourceChoices } from "./FilterBar";
-import { Results, SelectionContext, type Selection } from "./Results";
+import { Results, SelectionContext, SkeletonCards, SkeletonResults, SkeletonShelves, type Selection } from "./Results";
 import { navigate, pageHref, type PageName } from "./route";
 import { clearPagedCache, usePaged } from "./usePaged";
 import { resetHiddenCache } from "./shared";
@@ -66,7 +65,8 @@ function DeepRows({ adult, scopeTag, page, onDismiss }: { adult: boolean; scopeT
         <header className="shelfHead">
           <h3>Best matches for your taste</h3>
         </header>
-        <Loading label="Comparing everything you like and reading tags for a wide pool of series…" size="sm" />
+        <p className="shelfSub muted" role="status">Comparing everything you like and reading tags for a wide pool of series…</p>
+        <SkeletonCards count={6} />
       </section>
     );
   return (
@@ -115,7 +115,7 @@ function AlsoLikedRows({ adult, scopeTag, onDismiss }: { adult: boolean; scopeTa
       live = false;
     };
   }, [adult, scopeTag]);
-  if (rows === null) return <Loading label="Checking what readers of your series also liked…" size="sm" />;
+  if (rows === null) return <SkeletonShelves count={1} label="Checking what readers of your series also liked…" />;
   return (
     <>
       {rows.map((r) => (
@@ -275,7 +275,12 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       )}
       <SelectionContext.Provider value={selection}>
       {error && <p className="bad">{error}</p>}
-      {busy && <Loading label="Asking your sources. This can take several seconds." />}
+      {busy &&
+        (mode === "for-you" && genres.length === 0 ? (
+          <SkeletonShelves count={3} label="Working out what to recommend…" />
+        ) : (
+          <SkeletonResults label="Asking your sources. This can take several seconds." />
+        ))}
       {result && shelvesOf(result) && (
         <div className="shelves">
           {(result as SearchResult & { computedAt?: number }).computedAt && (

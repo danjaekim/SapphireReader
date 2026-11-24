@@ -1,7 +1,6 @@
-import { Loading } from "./Loading";
 import { browse, search } from "./api";
 import { FilterBar, useSourceChoices } from "./FilterBar";
-import { Results } from "./Results";
+import { Results, SkeletonResults } from "./Results";
 import { navigate, pageHref } from "./route";
 import { usePaged } from "./usePaged";
 import { sortFrom, unsortedNote } from "./SortSelect";
@@ -59,7 +58,7 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
       />
       {!active && <SearchStart adultOn={scopeTag === "true"} />}
       {error && <p className="bad">{error}</p>}
-      {busy && <Loading label="Searching every source. This can take several seconds." />}
+      {busy && <SkeletonResults label="Searching every source. This can take several seconds." />}
       {result && (
         <Results
           result={result}

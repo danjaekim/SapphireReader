@@ -1080,3 +1080,6 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .skelMore .gridCard { display: flex; flex-direction: column; gap: 8px; }
 .srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .gridCover img.loaded { transition: none; } }
+.skelCards .gridCard { display: flex; flex-direction: column; gap: 6px; }
+.skelCards .skelCard { border-radius: 10px; }
+.skelSmall { height: 11px; }
