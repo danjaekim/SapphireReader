@@ -50,12 +50,13 @@ const CRAFT = t2(5, "Crafting", "Activities > Art Forms > Crafting", "core");
 const WEAK = t2(3, "Weak to Strong", "Narrative Tropes > Character Change > Weak to Strong", "defining");
 const VR = t2(8, "Virtual Reality", "Settings > Virtual Reality", "core");
 const COOK = t2(9, "Cooking", "Activities > Cooking", "core");
-const SELF = rec(685, "Overgeared", [CRAFT, WEAK, VR]);
+const SELF_SAFE = rec(685, "Overgeared", [CRAFT, WEAK, VR]);
 const LUCKY = rec(700, "Lucky Striker", [CRAFT, WEAK, VR]);
 const STRANGER = rec(701, "Stranger", [COOK]);
 const SPICY = rec(702, "Spicy Smith", [CRAFT, WEAK], { content_rating: "erotica" });
 
-function world(): typeof fetch {
+function world(selfRating = "safe"): typeof fetch {
+  const SELF = { ...SELF_SAFE, content_rating: selfRating };
   return (async (u: string, init?: RequestInit) => {
     const url = String(u);
     const j = (d: unknown) => new Response(JSON.stringify(d));
@@ -125,6 +126,29 @@ describe("Similar with MangaBaka", () => {
     const titles = (await app.inject({ url: "/api/manga/50/similar" })).json().groups.map((g: { title: string }) => g.title);
     expect(titles.indexOf("Close One")).toBeGreaterThanOrEqual(0);
     expect(titles.indexOf("Close One")).toBeLessThan(titles.indexOf("Far One"));
+  });
+});
+
+describe("Similar keeps to the same content rating", () => {
+  it("an explicit series only suggests explicit ones; series of unknown rating are left out", async () => {
+    clearFilterCache();
+    const store = new Store(":memory:");
+    store.putBakaLink(normalizeTitle("Close One"), 1, false, { id: 1, title: "Close One", titles: [], tags: [{ name: "Crafting", path: "Activities > Art Forms > Crafting", weight: "core", genre: false, spoiler: false }] });
+    const f = world("pornographic");
+    const app = await buildApp(config, { fetchImpl: f, store, baka: new MangaBaka(f, { search: 0, other: 0 }) });
+    const titles = (await app.inject({ url: "/api/manga/50/similar" })).json().groups.map((g: { title: string }) => g.title);
+    expect(titles).toEqual(["Spicy Smith"]);
+  });
+
+  it("a series tagged Adult or Hentai on its source counts as explicit when MangaBaka doesn't know it", async () => {
+    clearFilterCache();
+    const store = new Store(":memory:");
+    store.recordSeriesTags(61, ["Action", "Hentai"]);
+    const f = world("pornographic");
+    const app = await buildApp(config, { fetchImpl: f, store, baka: new MangaBaka(f, { search: 0, other: 0 }) });
+    const titles = (await app.inject({ url: "/api/manga/50/similar" })).json().groups.map((g: { title: string }) => g.title);
+    expect(titles).toContain("Far One");
+    expect(titles).not.toContain("Close One");
   });
 });
 

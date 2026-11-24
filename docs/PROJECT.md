@@ -283,6 +283,11 @@ looked up elsewhere. Separate from move offers (§5.7), which still search and a
   exact name.
 - **Not interested** never suggests a series again and counts its tags against.
 - **Similar** on the series page: by the series' most telling tags, both together then one.
+  Content rating (Dan, Nov 24): an explicit series (MangaBaka erotica/pornographic, else 18+ source or
+  mark) only suggests explicit series, and any other series never suggests explicit ones. A suggestion's
+  rating comes from its MangaBaka record where known, else any listing on an 18+ source, marked or
+  classified 18+, or tagged Adult/Hentai/Smut/Erotica/Uncensored on its source (`groupRatings`); for an
+  explicit series, suggestions of unknown rating are left out.
 - **Caching** (decision, Nov 22): answers are saved in `rec_cache` per kind and side. They are
   reused while the taste key (likes/library weights, favorite tags, library size) is unchanged, for
   up to 24 h. When the taste changes they rebuild on the next visit, but no sooner than 3 h after the

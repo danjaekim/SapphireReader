@@ -1278,6 +1278,32 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return { ok: true };
   });
 
+  /**
+   * Whether each suggested series is explicit: its MangaBaka rating where known (erotica/pornographic), else
+   * any listing on an 18+ source, marked 18+, classified adult, or carrying an adult tag. Unknown = null.
+   */
+  const EXPLICIT = new Set(["erotica", "pornographic"]);
+  const ADULT_TAGS = new Set(["adult", "hentai", "smut", "erotica", "pornographic", "porn", "uncensored", "sexual violence"]);
+  async function groupRatings(groups: SeriesGroup[]): Promise<Map<string, "explicit" | "clean" | null>> {
+    const sources = await listSources(config, fetchImpl).catch(() => [] as EngineSource[]);
+    const adultSources = new Set(sources.filter((x) => x.isNsfw).map((x) => x.id));
+    const classified = store.seriesAdult(groups.flatMap((g) => g.hits.map((h) => h.mangaId)));
+    const out = new Map<string, "explicit" | "clean" | null>();
+    for (const g of groups) {
+      const mb = (store.bakaLink(normalizeTitle(g.title))?.data as BakaSeries | null | undefined)?.contentRating ?? null;
+      if (mb) {
+        out.set(g.key, EXPLICIT.has(mb) ? "explicit" : "clean");
+        continue;
+      }
+      const explicit =
+        g.hits.some((h) => adultSources.has(h.sourceId) || store.adultMark(h.title) === true || classified.get(h.mangaId) === true) ||
+        g.hits.some((h) => (store.seriesTags(h.mangaId) ?? []).some((t) => ADULT_TAGS.has(t.trim().toLowerCase())));
+      const clean = !explicit && g.hits.some((h) => store.adultMark(h.title) === false || classified.get(h.mangaId) === false);
+      out.set(g.key, explicit ? "explicit" : clean ? "clean" : null);
+    }
+    return out;
+  }
+
   app.get<{ Params: { id: string } }>("/api/manga/:id/similar", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
@@ -1304,7 +1330,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
           boost: selfVec ? (g) => { const v = groupVec(g); return boostFrom(v ? cosine(selfVec, v) : null); } : undefined,
         }),
-        self ? bakaSimilar(self, { scope, allowExplicit: selfAdult }).catch(() => ({ groups: [] as SeriesGroup[], shared: [] as string[] })) : Promise.resolve({ groups: [] as SeriesGroup[], shared: [] as string[] }),
+        self ? bakaSimilar(self, { scope, allowExplicit: selfAdult || EXPLICIT.has(self.contentRating ?? "") }).catch(() => ({ groups: [] as SeriesGroup[], shared: [] as string[] })) : Promise.resolve({ groups: [] as SeriesGroup[], shared: [] as string[] }),
       ]);
       // MangaBaka's picks lead (they share this series' specific tags, not just its broad genres). After them
       // come the genre-based ones, closest first, leaving out any MangaBaka knows to share almost nothing.
@@ -1316,7 +1342,14 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         const v = groupVec(g);
         return v !== null && cosine(selfVec, v) < 0.08;
       };
-      for (const g of [...fromBaka.groups, ...source.groups.filter((g) => !unrelated(g))]) {
+      // Explicit series suggest explicit series, and the rest don't suggest explicit ones (Dan, Nov 24).
+      const selfExplicit = self?.contentRating ? EXPLICIT.has(self.contentRating) : selfAdult;
+      const ratings = await groupRatings([...fromBaka.groups, ...source.groups]);
+      const fits = (g: SeriesGroup) => {
+        const r = ratings.get(g.key) ?? null;
+        return selfExplicit ? r === "explicit" : r !== "explicit";
+      };
+      for (const g of [...fromBaka.groups, ...source.groups.filter((g) => !unrelated(g))].filter(fits)) {
         if (seenKeys.has(g.key) || g.hits.some((h) => h.mangaId === id)) continue;
         seenKeys.add(g.key);
         groups.push(g);
