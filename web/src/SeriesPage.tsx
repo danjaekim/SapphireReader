@@ -5,7 +5,7 @@ import { tidyTitle } from "./titles";
 import { CompareSheet, type CompareSide } from "./Merges";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { dismissMerge, type SameSeries, addToLibrary, mangaBaka, setMangaBaka, autoMangaBaka, searchMangaBaka, type BakaInfo, type BakaHit, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { dismissMerge, type SameSeries, addToLibrary, mangaBaka, setMangaBaka, autoMangaBaka, searchMangaBaka, type BakaInfo, type BakaHit, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, seriesSaved, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -189,6 +189,45 @@ function AltTitles({ titles, open, onToggle }: { titles: string[]; open: boolean
   );
 }
 
+/** The last live answer per series this tab has seen, so going back to a series shows it at once. */
+const seenSeries = new Map<number, SeriesData>();
+
+/** Placeholder shapes in the page's layout while the first answer is on its way. */
+function SeriesSkeleton() {
+  return (
+    <div className="seriesLayout skeletonPage" aria-busy="true" aria-label="Loading series">
+      <div className="seriesLeft">
+        <div className="skel skelCover" />
+        <div className="skel skelLine" style={{ width: "100%", height: 56 }} />
+      </div>
+      <div className="seriesRight">
+        <div className="skel skelLine" style={{ width: "70%", height: 28 }} />
+        <div className="skel skelLine" style={{ width: "40%" }} />
+        <div className="skelChips">
+          {[60, 80, 54, 72, 66].map((w, i) => <span key={i} className="skel" style={{ width: w }} />)}
+        </div>
+        <div className="skel skelLine" style={{ width: "95%" }} />
+        <div className="skel skelLine" style={{ width: "90%" }} />
+        <div className="skel skelLine" style={{ width: "60%" }} />
+        <ChapterSkeleton rows={6} />
+      </div>
+    </div>
+  );
+}
+
+function ChapterSkeleton({ rows }: { rows: number }) {
+  return (
+    <ul className="chapters skelChapters" aria-hidden="true">
+      {Array.from({ length: rows }, (_, i) => (
+        <li key={i}>
+          <span className="skel skelLine" style={{ width: `${30 + ((i * 17) % 25)}%` }} />
+          <span className="skel skelLine" style={{ width: 70 }} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function SeriesPage({ mangaId }: { mangaId: number }) {
   const [data, setData] = useState<SeriesData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -339,14 +378,55 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     alternatives(mangaId).then((r) => setOthers(r.alternatives), () => setOthers([]));
   }, [mangaId, altRun]);
 
+  // Progressive load: the last answer this tab saw (instant when coming back from the reader), then the copy
+  // the engine saved (fast), then the live answer from the source site, which replaces whatever is showing.
+  const [refreshing, setRefreshing] = useState(false);
+  const [staleNote, setStaleNote] = useState<string | null>(null);
   useEffect(() => {
-    setData(null);
+    let live = true;
+    let gotLive = false;
+    const seen = seenSeries.get(mangaId) ?? null;
+    let showing = seen !== null;
+    setData(seen);
     setError(null);
     setErrorDetail(null);
-    series(mangaId).then(setData, (e: unknown) => {
-      setError(e instanceof Error ? e.message : "Couldn't load this series.");
-      setErrorDetail((e as { detail?: string } | null)?.detail ?? null);
-    });
+    setStaleNote(null);
+    setRefreshing(true);
+    if (!seen) {
+      seriesSaved(mangaId).then(
+        (d) => {
+          if (!live || gotLive) return;
+          setData(d);
+          showing = true;
+        },
+        () => undefined,
+      );
+    }
+    series(mangaId).then(
+      (d) => {
+        gotLive = true;
+        if (!live) return;
+        setData(d);
+        setRefreshing(false);
+        // 18+ series aren't kept, so nothing of theirs lingers after locking.
+        if (!d.adult) seenSeries.set(mangaId, d);
+      },
+      (e: unknown) => {
+        gotLive = true;
+        if (!live) return;
+        setRefreshing(false);
+        const detail = (e as { detail?: string } | null)?.detail ?? null;
+        if (showing) {
+          setStaleNote(`Couldn't reach the source just now, so this is the list saved last time.${detail ? ` The source said: ${detail}` : ""}`);
+          return;
+        }
+        setError(e instanceof Error ? e.message : "Couldn't load this series.");
+        setErrorDetail(detail);
+      },
+    );
+    return () => {
+      live = false;
+    };
   }, [mangaId, attempt]);
 
   // Tab title (left plain for 18+ series, so they stay out of browser history).
@@ -639,11 +719,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
           </div>
         </div>
       )}
-      {!data && !error && (
-        <div className="pageCenter">
-          <Loading label="Loading from the source. This can take several seconds." size="lg" />
-        </div>
-      )}
+      {!data && !error && <SeriesSkeleton />}
       {data && (
         <>
           <div className="seriesLayout">
@@ -982,7 +1058,7 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                 )}
               </div>
 
-              {data.chapters.length === 1 ? (
+              {data.chapters.length === 1 && !data.saved ? (
                 <OneChapter
                   mangaId={mangaId}
                   chapter={data.chapters[0]}
@@ -1001,6 +1077,11 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     {data.chapters.length > 0 && (
                       <span className="muted small">
                         {data.chapters.filter((c) => !readIds.has(c.id)).length} unread of {data.chapters.length}
+                      </span>
+                    )}
+                    {refreshing && (
+                      <span className="checkingSource muted small" role="status">
+                        <span className="miniSpin" aria-hidden="true" /> Checking {data.manga.sourceName ?? "the source"} for new chapters…
                       </span>
                     )}
                   </h3>
@@ -1082,6 +1163,8 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                     <button type="button" className="linkish" onClick={() => setOffer(null)}>No thanks</button>
                   </div>
                 )}
+                {staleNote && <p className="muted small staleNote">{staleNote} <button type="button" className="linkish" onClick={() => setAttempt((n) => n + 1)}>Try again</button></p>}
+                {data.chapters.length === 0 && refreshing && <ChapterSkeleton rows={8} />}
                 <ul ref={listRef} className={`chapters ${selected.size > 0 ? "picking" : ""}`} style={listMax ? { maxHeight: listMax } : undefined}>
                   {listed.map((c) => {
                     const on = selected.has(c.id);
@@ -1180,7 +1263,20 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
               </ul>
             </div>
           )}
-          {similarGroups === null && <Loading label="Finding similar series…" size="sm" />}
+          {similarGroups === null && (
+            <div className="card similarCard" aria-busy="true">
+              <h3>Similar series</h3>
+              <p className="muted small">Finding similar series…</p>
+              <div className="skelGrid">
+                {Array.from({ length: 6 }, (_, i) => (
+                  <div key={i}>
+                    <div className="skel skelCard" />
+                    <div className="skel skelLine" style={{ width: "80%" }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {similarGroups && similarGroups.length > 0 && (
             <div className="card similarCard">
               <h3>Similar series</h3>

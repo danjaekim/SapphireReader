@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
 import { Passkeys, newPasskeyName } from "./passkeys.js";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import fastifyCompress from "@fastify/compress";
 import fastifyStatic from "@fastify/static";
 import type { Config } from "./config.js";
@@ -33,6 +33,8 @@ import { Store, type ProgressInput, type SwitchOffer } from "./store.js";
 import {
   fetchChapterList,
   fetchMangaDetails,
+  fetchStoredChapters,
+  fetchStoredManga,
   type MangaDetails,
   onSeriesTags,
   fetchPageUrls,
@@ -135,8 +137,23 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   function detailsFor(mangaId: number, fresh = false): Promise<MangaDetails> {
     const cached = detailsCache.get(mangaId);
     if (!fresh && cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.value;
-    const value = fetchMangaDetails(config, mangaId, fetchImpl);
+    const full = fetchMangaDetails(config, mangaId, fetchImpl);
+    if (fresh) {
+      detailsCache.set(mangaId, { at: Date.now(), value: full });
+      full.catch(() => detailsCache.delete(mangaId));
+      return full;
+    }
+    // Details hardly change, so what the engine saved last time answers at once (when it has been filled in
+    // before); the refresh from the source runs behind it and replaces it when done (Dan, Nov 24: slow page).
+    const value = fetchStoredManga(config, mangaId, fetchImpl).then(
+      (s) => (s.initialized ? s.details : full),
+      () => full,
+    );
     detailsCache.set(mangaId, { at: Date.now(), value });
+    full.then(
+      (v) => detailsCache.set(mangaId, { at: Date.now(), value: Promise.resolve(v) }),
+      () => undefined,
+    );
     value.catch(() => detailsCache.delete(mangaId));
     return value;
   }
@@ -1667,19 +1684,20 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  app.get<{ Params: { id: string } }>("/api/manga/:id", async (req, reply) => {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
-    try {
-      const [manga, chapters] = await Promise.all([detailsFor(id), chaptersFor(id)]);
-      const description = await shownDescription(manga);
+  /**
+   * Everything the series page shows. `live` is false for the quick answer from what the engine saved last
+   * time (no source site involved), which skips the bookkeeping the live answer does.
+   */
+  async function seriesPayload(req: FastifyRequest, id: number, manga: MangaDetails, chapters: ChapterInfo[], live: boolean) {
+    const description = await shownDescription(manga).catch(() => manga.description);
+    const adultSource = await adultSourceOf(manga.sourceId);
+    const mark = store.adultMark(manga.title);
+    const adult = mark ?? adultSource;
+    if (live) {
       if (store.inLibrary(id)) {
         store.setChapterNumbers(id, chapters.map((c) => c.chapterNumber));
         store.setGenres(id, manga.genre);
       }
-      const adultSource = await adultSourceOf(manga.sourceId);
-      const mark = store.adultMark(manga.title);
-      const adult = mark ?? adultSource;
       store.recordSeriesMeta(id, manga.title, manga.sourceName, adult);
       // Reading done before this existed (or on this source) is remembered by chapter number so other sources can pick it up.
       const doneHere = new Set(store.readChapterIds(id));
@@ -1693,30 +1711,63 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           store.saveProgress(id, { chapterId: furthest.id, chapterNumber: furthest.chapterNumber, chapterName: furthest.name, pageIndex: 0, pageOffset: 0, finished: true });
         }
       }
-      return {
-        // Shown under a merged series' primary name; the source's own name stays in sourceTitle.
-        manga: { ...manga, title: displayTitle(manga.title), description },
-        sourceTitle: manga.title,
-        about: parseDescription(description, manga.title),
-        adult,
-        adultSource,
-        markedAdult: mark === true,
-        markedSafe: mark === false,
-        mergedWith: mergedWith(manga.title),
-        version: store.versionOf(id),
-        preferredVersion: preferredVersionFor(manga.title, [id, ...mergedWith(manga.title).map((m) => m.mangaId).filter((x): x is number => x !== null)]),
-        reader: readerPrefs(id, manga.sourceId, deviceOf(req)),
-        liked: store.isLiked(id),
-        chapters,
-        latest: latestFromChapters(chapters),
-        inLibrary: store.inLibrary(id),
-        progress: store.getProgress(id),
-        readChapterIds: store.readChapterIds(id),
-        categories: store.seriesCategories(id),
-      };
+    }
+    return {
+      // Shown under a merged series' primary name; the source's own name stays in sourceTitle.
+      manga: { ...manga, title: displayTitle(manga.title), description },
+      sourceTitle: manga.title,
+      about: parseDescription(description, manga.title),
+      adult,
+      adultSource,
+      markedAdult: mark === true,
+      markedSafe: mark === false,
+      mergedWith: mergedWith(manga.title),
+      version: store.versionOf(id),
+      preferredVersion: preferredVersionFor(manga.title, [id, ...mergedWith(manga.title).map((m) => m.mangaId).filter((x): x is number => x !== null)]),
+      reader: readerPrefs(id, manga.sourceId, deviceOf(req)),
+      liked: store.isLiked(id),
+      chapters,
+      latest: latestFromChapters(chapters),
+      inLibrary: store.inLibrary(id),
+      progress: store.getProgress(id),
+      readChapterIds: store.readChapterIds(id),
+      categories: store.seriesCategories(id),
+      ...(live ? {} : { saved: true }),
+    };
+  }
+
+  app.get<{ Params: { id: string } }>("/api/manga/:id", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    try {
+      const [manga, chapters] = await Promise.all([detailsFor(id), chaptersFor(id)]);
+      return await seriesPayload(req, id, manga, chapters, true);
     } catch (err) {
       req.log.error(err);
       return reply.code(502).send({ error: "Couldn't load this series from the source.", detail: reasonOf(err) });
+    }
+  });
+
+  /**
+   * The quick first answer for the series page: what the engine saved last time, without the source site.
+   * The page shows it at once and swaps in the live answer when that arrives. A fresh chapter list already
+   * fetched in the last few minutes is used instead of the saved one.
+   */
+  app.get<{ Params: { id: string } }>("/api/manga/:id/saved", async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
+    try {
+      const cachedDetails = detailsCache.get(id);
+      const [stored, chapters] = await Promise.all([
+        fetchStoredManga(config, id, fetchImpl),
+        chapterCache.get(id) && Date.now() - chapterCache.get(id)!.at < LATEST_TTL_MS ? chapterCache.get(id)!.value : fetchStoredChapters(config, id, fetchImpl).catch(() => [] as ChapterInfo[]),
+      ]);
+      // A resolved live answer in memory beats the engine's copy.
+      const settled = cachedDetails ? await Promise.race([cachedDetails.value, new Promise<null>((r) => setTimeout(() => r(null), 0))]).catch(() => null) : null;
+      return await seriesPayload(req, id, settled ?? stored.details, chapters, false);
+    } catch (err) {
+      req.log.warn(err, "no saved copy of this series");
+      return reply.code(404).send({ error: "Nothing saved for this series yet." });
     }
   });
 

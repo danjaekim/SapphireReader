@@ -195,13 +195,18 @@ export function rankByQuery(groups: SeriesGroup[], query: string): SeriesGroup[]
 
 const SOURCES_QUERY = `{ sources { nodes { id name lang isNsfw } } }`;
 
+// The source list barely changes, and every series page asked for it twice; keep it a minute per engine client.
+const sourcesCache = new WeakMap<object, { at: number; value: Promise<{ sources: { nodes: EngineSource[] } }> }>();
 export async function listSources(config: Config, fetchImpl?: FetchLike): Promise<EngineSource[]> {
-  const data = await engineQuery<{ sources: { nodes: EngineSource[] } }>(
-    config,
-    SOURCES_QUERY,
-    {},
-    { fetchImpl },
-  );
+  const owner = (fetchImpl ?? globalThis.fetch) as object;
+  const hit = sourcesCache.get(owner);
+  let pending = hit && Date.now() - hit.at < 60 * 1000 ? hit.value : null;
+  if (!pending) {
+    pending = engineQuery<{ sources: { nodes: EngineSource[] } }>(config, SOURCES_QUERY, {}, { fetchImpl });
+    sourcesCache.set(owner, { at: Date.now(), value: pending });
+    pending.catch(() => sourcesCache.delete(owner));
+  }
+  const data = await pending;
   return data.sources.nodes.map((n) => ({ ...n, flaggedNsfw: n.isNsfw, isNsfw: id_in(adultOverrides, n.id) ? adultOverrides[n.id] : n.isNsfw }));
 }
 const id_in = (o: Record<string, boolean>, id: string) => Object.prototype.hasOwnProperty.call(o, id);
@@ -394,6 +399,63 @@ export async function fetchMangaDetails(
     genre: manga.genre ?? [],
     status: manga.status,
   };
+}
+
+const STORED_MANGA_QUERY = `
+  query ($id: Int!) {
+    manga(id: $id) {
+      id sourceId title thumbnailUrl author artist description genre status initialized
+    }
+  }`;
+const STORED_CHAPTERS_QUERY = `
+  query ($id: Int!) {
+    chapters(condition: { mangaId: $id }) {
+      nodes { id name chapterNumber uploadDate scanlator }
+    }
+  }`;
+
+/**
+ * What the engine already has saved for a series, without asking the source site (fast). `initialized`
+ * is false for a series only ever seen in search results (title and cover, nothing else yet).
+ */
+export async function fetchStoredManga(config: Config, mangaId: number, fetchImpl?: FetchLike): Promise<{ details: MangaDetails; initialized: boolean }> {
+  const [data, sources] = await Promise.all([
+    engineQuery<{ manga: Omit<MangaDetails, "sourceName" | "sourceId"> & { sourceId: string | number; initialized?: boolean } }>(config, STORED_MANGA_QUERY, { id: mangaId }, { fetchImpl }),
+    listSources(config, fetchImpl).catch(() => [] as EngineSource[]),
+  ]);
+  const { manga } = data;
+  const sourceId = String(manga.sourceId);
+  return {
+    initialized: manga.initialized === true,
+    details: {
+      id: manga.id,
+      sourceId,
+      sourceName: sources.find((s) => s.id === sourceId)?.name ?? null,
+      title: manga.title,
+      author: manga.author,
+      artist: manga.artist,
+      description: manga.description,
+      genre: manga.genre ?? [],
+      status: manga.status,
+    },
+  };
+}
+
+/** The chapter list the engine saved last time it asked the source (fast; may be missing the newest). */
+export async function fetchStoredChapters(config: Config, mangaId: number, fetchImpl?: FetchLike): Promise<ChapterInfo[]> {
+  const data = await engineQuery<{ chapters: { nodes: { id: number; name: string; chapterNumber: number; uploadDate: string | number; scanlator: string | null }[] } }>(
+    config,
+    STORED_CHAPTERS_QUERY,
+    { id: mangaId },
+    { fetchImpl },
+  );
+  const nodes = Array.isArray(data?.chapters?.nodes) ? data.chapters.nodes : [];
+  return sortReadingOrder(
+    nodes.map<ChapterInfo>((c) => {
+      const uploaded = Number(c.uploadDate);
+      return { id: c.id, name: c.name, chapterNumber: c.chapterNumber, uploadDate: uploaded > 0 ? new Date(uploaded).toISOString() : null, scanlator: c.scanlator };
+    }),
+  );
 }
 
 const PAGES_MUTATION = `

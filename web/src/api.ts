@@ -126,6 +126,8 @@ export interface SeriesData {
   progress: Progress | null;
   readChapterIds: number[];
   categories?: number[];
+  /** The quick answer from what the engine saved last time; the live one replaces it. */
+  saved?: boolean;
 }
 
 export interface LibraryItem {
@@ -218,6 +220,8 @@ export const saveProgress = (id: number, p: ProgressInput, keepalive = false) =>
 export const markChapters = (mangaId: number, chapterIds: number[], read: boolean) =>
   send("POST", `/api/manga/${mangaId}/read`, { chapterIds, read }) as Promise<{ readChapterIds: number[]; progress: Progress | null }>;
 export const series = (mangaId: number) => getJson<SeriesData>(`/api/manga/${mangaId}`);
+/** The series as the engine saved it last time: fast, no source site involved, may miss the newest chapters. */
+export const seriesSaved = (mangaId: number) => getJson<SeriesData>(`/api/manga/${mangaId}/saved`);
 export const chapterPages = (chapterId: number) =>
   getJson<{ pages: string[] }>(`/api/chapters/${chapterId}/pages`);
 

@@ -79,7 +79,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `store.ts` | `Store`: the SQLite schema (created and migrated in the constructor) and every query. |
 | `config.ts` | Environment → `Config`. |
 | `engine.ts` | GraphQL client for the engine; file downloads; engine version. |
-| `search.ts` | Source list and scopes (`inScope`, `scopedSources`), `searchAll`, `groupHits`, `interleaveGroups`, title keys and merge aliases (`normalizeTitle`, `rawTitleKey`, `displayTitle`, `primaryCover`, `primaryDescription`), `titleMatch` / `rankByQuery`, series details and chapter lists, reading order. |
+| `search.ts` | Source list and scopes (`inScope`, `scopedSources`), `searchAll`, `groupHits`, `interleaveGroups`, title keys and merge aliases (`normalizeTitle`, `rawTitleKey`, `displayTitle`, `primaryCover`, `primaryDescription`), `titleMatch` / `rankByQuery`, series details and chapter lists (live, and the engine's saved copy: `fetchStoredManga`, `fetchStoredChapters`), reading order. |
 | `browse.ts` | Genre browsing and sorting across sources: maps canonical genres and sort orders onto each source's own filters, text fallback, `orderGroups`. |
 | `genres.ts` | Canonical genre keys and labels (`canonKey`, `canonLabel`) so spellings across sources match. |
 | `discover.ts` | Popular/Latest lists, tag weights (`tagWeights`), Similar series, For you quick rows (`planShelves`, `recommendShelves`), format tags. |
@@ -252,6 +252,25 @@ is in view (saved at once, not on the 2-second scroll save), in paged mode on th
 screen, and always when you go on with "Next" from the end. Leaving a chapter for another one saves your
 place first. (Fix, Nov 23: before this, moving to the next chapter within 2 seconds of reaching the end
 dropped the save, so chapters read straight through were often left unread and their downloads kept.)
+
+Series page loading (Dan, Nov 24: "very slow", asked for progressive loading). The live answer
+(`GET /api/manga/:id`) waits on the source site for the chapter list (`fetchChapters`, up to 30 s), so the
+page loads in steps:
+1. A skeleton in the page's own layout (cover, title, chips, chapter rows) instead of a spinner.
+2. `GET /api/manga/:id/saved`: what the engine saved last time (`manga { initialized }` plus
+   `chapters(condition: {mangaId})`, no source site), or the chapter list fetched in the last 10 minutes.
+   Same shape as the live answer plus `saved: true`; it skips the live answer's bookkeeping (chapter
+   numbers, read carry-over). 404 when the engine has nothing.
+3. The live answer replaces it. While it's coming the chapter heading says "Checking <source> for new
+   chapters…" (skeleton rows if the saved copy had no chapters). If the live answer fails after a saved copy
+   showed, the page stays up with a note and Try again instead of the error screen.
+Coming back to a series in the same tab shows its last live answer at once (memory only, never 18+ ones)
+while the live one reloads. Server side, `detailsFor` answers from the engine's saved details when the
+series has been filled in before and refreshes from the source behind it (stale-while-revalidate; `fresh`
+callers such as the library check still wait for the source), and `listSources` is kept for a minute
+instead of being asked twice per page. Similar shows skeleton cards while it searches. Assumes the
+engine's GraphQL has `manga.initialized` and top-level `chapters(condition)`; if not, the saved step 404s
+and the page behaves as before.
 
 ### 5.4 Library check, alerts and automation
 
