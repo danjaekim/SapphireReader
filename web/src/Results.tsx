@@ -39,6 +39,16 @@ function useNearScreen<T extends Element>(margin = "300px") {
 }
 
 /** Placeholder cards in the grid's own layout (and a shelf's, inside one) while results are on their way. */
+function SkeletonCard({ i }: { i: number }) {
+  return (
+    <li className="gridCard skelItem" aria-hidden="true">
+      <div className="skel skelCard" />
+      <div className="skel skelLine" style={{ width: `${62 + ((i * 13) % 30)}%` }} />
+      <div className="skel skelLine skelSmall" style={{ width: `${35 + ((i * 7) % 20)}%` }} />
+    </li>
+  );
+}
+
 export function SkeletonCards({ count = 12, className = "" }: { count?: number; className?: string }) {
   return (
     <ul className={`grid skelCards ${className}`} aria-hidden="true">
@@ -256,6 +266,18 @@ export function Results({
     [],
   );
   const end = useRef<HTMLDivElement>(null);
+  // How many columns the grid has right now, so the placeholders can fill the last row.
+  const gridRef = useRef<HTMLUListElement>(null);
+  const [cols, setCols] = useState(4);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const measure = () => setCols(Math.max(1, getComputedStyle(el).gridTemplateColumns.split(" ").filter(Boolean).length));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     const el = end.current;
@@ -285,12 +307,13 @@ export function Results({
         )}
       </p>}
       {result.groups.length === 0 && empty && <p className="muted">{empty}</p>}
-      <ul className="grid">
+      <ul className="grid" ref={gridRef}>
         {result.groups.map((group) => (
           <Card key={group.key} group={group} queue={queue} lookups={lookups} hideBad={hideBad} onBad={onBad} onDismiss={onDismiss} />
         ))}
+        {/* Placeholders for the next page, in the same grid: they finish the last row, then add one more. */}
+        {!compact && hasMore && Array.from({ length: (cols - (result.groups.length % cols)) % cols + cols }, (_, i) => <SkeletonCard key={`sk${i}`} i={i} />)}
       </ul>
-      {!compact && hasMore && <SkeletonCards count={6} className="skelMore" />}
       {!compact && <div ref={end} className="gridEnd muted">
         {hasMore ? <span className="srOnly" role="status">Loading more…</span> : result.groups.length > 0 ? "That's everything." : ""}
       </div>}

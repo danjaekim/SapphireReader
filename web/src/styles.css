@@ -1083,3 +1083,7 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .skelCards .gridCard { display: flex; flex-direction: column; gap: 6px; }
 .skelCards .skelCard { border-radius: 10px; }
 .skelSmall { height: 11px; }
+.skelItem { display: flex; flex-direction: column; gap: 6px; }
+/* A cover still on its way shimmers like a placeholder, so half-loaded cards look alive. */
+.gridCover:has(img.loading) { background: linear-gradient(90deg, var(--line) 25%, color-mix(in srgb, var(--line) 55%, var(--panel)) 45%, var(--line) 65%); background-size: 300% 100%; animation: skelShine 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .gridCover:has(img.loading) { animation: none; } }
