@@ -54,6 +54,9 @@ const SELF_SAFE = rec(685, "Overgeared", [CRAFT, WEAK, VR]);
 const LUCKY = rec(700, "Lucky Striker", [CRAFT, WEAK, VR]);
 const STRANGER = rec(701, "Stranger", [COOK]);
 const SPICY = rec(702, "Spicy Smith", [CRAFT, WEAK], { content_rating: "erotica" });
+// Not on MangaBaka's similar list, only found by carrying Overgeared's tags.
+const TAGGED = rec(703, "Forge Master", [CRAFT, VR]);
+const ODD = rec(704, "Odd Crafter", [CRAFT, COOK, t2(10, "Gardening", "Activities > Gardening", "core"), t2(11, "Fishing", "Activities > Fishing", "core")]);
 
 function world(selfRating = "safe"): typeof fetch {
   const SELF = { ...SELF_SAFE, content_rating: selfRating };
@@ -65,6 +68,7 @@ function world(selfRating = "safe"): typeof fetch {
         const item = (series: unknown, score: number) => ({ score, shared_tags: [{ id: 5, name: "Crafting", weight: "core" }, { id: 3, name: "Weak to Strong", weight: "defining" }], shared_tags_total: 2, matched_author: false, matched_related: false, series });
         return j({ status: 200, data: [item(STRANGER, 0.1), item(LUCKY, 0.6), item(SPICY, 0.5)] });
       }
+      if (url.includes("/series/search") && url.includes("tag=")) return j({ status: 200, data: [SELF, ODD, TAGGED] });
       if (url.includes("/series/search")) return j({ status: 200, data: [SELF] });
       if (url.includes("/series/685")) return j({ status: 200, data: SELF });
       return new Response("{}", { status: 404 });
@@ -78,7 +82,15 @@ function world(selfRating = "safe"): typeof fetch {
     if (q.includes("fetchSourceManga")) {
       const input = body.variables.input;
       if (input.type === "SEARCH" && input.query) {
-        const hit = /lucky/i.test(input.query) ? [{ id: 70, title: "Lucky Striker", thumbnailUrl: null }] : /spicy/i.test(input.query) ? [{ id: 72, title: "Spicy Smith", thumbnailUrl: null }] : [];
+        const hit = /lucky/i.test(input.query)
+          ? [{ id: 70, title: "Lucky Striker", thumbnailUrl: null }]
+          : /spicy/i.test(input.query)
+            ? [{ id: 72, title: "Spicy Smith", thumbnailUrl: null }]
+            : /forge/i.test(input.query)
+              ? [{ id: 73, title: "Forge Master", thumbnailUrl: null }]
+              : /odd/i.test(input.query)
+                ? [{ id: 74, title: "Odd Crafter", thumbnailUrl: null }]
+                : [];
         return json({ fetchSourceManga: { mangas: hit } });
       }
       return json({ fetchSourceManga: { mangas: [{ id: 61, title: "Far One", thumbnailUrl: null }, { id: 60, title: "Close One", thumbnailUrl: null }] } });
@@ -110,7 +122,8 @@ describe("Similar with MangaBaka", () => {
     expect(titles).not.toContain("Stranger");
     expect(titles).not.toContain("Spicy Smith");
     expect(titles).not.toContain("Overgeared");
-    expect(out.basedOn).toEqual(["Crafting", "Weak to Strong"]);
+    expect(out.basedOn[0]).toBe("Crafting");
+    expect(out.basedOn).toHaveLength(3);
     // What MangaBaka returned is remembered for later.
     expect(store.bakaLink(normalizeTitle("Lucky Striker"))?.mbId).toBe(700);
   });
@@ -121,11 +134,33 @@ describe("Similar with MangaBaka", () => {
     store.putBakaLink(normalizeTitle("Close One"), 1, false, { id: 1, title: "Close One", titles: [], tags: [{ name: "Crafting", path: "Activities > Art Forms > Crafting", weight: "core", genre: false, spoiler: false }] });
     store.putBakaLink(normalizeTitle("Far One"), 2, false, { id: 2, title: "Far One", titles: [], tags: [{ name: "Cooking", path: "Activities > Cooking", weight: "core", genre: false, spoiler: false }] });
     const base = world();
-    const f = (async (u: string, init?: RequestInit) => (String(u).includes("/similar") ? new Response(JSON.stringify({ status: 200, data: [] })) : base(u, init))) as unknown as typeof fetch;
+    const f = (async (u: string, init?: RequestInit) => (String(u).includes("/similar") || String(u).includes("tag=") ? new Response(JSON.stringify({ status: 200, data: [] })) : base(u, init))) as unknown as typeof fetch;
     const app = await buildApp(config, { fetchImpl: f, store, baka: new MangaBaka(f, { search: 0, other: 0 }) });
     const titles = (await app.inject({ url: "/api/manga/50/similar" })).json().groups.map((g: { title: string }) => g.title);
     expect(titles.indexOf("Close One")).toBeGreaterThanOrEqual(0);
     expect(titles.indexOf("Close One")).toBeLessThan(titles.indexOf("Far One"));
+  });
+});
+
+describe("Similar by MangaBaka tags", () => {
+  it("also finds series carrying this one's most telling tags, ranked by how closely all their tags match", async () => {
+    clearFilterCache();
+    const store = new Store(":memory:");
+    const calls: string[] = [];
+    const base = world();
+    const f = (async (u: string, init?: RequestInit) => {
+      if (String(u).includes("tag=")) calls.push(String(u));
+      return base(u, init);
+    }) as unknown as typeof fetch;
+    const app = await buildApp(config, { fetchImpl: f, store, baka: new MangaBaka(f, { search: 0, other: 0 }) });
+    const titles = (await app.inject({ url: "/api/manga/50/similar" })).json().groups.map((g: { title: string }) => g.title);
+    // Lucky Striker shares everything; Forge Master most; Odd Crafter only one tag among unrelated ones.
+    expect(titles.indexOf("Forge Master")).toBeGreaterThan(titles.indexOf("Lucky Striker"));
+    expect(titles.indexOf("Forge Master")).toBeLessThan(titles.indexOf("Odd Crafter") === -1 ? Infinity : titles.indexOf("Odd Crafter"));
+    // One search per telling tag (core first, no genres), remembered afterwards.
+    expect(calls.length).toBe(3);
+    await app.inject({ url: "/api/manga/50/similar?x=1" });
+    expect(calls.length).toBe(3);
   });
 });
 

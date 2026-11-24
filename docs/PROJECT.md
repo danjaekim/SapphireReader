@@ -96,7 +96,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `tracker.ts` | AniList tracking (token, search, set progress). |
 | `bakatags.ts` | MangaBaka tag vectors, cosine, taste vector, `boostFrom`. |
 | `mergehints.ts` | Suggested merges: `splitVersion` ("X (Uncensored)" → base + label), `suggestMerges` (pairs by same MangaBaka entry or same base name), `pairKey`. |
-| `mangabaka.ts` | MangaBaka client on the **v1** API (v2 records have no tags and no plain title; verified live Nov 23) (spaced calls: search 2.5s apart, others 0.5s), tolerant parsing of `tags_v2` (name, path, weight, genre, spoiler), content rating, provider ids; `findOnBaka` matching. |
+| `mangabaka.ts` | MangaBaka client on the **v1** API (`search`, `series`, `similar`, `byTag`) (v2 records have no tags and no plain title; verified live Nov 23) (spaced calls: search 2.5s apart, others 0.5s), tolerant parsing of `tags_v2` (name, path, weight, genre, spoiler), content rating, provider ids; `findOnBaka` matching. |
 | `updater.ts`, `engineupdate.ts` | "Is a newer version out?" for the app (GHCR digests + commits) and the engine (GitHub releases); asking Watchtower to update. |
 | `extensions.ts` | Install/update/remove extensions through the engine. |
 | `backup.ts` | Daily database snapshot. |
@@ -406,13 +406,17 @@ downloaded from Settings.
   - Taste: liked series' vectors summed by liking weight (not-interested ones at -0.8). For you and the deep
     rows multiply each candidate's fit by `boostFrom(cosine)`: 1 with no data, 0.85 to 1.65 with data, so
     having data is not itself a bonus. Candidates still come from source genre browsing; MangaBaka only re-ranks.
-  - Similar: MangaBaka's own similar list (`GET /v1/series/{id}/similar`: score, shared_tags,
-    shared_tags_total, full series) leads. The best 12 are looked for on your sources (3 at a time, stop at
-    8; `findOnSources`, cached a week under `baka_match.*`); explicit ratings are dropped unless this series
-    is 18+. The genre-based results follow, boosted by closeness to this series' vector, minus any MangaBaka
-    knows are unrelated (cosine < 0.08) when MangaBaka picks exist. "Matched mostly on" then names the tags
-    the MangaBaka picks share most. (Multi-tag search can't do AND: repeated `tag=` keeps only the first,
-    commas match nothing; checked live Nov 23.)
+  - Similar (rebuilt Nov 24 at Dan's ask, "match on the detailed tags"): the candidate pool is MangaBaka's
+    own similar list (`GET /v1/series/{id}/similar`, +0.1 head start since it also weighs author/relations)
+    plus the series carrying this one's 3 most telling tags (core, then defining, then recurrent; rarer first by
+    `series_count`; no genres or spoilers), one `GET /v1/series/search?tag=ID&limit=50` each, cached a week
+    as `mb_tag.<id>`. Every candidate is ranked by cosine of its whole weighted tag vector against this
+    series (kept above 0.12), held to the same content rating, and the best 30 are looked for on your sources
+    (4 at a time, stop at 12; `findOnSources`, cached a week under `baka_match.*`). The genre-based results
+    follow, boosted by closeness, minus any MangaBaka knows are unrelated (cosine < 0.08). "Matched mostly
+    on" names this series' tags the found ones share most. First open of a series costs ~3 tag searches
+    (2.5 s apart) plus source searches; later opens reuse the caches. (Multi-tag search can't do AND:
+    repeated `tag=` keeps only the first, commas match nothing; checked live Nov 23.)
   - Background lookups (`enrichBaka`): liked series and up to 20 candidates per For you / deep / Similar
     build are looked up one at a time; tag-search results are cached too. The For you and deep cache keys
     include how many liked series have MangaBaka tags, so new tags bring a rebuild (within the 3h gap rule).

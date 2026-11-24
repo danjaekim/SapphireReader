@@ -19,6 +19,8 @@ export interface BakaTag {
   weight: TagWeight;
   genre: boolean;
   spoiler: boolean;
+  /** How many series carry it on MangaBaka (rarer = more telling); missing on older data. */
+  count?: number;
 }
 export interface BakaSeries {
   id: number;
@@ -90,8 +92,10 @@ function tagOf(raw: unknown): BakaTag | null {
   if (!name) return null;
   const w = String(t.weight ?? t.relevance ?? "unweighted").toLowerCase();
   const id = num(x.tag && typeof x.tag === "object" ? obj(x.tag).id : x.id);
+  const count = num(t.series_count);
   return {
     ...(id !== null ? { id } : {}),
+    ...(count !== null ? { count } : {}),
     name,
     path: str(t.name_path) ?? name,
     weight: (WEIGHTS as string[]).includes(w) ? (w as TagWeight) : "unweighted",
@@ -190,6 +194,17 @@ export class MangaBaka {
       out.push({ score: num(x.score) ?? 0, sharedTotal: num(x.shared_tags_total) ?? shared.length, shared, series });
     }
     return out.sort((a, b) => b.score - a.score);
+  }
+
+  /**
+   * Series carrying one tag, as full records (with their tags and rating). One tag per call: repeated tag=
+   * keeps only the first (checked live Nov 23 2026).
+   */
+  async byTag(tagId: number, limit = 50): Promise<BakaSeries[]> {
+    const j = await this.get(`/v1/series/search?tag=${tagId}&limit=${limit}`, this.gaps.search);
+    const j2 = obj(j);
+    const list = Array.isArray(j2.data) ? j2.data : Array.isArray(j2.results) ? j2.results : [];
+    return list.filter((x) => obj(x).state !== "deleted").map((x) => parseSeries(x)).filter((x): x is BakaSeries => x !== null);
   }
 
   async series(id: number): Promise<BakaSeries | null> {
