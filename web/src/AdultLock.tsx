@@ -166,7 +166,6 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
         <h3>{prompts[step]}</h3>
         {step === "on" ? (
           <>
-            <p className="muted">Hidden sources, your hidden library and the extra Discover page are showing. Turning it off hides them on every device.</p>
             <div className="sheetActions">
               <button
                 type="button"
