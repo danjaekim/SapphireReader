@@ -43,7 +43,7 @@ export function CompareSheet({ a, b, onMerged, onClose }: { a: CompareSide; b: C
   const [main, setMain] = useState<number | null>(null);
   const [labels, setLabels] = useState<(string | null)[]>([a.label, b.label]);
   const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState<{ number: number; pages: (string[] | null)[]; index: number } | null>(null);
+  const [preview, setPreview] = useState<{ number: number; label: string; pages: (string[] | null)[]; index: number } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
 
   useEffect(() => {
@@ -75,28 +75,29 @@ export function CompareSheet({ a, b, onMerged, onClose }: { a: CompareSide; b: C
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [a.mangaId, b.mangaId]);
 
-  // The newest chapter number both listings have, to compare the same pages.
+  // The chapter to compare pages of: the newest number both listings have, or, for single-chapter works
+  // (one-shots, doujin) whose numbering needn't agree, the one chapter each has.
   const shared = (() => {
     const [x, y] = data;
     if (!x || !y) return null;
     const nums = new Set(y.chapters.map((c) => c.chapterNumber));
-    const both = x.chapters.filter((c) => c.chapterNumber > 0 && nums.has(c.chapterNumber));
-    return both.length ? both[both.length - 1].chapterNumber : null;
+    const both = x.chapters.filter((c) => c.chapterNumber >= 0 && nums.has(c.chapterNumber));
+    if (both.length) {
+      const n = both[both.length - 1].chapterNumber;
+      return { label: chapterText(n), number: n, ids: [x.chapters.find((c) => c.chapterNumber === n)!.id, y.chapters.find((c) => c.chapterNumber === n)!.id] };
+    }
+    if (x.chapters.length === 1 && y.chapters.length === 1) return { label: "the only chapter", number: x.chapters[0].chapterNumber, ids: [x.chapters[0].id, y.chapters[0].id] };
+    return null;
   })();
 
   const loadPreview = async () => {
     if (shared === null || !data[0] || !data[1]) return;
     setPreviewBusy(true);
     try {
-      const pages = await Promise.all(
-        data.map((d) => {
-          const ch = d!.chapters.find((c) => c.chapterNumber === shared);
-          return ch ? chapterPages(ch.id).then((r) => r.pages, () => null) : Promise.resolve(null);
-        }),
-      );
+      const pages = await Promise.all(shared.ids.map((id) => chapterPages(id).then((r) => r.pages, () => null)));
       // Skip a credits page at the start when there's more to see.
       setTimeout(() => document.querySelector(".comparePageNav")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
-      setPreview({ number: shared, pages, index: Math.min(1, Math.max(0, Math.min(...pages.map((p) => (p?.length ?? 1) - 1)))) });
+      setPreview({ number: shared.number, label: shared.label, pages, index: Math.min(1, Math.max(0, Math.min(...pages.map((p) => (p?.length ?? 1) - 1)))) });
     } finally {
       setPreviewBusy(false);
     }
@@ -186,17 +187,17 @@ export function CompareSheet({ a, b, onMerged, onClose }: { a: CompareSide; b: C
               </div>
               <div className="comparePages">
                 {shared === null ? (
-                  <p className="muted small">They share no chapter number, so there's no page to compare.</p>
+                  <p className="muted small">They share no chapter number and have more than one chapter each, so there's no page to compare.</p>
                 ) : !preview ? (
                   <button type="button" className="button small secondary" disabled={previewBusy} onClick={() => void loadPreview()}>
-                    {previewBusy ? "Loading pages…" : `Compare a page from ${chapterText(shared)}`}
+                    {previewBusy ? "Loading pages…" : `Compare a page from ${shared.label}`}
                   </button>
                 ) : (
                   <>
                     <div className="comparePageNav">
                       <button type="button" className="iconBtn" aria-label="Previous page" disabled={preview.index <= 0} onClick={() => setPreview({ ...preview, index: preview.index - 1 })}>‹</button>
                       <span className="small">
-                        {chapterText(preview.number)}, page {preview.index + 1}
+                        {preview.label}, page {preview.index + 1}
                       </span>
                       <button type="button" className="iconBtn" aria-label="Next page" disabled={preview.index >= maxIndex} onClick={() => setPreview({ ...preview, index: preview.index + 1 })}>›</button>
                     </div>

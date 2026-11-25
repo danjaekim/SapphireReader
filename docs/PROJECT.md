@@ -418,7 +418,9 @@ looked up elsewhere. An update row is "read" once that chapter number (or later)
 - **Compare before merging** (`CompareSheet`): both listings side by side (cover, full source title,
   source, chapter count and latest, recent scanlators, description excerpt) plus an optional page
   preview from the newest chapter number both have (stepping pages in sync), so quality or censorship
-  can be judged. Dan picks which listing is **main** (default: the plainly named one, else the one with
+  can be judged. When they share no number but each has exactly one chapter (one-shots, doujin, whose
+  numbering needn't agree; Dan, Nov 25), it compares those two chapters ("the only chapter"). Chapter 0
+  counts as a number; unnumbered (-1) chapters don't. Dan picks which listing is **main** (default: the plainly named one, else the one with
   more chapters) and each side's version label (prefilled from its set version or its name's version
   word), then Merge calls the merge endpoint on the main listing and sets changed labels. Decision (Dan,
   Nov 23): never merge a suggestion without seeing this compare first.
