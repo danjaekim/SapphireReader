@@ -1095,3 +1095,15 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .primaryNote p { margin: 0 0 6px; }
 .subsetChips { margin: 0 0 10px; }
 .facetRow h3 em { font-style: normal; color: var(--accent); }
+
+/* Filtering by MangaBaka tags (Search / Discover). */
+.mbTagBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 4px; }
+.mbTagBar .genres { margin: 0; }
+.mbChip { cursor: pointer; font: inherit; font-size: 12px; }
+.mbAdd { position: relative; }
+.mbAdd input { padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: inherit; font-size: 13px; min-width: 0; width: 200px; }
+.mbFound { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 260px; max-height: 300px; overflow: auto; list-style: none; margin: 0; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); }
+.mbFound button { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; background: none; color: var(--fg); font: inherit; font-size: 14px; border-radius: 6px; cursor: pointer; }
+.mbFound button:hover { background: var(--line); }
+a.bakaTag { cursor: pointer; text-decoration: none; }
+a.bakaTag:hover { border-color: var(--accent); }

@@ -6,7 +6,7 @@ import { CompareSheet, type CompareSide } from "./Merges";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { dismissMerge, type SameSeries, addToLibrary, mangaBaka, setMangaBaka, autoMangaBaka, searchMangaBaka, type BakaInfo, type BakaHit, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, seriesSaved, setPrimaryTags, similar, type SimilarResult, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
-import { genreHref, goBack, readHref, searchHref } from "./route";
+import { genreHref, goBack, mbTagHref, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
 import { resetHiddenCache, useRating } from "./shared";
@@ -1005,7 +1005,11 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                                   <span aria-hidden="true">{prim ? "◆" : "◇"}</span> {t.name}
                                 </button>
                               ) : (
-                                <span className={`tag bakaTag ${t.weight} ${prim ? "primary" : ""}`} title={`${t.path} (${WEIGHT_LABEL[t.weight]}, from MangaBaka)${prim ? ". Primary tag" : ""}`}>{t.name}</span>
+                                t.id ? (
+                                  <a className={`tag bakaTag ${t.weight} ${prim ? "primary" : ""}`} href={mbTagHref({ id: t.id, name: t.name }, data.adult || baka?.match?.contentRating === "erotica" || baka?.match?.contentRating === "pornographic")} title={`${t.path} (${WEIGHT_LABEL[t.weight]}, from MangaBaka)${prim ? ". Primary tag" : ""}. Tap for series with this tag.`}>{t.name}</a>
+                                ) : (
+                                  <span className={`tag bakaTag ${t.weight} ${prim ? "primary" : ""}`} title={`${t.path} (${WEIGHT_LABEL[t.weight]}, from MangaBaka)${prim ? ". Primary tag" : ""}`}>{t.name}</span>
+                                )
                               )}
                             </li>
                           );

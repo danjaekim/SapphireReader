@@ -1,11 +1,12 @@
 import { toast, toastError } from "./toast";
 import { ago } from "./util";
 import { tidyTitle } from "./titles";
-import { alsoLiked, browse, deepForYou, setAdultMarks, discoverList, forYou, setNotInterested, type SearchResult, type DeepRow, type SeriesGroup, type Shelf } from "./api";
+import { alsoLiked, browse, deepForYou, mangaBakaBrowse, setAdultMarks, discoverList, forYou, setNotInterested, type SearchResult, type DeepRow, type SeriesGroup, type Shelf } from "./api";
 import { canonLabel } from "./genres";
 import { FilterBar, useSourceChoices } from "./FilterBar";
+import { MbTagBar } from "./MbTagBar";
 import { Results, SelectionContext, SkeletonCards, SkeletonResults, SkeletonShelves, type Selection } from "./Results";
-import { navigate, pageHref, type PageName } from "./route";
+import { mbTagsFrom, mbTagValues, navigate, pageHref, type PageName } from "./route";
 import { clearPagedCache, usePaged } from "./usePaged";
 import { resetHiddenCache } from "./shared";
 import { Fragment, useEffect, useState } from "react";
@@ -147,6 +148,9 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
   const page: PageName = adult ? "discover-18" : "discover";
   const mode: Mode = MODES.some((m) => m.id === params.get("mode")) ? (params.get("mode") as Mode) : "for-you";
   const genres = params.getAll("genre");
+  // MangaBaka tags picked from a series page (outlined tags); they combine with any genres picked here.
+  const mbTags = mbTagsFrom(params);
+  const mbKey = mbTagValues(mbTags).join(",");
   const seed = params.get("seed") ?? undefined;
   const sort = sortFrom(params.get("sort"));
   const picked = params.getAll("source");
@@ -168,6 +172,10 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
   const { result, busy, error, more, loadMore } = usePaged(
     async (p): Promise<SearchResult> => {
       if (p === 1) setEmpty(undefined);
+      if (mbTags.length > 0) {
+        if (p === 1) setEmpty("None of the series MangaBaka lists with those tags were found on your sources.");
+        return mangaBakaBrowse(mbTags.map((t) => t.id), genres, p, adult);
+      }
       if (genres.length > 0) {
         const b = await browse(genres, "", p, adult ? "adult" : "safe", seed, sort, picked);
         const notes = [b.textFallback ? "No series matched those genres exactly, so these are plain text-search results for them." : undefined, unsortedNote(b.unsorted)].filter(Boolean);
@@ -192,7 +200,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       const list = await discoverList(mode, adult, p, picked);
       return { ...list, note: unsortedNote(list.unsorted) };
     },
-    `${page}|${scopeTag}|${mode}|${genres.join(",")}|${seed ?? ""}|${sort}|${mode === "for-you" && genres.length === 0 ? "" : picked.join(",")}|${nonce}`,
+    `${page}|${scopeTag}|${mode}|${mbKey}|${genres.join(",")}|${seed ?? ""}|${sort}|${mode === "for-you" && genres.length === 0 ? "" : picked.join(",")}|${nonce}`,
   );
 
   // Select mode: pick several cards, then mark them 18+ or not 18+ in one go.
@@ -248,10 +256,10 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
   return (
     <section>
       <FilterBar
-        tabs={{ items: MODES, active: genres.length === 0 ? mode : null, onPick: (id) => navigate(pageHref(page, { mode: id, source: id === "for-you" ? undefined : picked })) }}
+        tabs={{ items: MODES, active: genres.length === 0 && mbTags.length === 0 ? mode : null, onPick: (id) => navigate(pageHref(page, { mode: id, source: id === "for-you" ? undefined : picked })) }}
         genres={genres}
         scope={adult ? "adult" : "safe"}
-        onGenres={(g) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: g, seed, sort: sort === "relevance" ? undefined : sort, source: picked }))}
+        onGenres={(g) => navigate(pageHref(page, { mode: genres.length || mbTags.length ? undefined : mode, genre: g, mb: mbTagValues(mbTags), seed, sort: sort === "relevance" ? undefined : sort, source: picked }))}
         sort={genres.length > 0 ? sort : undefined}
         onSort={(next) => navigate(pageHref(page, { genre: genres, seed, sort: next === "relevance" ? undefined : next, source: picked }))}
         // For you picks from your taste across every source, so it isn't limited by source.
@@ -262,6 +270,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
         }
         sources={mode === "for-you" && genres.length === 0 ? undefined : { list: sourceList, selected: picked, onChange: (ids) => navigate(pageHref(page, { mode: genres.length ? undefined : mode, genre: genres, seed, sort: sort === "relevance" ? undefined : sort, source: ids })) }}
       />
+      {mbTags.length > 0 && <MbTagBar tags={mbTags} onChange={(next) => navigate(pageHref(page, { mode: next.length || genres.length ? undefined : mode, genre: genres, mb: mbTagValues(next) }))} />}
       {picking && (
         <div className="pickBar" role="toolbar" aria-label="Selected series">
           <span className="pickCount">{chosen.size} selected</span>
@@ -276,7 +285,7 @@ export function Discover({ adult = false, params, scopeTag }: { adult?: boolean;
       <SelectionContext.Provider value={selection}>
       {error && <p className="bad">{error}</p>}
       {busy &&
-        (mode === "for-you" && genres.length === 0 ? (
+        (mode === "for-you" && genres.length === 0 && mbTags.length === 0 ? (
           <SkeletonShelves count={3} label="Working out what to recommend…" />
         ) : (
           <SkeletonResults label="Asking your sources. This can take several seconds." />

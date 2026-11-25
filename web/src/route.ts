@@ -52,6 +52,23 @@ export function pageHref(page: PageName, params: Record<string, ParamValue> = {}
 export const genreHref = (genre: string, seed?: number, adult = false) =>
   pageHref(adult ? "discover-18" : "search", { genre: [genre], seed: seed ? String(seed) : undefined });
 
+/** MangaBaka tags in an address: "id:name" each (the name is for showing). */
+export interface MbTagParam {
+  id: number;
+  name: string;
+}
+export const mbTagsFrom = (params: URLSearchParams): MbTagParam[] =>
+  params
+    .getAll("mb")
+    .map((v) => {
+      const at = v.indexOf(":");
+      return { id: Number(at > 0 ? v.slice(0, at) : v), name: at > 0 ? v.slice(at + 1) : v };
+    })
+    .filter((t) => Number.isInteger(t.id) && t.id > 0);
+export const mbTagValues = (tags: MbTagParam[]) => tags.map((t) => `${t.id}:${t.name}`);
+/** Opens Search (or Discover 18+ for an 18+ series) filtered by one MangaBaka tag. */
+export const mbTagHref = (tag: MbTagParam, adult = false) => pageHref(adult ? "discover-18" : "search", { mb: mbTagValues([tag]) });
+
 /** Opens Search for a name (an author or artist). */
 export const searchHref = (q: string) => pageHref("search", { q });
 

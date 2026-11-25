@@ -137,11 +137,15 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
     fetchRef.current(1).then(
       (r) => {
         if (id !== run.current) return;
+        // A result can say for itself whether there's more (MangaBaka tag pages can find nothing on your
+        // sources yet have more after them); otherwise an empty page ends the list.
+        const said = (r as { more?: boolean }).more;
+        const hasMore = said ?? r.groups.length > 0;
         setResult(r);
-        setMore(r.groups.length > 0);
+        setMore(hasMore);
         setBusy(false);
-        remember(key, { result: r, page: 1, more: r.groups.length > 0, scrollY: 0 });
-        if (r.groups.length > 0) {
+        remember(key, { result: r, page: 1, more: hasMore, scrollY: 0 });
+        if (hasMore) {
           warmCovers(r.groups);
           fetchAhead(id, 2);
         }
@@ -195,10 +199,11 @@ export function usePaged(fetchPage: (page: number) => Promise<SearchResult>, key
         if (id !== run.current) return;
         page.current = next;
         const { merged, added } = mergeResults(result, r);
+        const hasMore = (r as { more?: boolean }).more ?? added > 0;
         setResult(merged);
-        setMore(added > 0);
-        if (key !== null) remember(key, { result: merged, page: next, more: added > 0, scrollY: cache.get(key)?.scrollY ?? 0 });
-        if (added > 0) fetchAhead(id, next + 1);
+        setMore(hasMore);
+        if (key !== null) remember(key, { result: merged, page: next, more: hasMore, scrollY: cache.get(key)?.scrollY ?? 0 });
+        if (hasMore) fetchAhead(id, next + 1);
       })
       .catch(() => {
         if (id !== run.current) return;

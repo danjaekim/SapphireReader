@@ -200,13 +200,30 @@ export class MangaBaka {
    * Series carrying one tag, as full records (with their tags and rating). One tag per call: repeated tag=
    * keeps only the first (checked live Nov 23 2026).
    */
-  async byTag(tagId: number, limit = 50, rating?: string): Promise<BakaSeries[]> {
+  async byTag(tagId: number, limit = 50, rating?: string, page = 1): Promise<BakaSeries[]> {
     // A content rating narrows the list to that rating, so an explicit series' pool isn't mostly safe titles.
     const r = rating ? `&content_rating=${encodeURIComponent(rating)}` : "";
-    const j = await this.get(`/v1/series/search?tag=${tagId}&limit=${limit}${r}`, this.gaps.search);
+    const pg = page > 1 ? `&page=${page}` : "";
+    const j = await this.get(`/v1/series/search?tag=${tagId}&limit=${limit}${r}${pg}`, this.gaps.search);
     const j2 = obj(j);
     const list = Array.isArray(j2.data) ? j2.data : Array.isArray(j2.results) ? j2.results : [];
     return list.filter((x) => obj(x).state !== "deleted").map((x) => parseSeries(x)).filter((x): x is BakaSeries => x !== null);
+  }
+
+  /** MangaBaka's tags by name (for adding one to a tag filter). Shape from the API docs; not checked live yet. */
+  async searchTags(q: string): Promise<{ id: number; name: string; path: string; count: number | null }[]> {
+    const j = await this.get(`/v1/tags?q=${encodeURIComponent(q)}`, this.gaps.other);
+    const o = obj(j);
+    const list = Array.isArray(o.data) ? o.data : Array.isArray(o.results) ? o.results : Array.isArray(j) ? (j as unknown[]) : [];
+    const out: { id: number; name: string; path: string; count: number | null }[] = [];
+    for (const raw of list) {
+      const t = obj(raw);
+      const id = num(t.id);
+      const name = str(t.name);
+      if (id === null || !name || t.is_spoiler === true) continue;
+      out.push({ id, name, path: str(t.name_path) ?? name, count: num(t.series_count) });
+    }
+    return out.slice(0, 20);
   }
 
   async series(id: number): Promise<BakaSeries | null> {

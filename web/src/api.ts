@@ -319,7 +319,7 @@ export interface BakaMatch {
   year: string | null;
   rating: number | null;
   manual: boolean;
-  tags: { name: string; path: string; weight: BakaWeight; genre: boolean }[];
+  tags: { id?: number; name: string; path: string; weight: BakaWeight; genre: boolean }[];
 }
 export interface BakaInfo { status: "matched" | "none" | "none-manual" | "unavailable"; match: BakaMatch | null }
 export interface BakaHit { id: number; title: string; titles: string[]; type: string | null; year: string | null; url: string }
@@ -375,6 +375,12 @@ export interface SimilarResult {
 /** `tags` tries a smaller set of the primary tags for this one request (not saved). */
 export const similar = (mangaId: number, tags?: string[]) =>
   getJson<SimilarResult>(`/api/manga/${mangaId}/similar${tags ? `?tags=${encodeURIComponent(tags.join("|"))}` : ""}`);
+/** Series with every one of these MangaBaka tags (and source genres, by name), found on your sources. */
+export const mangaBakaBrowse = (tags: number[], genres: string[], page: number, adult: boolean) =>
+  getJson<SearchResult & { more?: boolean }>(
+    `/api/mangabaka/browse?${[...tags.map((t) => `tag=${t}`), ...genres.map((g) => `genre=${encodeURIComponent(g)}`), `page=${page}`, adult ? "adult=1" : ""].filter(Boolean).join("&")}`,
+  );
+export const mangaBakaTags = (q: string) => getJson<{ tags: { id: number; name: string; path: string; count: number | null }[] }>(`/api/mangabaka/tags?q=${encodeURIComponent(q)}`);
 export const setPrimaryTags = (mangaId: number, tags: string[]) => send("PUT", `/api/manga/${mangaId}/primary-tags`, { tags }) as Promise<{ tags: string[] }>;
 export interface MergeListing { mangaId: number; title: string; sourceName: string | null; adult: boolean; label: string | null }
 export interface MergeSuggestion { key: string; reason: "mangabaka" | "version"; a: MergeListing; b: MergeListing }

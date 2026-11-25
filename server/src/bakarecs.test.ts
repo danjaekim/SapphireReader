@@ -255,3 +255,20 @@ describe("For you with MangaBaka", () => {
     expect(titles.indexOf("Close One")).toBeLessThan(titles.indexOf("Far One"));
   });
 });
+
+describe("Browsing by MangaBaka tags", () => {
+  it("lists series carrying every picked tag, found on your sources", async () => {
+    clearFilterCache();
+    const store = new Store(":memory:");
+    const f = world();
+    const app = await buildApp(config, { fetchImpl: f, store, baka: new MangaBaka(f, { search: 0, other: 0 }) });
+    const one = (await app.inject({ url: "/api/mangabaka/browse?tag=5" })).json();
+    expect(one.groups.map((g: { title: string }) => g.title).sort()).toEqual(["Forge Master", "Odd Crafter"]);
+    expect(one.note).toMatch(/2 of 3/);
+    // Crafting and Virtual Reality together: Odd Crafter has no Virtual Reality.
+    const both = (await app.inject({ url: "/api/mangabaka/browse?tag=5&tag=8" })).json();
+    expect(both.groups.map((g: { title: string }) => g.title)).toEqual(["Forge Master"]);
+    // The 18+ page needs 18+ mode unlocked.
+    expect((await app.inject({ url: "/api/mangabaka/browse?tag=5&adult=1" })).statusCode).toBe(403);
+  });
+});

@@ -1,7 +1,8 @@
-import { browse, search } from "./api";
+import { browse, mangaBakaBrowse, search } from "./api";
 import { FilterBar, useSourceChoices } from "./FilterBar";
 import { Results, SkeletonResults } from "./Results";
-import { navigate, pageHref } from "./route";
+import { mbTagsFrom, mbTagValues, navigate, pageHref, type MbTagParam } from "./route";
+import { MbTagBar } from "./MbTagBar";
 import { usePaged } from "./usePaged";
 import { sortFrom, unsortedNote } from "./SortSelect";
 import { rememberSearch, SearchStart } from "./SearchStart";
@@ -19,10 +20,17 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
   const picked = params.getAll("source");
   const sourceList = useSourceChoices("search", scopeTag === "true");
 
-  const active = genres.length > 0 || q.length >= 2;
+  // MangaBaka tags picked from a series page; they combine with genres (by name). Words and sources don't apply to them.
+  const mbTags = mbTagsFrom(params);
+  const active = genres.length > 0 || q.length >= 2 || mbTags.length > 0;
   const { result, busy, error, more, loadMore } = usePaged(
-    (page) => (genres.length > 0 ? browse(genres, q, page, undefined, seed, sort, picked) : search(q, page, sort, picked)),
-    active ? `search|${scopeTag}|${q}|${genres.join(",")}|${seed ?? ""}|${sort}|${picked.join(",")}` : null,
+    (page) =>
+      mbTags.length > 0
+        ? mangaBakaBrowse(mbTags.map((t) => t.id), genres, page, false)
+        : genres.length > 0
+          ? browse(genres, q, page, undefined, seed, sort, picked)
+          : search(q, page, sort, picked),
+    active ? `search|${scopeTag}|${q}|${mbTagValues(mbTags).join(",")}|${genres.join(",")}|${seed ?? ""}|${sort}|${picked.join(",")}` : null,
   );
 
   // Remember each search that brought results back, for the empty Search page.
@@ -32,9 +40,9 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, found, q, genres.join("|"), scopeTag]);
 
-  const go = (next: { q?: string; genre?: string[]; sort?: string; source?: string[] }) => {
+  const go = (next: { q?: string; genre?: string[]; sort?: string; source?: string[]; mb?: MbTagParam[] }) => {
     const s = next.sort ?? sort;
-    navigate(pageHref("search", { q: next.q ?? q, genre: next.genre ?? genres, seed, sort: s === "relevance" ? undefined : s, source: next.source ?? picked }));
+    navigate(pageHref("search", { q: next.q ?? q, genre: next.genre ?? genres, mb: mbTagValues(next.mb ?? mbTags), seed, sort: s === "relevance" ? undefined : s, source: next.source ?? picked }));
   };
 
   const extra = result as { textFallback?: boolean; unsorted?: string[] } | null;
@@ -56,6 +64,7 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
         onSort={(next) => go({ sort: next })}
         sources={{ list: sourceList, selected: picked, onChange: (ids) => go({ source: ids }) }}
       />
+      {mbTags.length > 0 && <MbTagBar tags={mbTags} onChange={(next) => go({ mb: next })} />}
       {!active && <SearchStart adultOn={scopeTag === "true"} />}
       {error && <p className="bad">{error}</p>}
       {busy && <SkeletonResults label="Searching every source. This can take several seconds." />}
@@ -64,7 +73,7 @@ export function Search({ params, scopeTag }: { params: URLSearchParams; scopeTag
           result={result}
           hasMore={more}
           onMore={loadMore}
-          empty={genres.length > 0 ? "No series on your sources have all of those genres. Try removing one." : "Nothing found."}
+          empty={mbTags.length > 0 ? "None of the series MangaBaka lists with those tags (that aren't 18+) were found on your sources." : genres.length > 0 ? "No series on your sources have all of those genres. Try removing one." : "Nothing found."}
           note={notes.length ? notes.join(" ") : undefined}
         />
       )}

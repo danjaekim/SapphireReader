@@ -1535,7 +1535,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     tags: d.tags
       .filter((t) => !t.spoiler)
       .sort((a, b) => WEIGHT_ORDER.indexOf(a.weight) - WEIGHT_ORDER.indexOf(b.weight))
-      .map((t) => ({ name: t.name, path: t.path, weight: t.weight, genre: t.genre })),
+      .map((t) => ({ ...(t.id !== undefined ? { id: t.id } : {}), name: t.name, path: t.path, weight: t.weight, genre: t.genre })),
   });
   /** The series' MangaBaka entry: remembered for two weeks (a miss for one), looked up again after that. */
   // The series page and Similar ask at the same moment; share one lookup.
@@ -1744,6 +1744,91 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (primaryTags.length > 0) return { groups: out, shared: primaryTags.map((t) => t.name), stats };
     return { groups: out, shared: shared.length ? shared : telling.map((t) => t.name), stats };
   }
+
+  app.get<{ Querystring: { q?: string } }>("/api/mangabaka/tags", async (req, reply) => {
+    const q = (req.query.q ?? "").trim();
+    if (q.length < 2) return { tags: [] };
+    try {
+      return { tags: await baka.searchTags(q) };
+    } catch {
+      return reply.code(502).send({ error: "Couldn't reach MangaBaka." });
+    }
+  });
+
+  /**
+   * Browsing by MangaBaka tags (Dan, Nov 24: "allow direct filtering on MangaBaka tags"). MangaBaka is asked
+   * for series with the first tag (one page of 30; its search can't AND tags), the records are kept when
+   * they also carry every other tag and any source genres picked alongside (by name), and fit the page's
+   * rating (the 18+ page: erotica/pornographic only; elsewhere: neither). Then each is looked up on your
+   * sources by title, four at a time. Pages are kept an hour; tag pages and source matches for a week.
+   */
+  const mbBrowseCache = new Map<string, { at: number; value: Promise<SearchResult & { note?: string }> }>();
+  app.get<{ Querystring: { tag?: string | string[]; genre?: string | string[]; page?: string; adult?: string } }>("/api/mangabaka/browse", async (req, reply) => {
+    const tags = ([] as string[]).concat(req.query.tag ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 6);
+    const genres = ([] as string[]).concat(req.query.genre ?? []).map((g) => g.trim()).filter(Boolean).slice(0, 8);
+    const adult = req.query.adult === "1";
+    const page = pageOf(req.query.page);
+    if (tags.length === 0) return reply.code(400).send({ error: "Pick a MangaBaka tag." });
+    if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
+    const scope = scopeFor(req);
+    const key = `${tags.join(",")}|${genres.map(canonKey).join(",")}|${adult}|${scope}|${page}`;
+    const hit = mbBrowseCache.get(key);
+    if (hit && Date.now() - hit.at < 60 * 60 * 1000) return hit.value;
+    const run = (async () => {
+      const pull = async (rating?: string) => {
+        const k = `mb_tagpage.${tags[0]}.${rating ?? "any"}.${page}`;
+        try {
+          const c = JSON.parse(store.getSetting(k) ?? "null") as { at: number; list: BakaSeries[] } | null;
+          if (c && Date.now() - c.at < 7 * 24 * 3600 * 1000) return c.list;
+        } catch {
+          // Ask again.
+        }
+        const list = await baka.byTag(tags[0], 30, rating, page);
+        store.setSetting(k, JSON.stringify({ at: Date.now(), list }));
+        return list;
+      };
+      const lists = adult ? await Promise.all([pull("pornographic"), pull("erotica")]) : [await pull()];
+      const seen = new Set<number>();
+      const wantKeys = genres.map(canonKey);
+      const records = lists.flat().filter((r) => {
+        if (seen.has(r.id)) return false;
+        seen.add(r.id);
+        const explicit = EXPLICIT.has(r.contentRating ?? "");
+        if (adult ? !explicit : explicit) return false;
+        const ids = new Set(r.tags.map((t) => t.id));
+        const names = new Set(r.tags.map((t) => canonKey(t.name)));
+        return tags.slice(1).every((t) => ids.has(t)) && wantKeys.every((g) => names.has(g));
+      });
+      for (const r of records) {
+        const k = normalizeTitle(r.title);
+        if (k && !store.bakaLink(k)) store.putBakaLink(k, r.id, false, r);
+      }
+      const groups: SeriesGroup[] = [];
+      for (let i = 0; i < records.length; i += 4) {
+        const batch = await Promise.all(
+          records.slice(i, i + 4).map((r) => findOnSources(config, store, { id: r.id, titles: r.titles }, { fetchImpl, scope, onResult: report }, "baka_match").catch(() => null)),
+        );
+        for (const g of batch) if (g && !groups.some((x) => x.key === g.key)) groups.push(g);
+      }
+      const shown = await withoutHidden(groups);
+      return {
+        groups: shown,
+        failed: [],
+        searched: 0,
+        note: records.length > 0 ? `${shown.length} of ${records.length} MangaBaka series on this page found on your sources.` : undefined,
+        // More pages exist while MangaBaka filled this one.
+        more: lists.some((l) => l.length >= 30),
+      } as SearchResult & { note?: string; more: boolean };
+    })();
+    mbBrowseCache.set(key, { at: Date.now(), value: run });
+    run.catch(() => mbBrowseCache.delete(key));
+    try {
+      return await run;
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(502).send({ error: "Couldn't reach MangaBaka." });
+    }
+  });
 
   app.get<{ Params: { id: string }; Querystring: { refresh?: string } }>("/api/manga/:id/mangabaka", async (req, reply) => {
     const id = Number(req.params.id);

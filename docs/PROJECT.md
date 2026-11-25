@@ -331,6 +331,16 @@ looked up elsewhere. Separate from move offers (§5.7), which still search and a
   ("Showing series with A, B" plus other sets, `GET /api/manga/:id/similar?tags=a|b`, not saved);
   MangaBaka tags among them replace the automatic tag pick and candidates carrying more of them come
   first. With no primary tags, or when primary genres find nothing at all, the automatic method is used.
+- **Filtering by MangaBaka tags** (Dan, Nov 24): outlined MangaBaka tags on a series page are links to
+  Search (Discover 18+ when the series is 18+ or MangaBaka rates it erotica/pornographic) with `mb=<id>:<name>`.
+  `MbTagBar` shows them as removable chips with a box to add more by name (`GET /api/mangabaka/tags?q=`,
+  MangaBaka `/v1/tags`, response shape not yet checked live). `GET /api/mangabaka/browse?tag=..&genre=..&page=&adult=`
+  asks MangaBaka for one page of 30 series with the first tag (`byTag`, cached a week as `mb_tagpage.*`; the 18+
+  page asks pornographic and erotica separately), keeps records carrying every other picked tag (by id) and any
+  source genres picked alongside (by name), keeps the page's rating (18+ page explicit only, else none), then
+  looks each up on your sources by title (`findOnSources`, 4 at a time). Answers say `more` while MangaBaka
+  filled the page, which `usePaged` honours (a page can find nothing on your sources but have more after it).
+  Apples to apples: MangaBaka tags are only ever matched against MangaBaka records, never a site's filters.
 - **Same parody / group / character rows** under Similar: from the description's Parodies/Groups/
   Characters lists, each name searched across your sources (`searchAll`). Primary names first, then the
   first parody and first group (characters only when picked as primary), at most three rows, same
