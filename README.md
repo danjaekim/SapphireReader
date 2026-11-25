@@ -17,7 +17,7 @@ What it does:
 - A Library with shelves, categories and sorting; new-chapter alerts through ntfy; offers to move a series
   to a source that's further ahead, or to a preferred version (for example Uncensored).
 - Discover: For you (taste-based rows, cached and refreshable), Popular, Latest, genre browsing.
-- A separate, PIN-protected 18+ mode with its own library, Discover and recommendations, unlocked with the PIN or Face ID (a passkey, on the https address).
+- A separate, PIN-protected 18+ mode (shown in the menu as "Debug mode") with its own library, Discover and recommendations, unlocked with the PIN or Face ID (a passkey, on the https address).
 - Downloads to the NAS (auto-download next chapters, auto-delete after reading), and an offline mode on phones:
   save chapters to the phone, read them with no connection, and your place syncs when you're back.
 - Sources and Settings pages: extensions, source health, hidden and favorite tags, light theme, updates, backups.

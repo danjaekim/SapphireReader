@@ -205,6 +205,10 @@ Schema changes are made in the `Store` constructor with `CREATE TABLE IF NOT EXI
 - **Scopes**: `safe` (non-18+ sources), `adult` (18+ sources), `all`. Requests use `all` when 18+
   mode is unlocked, else `safe`. A source's 18+ flag comes from the extension unless Dan overrides
   it on the Sources page (`source_adult`).
+- **Debug mode (Dan, Nov 24, "more incognito")** is the user-facing name of the 18+ mode toggle (menu row)
+  and its PIN/Face ID dialog only (`AdultLock.tsx`); everything else, in the app and in this document,
+  still says 18+. While it's off, the Sources page hides installed extensions whose sources are all 18+
+  (an extension with any regular source stays); they come back when it's on.
 - **18+ mode** is behind a 4–8 digit PIN (`AdultGate`). Unlock is per browser (HttpOnly cookie),
   survives restarts, locks after 2 h idle; phones start locked on a fresh app open. Locked: no 18+
   sources, no 18+ series anywhere, Discover (18+) hidden. 18+ titles never appear in push

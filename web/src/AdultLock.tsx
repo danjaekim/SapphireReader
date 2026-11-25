@@ -10,7 +10,7 @@ export function AdultButton({ state, onOpen }: { state: AdultState; onOpen: () =
   return (
     <button type="button" className={`navItem adultItem ${state.unlocked ? "on" : ""}`} onClick={onOpen} aria-haspopup="dialog">
       <span className="navIcon" aria-hidden="true">{state.unlocked ? "🔓" : "🔒"}</span>
-      <span className="navLabel">18+ mode</span>
+      <span className="navLabel">Debug mode</span>
       <span className={`navBadge ${state.unlocked ? "on" : ""}`}>{state.unlocked ? "On" : "Off"}</span>
     </button>
   );
@@ -84,13 +84,13 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
   }
 
   const prompts: Record<Step, string> = {
-    unlock: "Enter your PIN to turn on 18+ mode",
-    create: "Choose a PIN (4 to 8 digits) to protect 18+ mode",
+    unlock: "Enter your PIN to turn on Debug mode",
+    create: "Choose a PIN (4 to 8 digits) to protect Debug mode",
     confirm: "Enter the same PIN again",
     current: "Enter your current PIN",
     change: "Choose a new PIN (4 to 8 digits)",
     changeConfirm: "Enter the new PIN again",
-    on: "18+ mode is on",
+    on: "Debug mode is on",
   };
 
   async function submit() {
@@ -122,7 +122,7 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
         if (step !== "unlock") throw new Error("Setting or changing the PIN needs the NAS. Try again when you're back online.");
         const r = await checkPinOffline(pin);
         if (r === "locked") throw new Error("Too many wrong tries. Wait a few minutes.");
-        if (r === "unknown") throw new Error("Unlock 18+ once while online on this phone, then it works offline too.");
+        if (r === "unknown") throw new Error("Unlock Debug mode once while online on this phone, then it works offline too.");
         if (r === "wrong") throw new Error("Wrong PIN.");
         onChange({ ...state, unlocked: true, offline: true });
         onClose();
@@ -161,12 +161,12 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
 
   return (
     <div className="sheetBackdrop" onClick={onClose}>
-      <div className="sheet pinSheet" role="dialog" aria-modal="true" aria-label="18+ mode" ref={dialog} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+      <div className="sheet pinSheet" role="dialog" aria-modal="true" aria-label="Debug mode" ref={dialog} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         <div className="sheetHandle" aria-hidden="true" />
         <h3>{prompts[step]}</h3>
         {step === "on" ? (
           <>
-            <p className="muted">18+ sources, your 18+ library and Discover (18+) are showing. Turning it off hides them on every device.</p>
+            <p className="muted">Hidden sources, your hidden library and the extra Discover page are showing. Turning it off hides them on every device.</p>
             <div className="sheetActions">
               <button
                 type="button"
@@ -176,7 +176,7 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
                   onClose();
                 }}
               >
-                Turn off 18+ mode
+                Turn off Debug mode
               </button>
               <button type="button" className="button secondary" onClick={() => { setStep("current"); setPin(""); }}>
                 Change PIN
@@ -200,7 +200,7 @@ export function AdultDialog({ state, onChange, onClose }: { state: AdultState; o
                 <button type="button" className="button secondary small" disabled={busy} onClick={() => void addFace()}>
                   {keys.length ? "Add this device" : "Set up Face ID on this device"}
                 </button>
-                <p className="muted small">Unlock 18+ mode with Face ID or your fingerprint instead of the PIN. Works on the https (Tailscale) address.</p>
+                <p className="muted small">Unlock Debug mode with Face ID or your fingerprint instead of the PIN. Works on the https (Tailscale) address.</p>
               </div>
             )}
           </>

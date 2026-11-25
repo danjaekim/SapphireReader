@@ -566,7 +566,7 @@ export function App() {
             {page === "downloads" && <Downloads key={scopeTag} />}
             {page === "updates" && <Updates key={scopeTag} />}
             {page === "history" && <History key={scopeTag} />}
-            {page === "sources" && <Sources key={scopeTag} />}
+            {page === "sources" && <Sources key={scopeTag} adultOn={adult.unlocked} />}
             {page === "merges" && <Merges key={scopeTag} />}
             {page === "status" && (
               <>

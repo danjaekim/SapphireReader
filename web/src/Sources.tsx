@@ -81,7 +81,7 @@ function GenreSupportPanel() {
   );
 }
 
-export function Sources() {
+export function Sources({ adultOn }: { adultOn: boolean }) {
   const [list, setList] = useState<ExtensionInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -157,10 +157,16 @@ export function Sources() {
       // Anything that's failing floats to the top so it's the first thing you see.
       installed: sorted
         .filter((e) => e.isInstalled && match(e))
+        // Installed 18+ sources stay out of sight while 18+ mode is off (an extension that also has regular sources stays).
+        .filter((e) => {
+          if (adultOn) return true;
+          const rows = sourcesFor(e, sourceRows);
+          return rows.length > 0 ? !rows.every((r) => r.isNsfw) : !e.isNsfw;
+        })
         .sort((a, b) => Number(sourcesFor(b, sourceRows).some((r) => sourceStatus(r).state === "bad")) - Number(sourcesFor(a, sourceRows).some((r) => sourceStatus(r).state === "bad"))),
       available: sorted.filter((e) => !e.isInstalled && match(e)),
     };
-  }, [list, filter, englishOnly, kind, sourceRows]);
+  }, [list, filter, englishOnly, kind, sourceRows, adultOn]);
 
   // A row's "⋯" menu closes when you click anywhere else.
   useEffect(() => {
