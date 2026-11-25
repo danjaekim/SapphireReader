@@ -96,6 +96,10 @@ export interface UpdateRow {
   detectedAt: string;
   /** Found on another source of the series; the chapter isn't on the library's source yet. */
   elsewhere?: boolean;
+  /** You've read this chapter (on any source of the series). */
+  read?: boolean;
+  /** The series' library listing now has this chapter itself. */
+  onYourSource?: boolean;
 }
 
 export interface DownloadRow {
@@ -992,17 +996,31 @@ export class Store {
   updates(opts: { includeAdult?: boolean; caughtUpOnly?: boolean; limit?: number } = {}): UpdateRow[] {
     const { includeAdult = false, caughtUpOnly = false, limit = 100 } = opts;
     const where = [includeAdult ? "1" : "adult = 0", caughtUpOnly ? "caught_up = 1" : "1"].join(" AND ");
-    return (this.db.prepare(`SELECT * FROM updates WHERE ${where} ORDER BY detected_at DESC, id DESC LIMIT ?`).all(limit) as Record<string, unknown>[]).map((r) => ({
-      mangaId: r.manga_id as number,
-      title: r.title as string,
-      sourceName: (r.source_name as string | null) ?? null,
-      adult: r.adult === 1,
-      latestNumber: r.latest_number as number,
-      newCount: r.new_count as number,
-      caughtUp: r.caught_up === 1,
-      detectedAt: r.detected_at as string,
-      elsewhere: r.elsewhere === 1,
-    }));
+    // Whether each update has since been dealt with: read on any source of the series (read numbers are kept
+    // per series, not per listing), or now on the library's own source (an "elsewhere" update that caught up).
+    const readStmt = this.db.prepare("SELECT 1 FROM read_numbers WHERE title_key = ? AND chapter_number >= ? LIMIT 1");
+    const mine = new Map<string, number>();
+    for (const l of this.library(true)) {
+      const k = normalizeTitle(l.title);
+      if (l.latestNumber !== null) mine.set(k, Math.max(mine.get(k) ?? -1, l.latestNumber));
+    }
+    return (this.db.prepare(`SELECT * FROM updates WHERE ${where} ORDER BY detected_at DESC, id DESC LIMIT ?`).all(limit) as Record<string, unknown>[]).map((r) => {
+      const key = normalizeTitle(r.title as string);
+      const latest = r.latest_number as number;
+      return {
+        mangaId: r.manga_id as number,
+        title: r.title as string,
+        sourceName: (r.source_name as string | null) ?? null,
+        adult: r.adult === 1,
+        latestNumber: latest,
+        newCount: r.new_count as number,
+        caughtUp: r.caught_up === 1,
+        detectedAt: r.detected_at as string,
+        elsewhere: r.elsewhere === 1,
+        read: key ? readStmt.get(key, latest) !== undefined : false,
+        onYourSource: (mine.get(key) ?? -1) >= latest,
+      };
+    });
   }
 
   /** When the library was last checked for new chapters. */

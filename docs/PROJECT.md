@@ -296,7 +296,7 @@ and the page behaves as before.
 Every `CHECK_INTERVAL_HOURS` (6) the checker re-reads each library series (one at a time, paced),
 records new chapters, and pushes an ntfy alert for series you were caught up on. After a check:
 auto-switch offers (§5.7), auto-download of the next N unread chapters (default 3, 0–10), and
-auto-delete of read NAS downloads (keeps the last one). Sources can be excluded from checks.
+auto-delete of read NAS downloads (every read one, the last you finished too since Nov 25). Sources can be excluded from checks.
 
 **Chapters out on another source first** (Dan, Nov 23): for a series you're caught up on, the check also
 reads the chapter lists of its other listings Sapphire already knows (`seen_listings` for its name and
@@ -305,7 +305,7 @@ chapter numbers). If one has a chapter past yours, it adds an Updates entry for 
 (`updates.elsewhere = 1`, tag "not on your source yet", Open goes to that listing) and pushes "Chapter N is
 out on X (not on Y yet)" once per new number (`elsewhere.<mangaId>` setting = highest announced). When your
 own source later gets that chapter it's a normal update but no second push. Series you're behind on aren't
-looked up elsewhere. Separate from move offers (§5.7), which still search and ask before moving.
+looked up elsewhere. An update row is "read" once that chapter number (or later) is in `read_numbers` for the series' title (any source), and "now on your source" once the library listing's latest chapter reaches it; the Updates page then shows it dimmed with "read" / "now on your source" instead of "not on your source yet", and the home page leaves read ones out (Dan, Nov 25). Separate from move offers (§5.7), which still search and ask before moving.
 
 ### 5.5 Recommendations
 

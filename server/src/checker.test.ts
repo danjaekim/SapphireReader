@@ -78,6 +78,24 @@ describe("new chapter alerts", () => {
     expect(sent.at(-1)?.message).toBe("Chapter 5 is out on MangaFire (not on A yet)");
   });
 
+  it("marks an update read once you've read that chapter, and as on your source once yours has it", async () => {
+    const store = setup();
+    const own: Record<number, number[]> = { 1: [1, 2, 3], 2: [1, 2, 3], 3: [1, 2] };
+    await checkLibrary({
+      config,
+      store,
+      notify: null,
+      pauseMs: 0,
+      loadNumbers: async (id) => own[id],
+      elsewhere: async (id) => (id === 1 ? [{ mangaId: 91, sourceName: "MangaFire", numbers: [1, 2, 3, 4] }] : []),
+    });
+    store.recordSeriesMeta(1, "Caught Up", "A", false);
+    expect(store.updates()[0]).toMatchObject({ elsewhere: true, read: false, onYourSource: false });
+    // You switch source and read chapter 4 there: the update is done with.
+    store.saveProgress(1, { chapterId: 4, chapterNumber: 4, chapterName: "4", pageIndex: 0, pageOffset: 0, finished: true });
+    expect(store.updates()[0]).toMatchObject({ read: true });
+  });
+
   it("keeps going when one source fails and when ntfy is down", async () => {
     const store = setup();
     const result = await checkLibrary({

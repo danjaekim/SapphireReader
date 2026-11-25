@@ -1115,3 +1115,4 @@ a.tagOpt { display: inline-flex; align-items: center; text-decoration: none; }
 .mbFound button:hover { background: var(--line); }
 a.bakaTag { cursor: pointer; text-decoration: none; }
 a.bakaTag:hover { border-color: var(--accent); }
+.feedRow.isRead { opacity: 0.6; }

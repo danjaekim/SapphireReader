@@ -103,14 +103,22 @@ export function Updates() {
       {items && items.length === 0 && <p className="muted">Nothing new yet. Sapphire checks your library every few hours.</p>}
       <ul className="feed">
         {(items ?? []).map((u, i) => (
-          <li key={`${u.mangaId}-${i}`} className="feedRow">
+          <li key={`${u.mangaId}-${i}`} className={u.read ? "feedRow isRead" : "feedRow"}>
             <img src={thumbnailUrl(u.mangaId)} alt="" width={44} height={60} loading="lazy" />
             <div className="info">
               <a href={seriesHref(u.mangaId)} className="libTitle">{tidyTitle(u.title)}</a>
               <span> · {chapterText(u.latestNumber)}{u.newCount > 1 ? ` (+${u.newCount})` : ""}</span>
               <div className="muted small">
                 {u.sourceName ?? "source"} · {ago(u.detectedAt)}
-                {u.elsewhere ? <span className="tag caughtTag">not on your source yet</span> : u.caughtUp && <span className="tag caughtTag">you were caught up</span>}
+                {u.read ? (
+                  <span className="tag caughtTag">read</span>
+                ) : u.elsewhere && !u.onYourSource ? (
+                  <span className="tag caughtTag">not on your source yet</span>
+                ) : u.elsewhere ? (
+                  <span className="tag caughtTag">now on your source</span>
+                ) : (
+                  u.caughtUp && <span className="tag caughtTag">you were caught up</span>
+                )}
               </div>
             </div>
             <a className="button small" href={seriesHref(u.mangaId)}>Open</a>

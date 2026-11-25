@@ -535,6 +535,10 @@ export interface UpdateRow {
   caughtUp: boolean;
   /** Found on another source of the series before yours has it. */
   elsewhere?: boolean;
+  /** You've read this chapter, on any source of the series. */
+  read?: boolean;
+  /** Your library's listing of the series now has this chapter itself. */
+  onYourSource?: boolean;
   detectedAt: string;
 }
 export const updatesFeed = () => getJson<{ items: UpdateRow[]; lastCheckedAt: string | null }>("/api/updates");

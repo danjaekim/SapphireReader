@@ -61,15 +61,16 @@ describe("downloads", () => {
     expect((await app.inject({ url: "/api/dl/501/0" })).statusCode).toBe(404);
   });
 
-  it("marking chapters read by hand clears their downloads too (auto-delete), keeping your current one", async () => {
-    const { app } = await setup();
+  it("marking chapters read by hand clears their downloads too (auto-delete), the last one included", async () => {
+    const { app, store } = await setup();
     await app.inject({ method: "PUT", url: "/api/library/10", payload: { sourceId: "1", sourceName: "Asura Scans", title: "Nano Machine" } });
     await app.inject({ method: "PUT", url: "/api/settings/automation", payload: { autoDelete: true, autoDownload: 0 } });
-    await app.inject({ method: "POST", url: "/api/downloads", payload: body({ chapters: [{ id: 501, name: "Chapter 3", number: 3 }, { id: 502, name: "Chapter 236.5", number: 236.5 }] }) });
+    await app.inject({ method: "POST", url: "/api/downloads", payload: body({ chapters: [{ id: 501, name: "Chapter 3", number: 3 }] }) });
     await app.downloader.idle();
-    await app.inject({ method: "POST", url: "/api/manga/10/read", payload: { chapterIds: [501, 502], read: true } });
-    // 502 is where you are now, so it stays; 501 is read and goes.
-    expect((await app.inject({ url: "/api/manga/10/downloads" })).json().items.map((i: { chapterId: number }) => i.chapterId)).toEqual([502]);
+    expect(store.getDownload(501)).toMatchObject({ status: "done" });
+    // 501 is also where you are now (the last one you read): it goes too.
+    await app.inject({ method: "POST", url: "/api/manga/10/read", payload: { chapterIds: [501], read: true } });
+    expect((await app.inject({ url: "/api/manga/10/downloads" })).json().items).toEqual([]);
   });
 
   it("marks a chapter failed when the source's pages can't be fetched, and can retry it", async () => {

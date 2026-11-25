@@ -698,7 +698,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return {
       libraryCount: library.length,
       continueReading,
-      newChapters: shown(store.updates({ includeAdult: unlocked, caughtUpOnly: true, limit: 8 })),
+      // Updates you've since read (on any source) are done with, so they don't sit on the home page.
+      newChapters: shown(store.updates({ includeAdult: unlocked, caughtUpOnly: true, limit: 40 })).filter((u) => !u.read).slice(0, 8),
       lastCheckedAt: store.lastChecked(),
       alertsOn: notify !== null,
     };
@@ -2324,17 +2325,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return queued;
   }
 
-  /**
-   * Frees NAS space: removes downloaded chapters of a series that you've read, except the one you
-   * finished last (so flipping back a page still works offline).
-   */
+  /** Frees NAS space: removes every downloaded chapter of a series that you've read, the last one you finished too (Dan, Nov 25). */
   function autoDeleteFor(mangaId: number): number {
     if (!automation().autoDelete) return 0;
     const read = new Set(store.readChapterIds(mangaId));
-    const keep = store.getProgress(mangaId)?.chapterId;
     let removed = 0;
     for (const d of store.downloads(true, mangaId)) {
-      if (d.status === "done" && read.has(d.chapterId) && d.chapterId !== keep) {
+      if (d.status === "done" && read.has(d.chapterId)) {
         downloader.remove(d.chapterId);
         removed++;
       }
