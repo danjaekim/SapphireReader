@@ -1169,8 +1169,21 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                         aria-label="Find a chapter by number or name"
                       />
                     )}
-                    <button type="button" className="linkish" onClick={() => setNewestFirst((v) => !v)}>
-                      {newestFirst ? "Newest first" : "Oldest first"}
+                    <button
+                      type="button"
+                      className="sortPill"
+                      onClick={() => setNewestFirst((v) => !v)}
+                      aria-label={`Sorted ${newestFirst ? "newest" : "oldest"} first. Tap to reverse.`}
+                    >
+                      {/* Arrow points down for newest first (latest at the top, going back), up for oldest first. */}
+                      <svg className="sortIcon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        {newestFirst ? <path d="M8 3v10M4 9l4 4 4-4" /> : <path d="M8 13V3M4 7l4-4 4 4" />}
+                      </svg>
+                      {/* Both labels share the cell, so the button is as wide as the longer one whichever shows. */}
+                      <span className="sortLabel">
+                        <span className={newestFirst ? "" : "off"}>Newest first</span>
+                        <span className={newestFirst ? "off" : ""}>Oldest first</span>
+                      </span>
                     </button>
                   </div>
                 </div>

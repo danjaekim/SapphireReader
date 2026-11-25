@@ -168,7 +168,7 @@ Schema changes are made in the `Store` constructor with `CREATE TABLE IF NOT EXI
 - **Series page**: two-column layout with blurred cover / AniList banner background, tidy title with
   full title and alternative names, ratings (AniList, site stats), description split into story and
   facets (description-derived tags, author, artist, status and year fill in only what the source's own
-  fields lack; these tags are display-only and don't feed recommendations or filters), tags (star mode for favorite tags), chapters with multi-select (shift-click ranges, mark
+  fields lack; these tags are display-only and don't feed recommendations or filters), tags (star mode for favorite tags), chapters (Find chapter box and a fixed-width sort pill with a direction arrow, same 36px height) with multi-select (shift-click ranges, mark
   read/unread, download), "mark earlier chapters read?" prompt, "Also on" other sources with chapter
   counts and version tags, Similar series, AniList tracking, like, add to library with shelves,
   18+ marks, merge tools (merge by name or series number, unmerge, name/cover/description choice,

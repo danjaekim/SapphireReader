@@ -337,7 +337,15 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .descWrap { margin-bottom: 12px; }
 .descWrap .desc { margin-bottom: 4px; }
 .chapterTools { display: flex; align-items: center; gap: 12px; }
-.jump { width: 9.5rem; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; }
+.jump { width: 9.5rem; box-sizing: border-box; height: 36px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; font: inherit; font-size: 14px; }
+/* Sort button: same height as the Find chapter box, and a fixed width (both labels sit in one cell, the unused one hidden). */
+.sortPill { display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.sortPill:hover { border-color: var(--accent); color: var(--accent); }
+.sortPill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sortIcon { flex: none; }
+.sortLabel { display: inline-grid; }
+.sortLabel > span { grid-area: 1 / 1; text-align: left; }
+.sortLabel > .off { visibility: hidden; }
 .offer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; }
 .readerEnd .readerNav { background: none; border: 0; gap: 28px; justify-content: center; width: auto; position: static; padding: 0; }
 
