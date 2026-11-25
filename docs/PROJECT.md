@@ -310,8 +310,16 @@ looked up elsewhere. Separate from move offers (§5.7), which still search and a
 ### 5.5 Recommendations
 
 - **Taste** per side: library series (weighted by reading and recency) and likes, plus favorite tags
-  as a stand-in series (`FAVORITES_ID = -1`, weight 6). Tag weights come from how common each tag is
-  across seen series (rare tags say more); format tags are ignored; hidden tags never seed or show.
+  as a stand-in series (`FAVORITES_ID = -1`, weight 6). Since Nov 24 (Dan: "rarity doesn't equate to how
+  telling a tag is") tags are weighted by how central they are to each of your series, not by rarity:
+  `importanceFor` gives a primary tag 3, then MangaBaka's rank for it (core 2, defining 1.5, recurrent 1,
+  incidental 0.6; a source tag MangaBaka doesn't list 0.8), else 1. A tag's taste weight is the sum over
+  your series of series weight × importance (`tasteWeights`); `planShelves` picks each series' pairs from
+  its most central tags; `findThemes` counts a shared pair by the series' weight × √(importance of both)
+  and picks a third tag by summed importance. The MangaBaka taste vector counts liked series' primary tags
+  double (`withPrimary`). The global tag weight for recommendations is flat (`flatWeight`); Similar still
+  uses rarity (`tagWeights`) for its automatic tag pick. Primary tags are part of the For you cache key.
+  Format tags are ignored; hidden tags never seed or show.
 - **Quick rows** (`/api/for-you`): `planShelves` picks tag pairs that describe parts of your library
   ("Because you read X"), searches them per source, falls back to other mixes then single tags,
   nudged by AniList score.

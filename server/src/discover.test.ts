@@ -81,12 +81,13 @@ describe("similar and for you", () => {
     store.setGenres(10, ["Action", "Murim"]);
     store.saveProgress(10, { chapterId: 1, chapterNumber: 1, chapterName: "1", pageIndex: 0, pageOffset: 0 });
     expect(store.tasteProfile()).toEqual([{ genre: "Action", weight: 2 }, { genre: "Murim", weight: 2 }]);
+    // Murim is this series' primary tag, so it counts for more than Action (rarity no longer decides, Nov 24).
+    store.setSetting("primary_tags.shared hit", JSON.stringify(["Murim"]));
     const app = await buildApp(config, { fetchImpl: engine(), store });
     const out = (await app.inject({ url: "/api/for-you" })).json();
     const titles = out.groups.map((g: { title: string }) => g.title);
     expect(titles).toContain("Nano Machine");
     expect(titles).not.toContain("Shared Hit");
-    // Murim is rarer than Action, so it says more about this taste.
     expect(out.because).toEqual(["Murim", "Action"]);
     expect(out.shelves[0]).toMatchObject({ tags: ["Murim", "Action"], from: "Shared Hit" });
   });
@@ -289,5 +290,19 @@ describe("for you caching", () => {
     store.recCacheSet("for-you", true, "k", 1, { groups: [{ key: "x" }] });
     expect(store.recCacheGet("for-you", false)).toBeNull();
     expect(store.recCacheGet("for-you", true)?.key).toBe("k");
+  });
+});
+
+describe("tag importance in recommendations", () => {
+  it("counts a series' central tags for more than its incidental ones, whatever their rarity", async () => {
+    const { tasteWeights, planShelves } = await import("./discover.js");
+    const liked = [
+      { mangaId: 1, title: "A", tags: ["Action", "Cooking", "Revenge"], weight: 2, importance: (t: string) => (t === "Revenge" ? 3 : t === "Cooking" ? 0.6 : 1) },
+    ];
+    const taste = tasteWeights(liked, () => 1);
+    expect(taste.get("revenge")!.w).toBeGreaterThan(taste.get("action")!.w);
+    expect(taste.get("action")!.w).toBeGreaterThan(taste.get("cooking")!.w);
+    // The series' row leads with its most central pair.
+    expect(planShelves(liked, () => 1)[0].tags).toEqual(["Revenge", "Action"]);
   });
 });

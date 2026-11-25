@@ -198,7 +198,15 @@ export interface LikedSeries {
   title: string;
   tags: string[];
   weight: number;
+  /**
+   * How central each tag is to this series (1 when unknown): your primary tags most, then MangaBaka's
+   * core and defining ones (Dan, Nov 24: a tag being rare doesn't make it defining).
+   */
+  importance?: (tag: string) => number;
+  /** This series' primary tags, so a change to them rebuilds the recommendations. */
+  primary?: string[];
 }
+const imp = (s: LikedSeries, tag: string) => s.importance?.(tag) ?? 1;
 
 /** Your favorite tags join your taste as one stand-in series with this id, counting as much as a few liked series. */
 export const FAVORITES_ID = -1;
@@ -217,7 +225,8 @@ const PER_SHELF = 18;
 
 /**
  * How much each tag says about your taste: the sum, over the series you like, of how much you like
- * that series times how telling the tag is (rare tags count for more than ones on everything).
+ * that series times how central the tag is to it (`importance`) and the tag weight passed in (flat for
+ * recommendations since Nov 24; Similar still uses rarity to pick its automatic tags).
  */
 export function tasteWeights(liked: LikedSeries[], weight: (tag: string) => number, hidden: Set<string> = new Set()) {
   const out = new Map<string, { tag: string; w: number }>();
@@ -228,7 +237,7 @@ export function tasteWeights(liked: LikedSeries[], weight: (tag: string) => numb
       if (!k || FORMAT_TAGS.has(k) || hidden.has(k) || seen.has(k)) continue;
       seen.add(k);
       const e = out.get(k) ?? { tag: t, w: 0 };
-      e.w += s.weight * weight(t);
+      e.w += s.weight * weight(t) * imp(s, t);
       out.set(k, e);
     }
   }
@@ -237,7 +246,7 @@ export function tasteWeights(liked: LikedSeries[], weight: (tag: string) => numb
 
 /**
  * The mixes of tags to look for. Each series you like votes for the pair of its tags that best
- * describe it (telling for that series and part of your overall taste), so "Murim + Regression"
+ * describe it (central to that series and part of your overall taste), so "Murim + Regression"
  * from one series and "Romance + Villainess" from another become separate rows instead of one
  * blend. Rows that would repeat a tag too often are skipped, so the page covers more of your taste.
  */
@@ -253,7 +262,8 @@ export function planShelves(
     if (s.weight <= 0) continue;
     const own = [...new Set(s.tags.map(canonKey))]
       .filter((k) => (taste.get(k)?.w ?? 0) > 0)
-      .map((k) => ({ k, tag: taste.get(k)!.tag, w: weight(taste.get(k)!.tag) * Math.sqrt(taste.get(k)!.w) }))
+      // What this series is about (its primary and core tags) leads its pairs, steadied by your overall taste.
+      .map((k) => ({ k, tag: taste.get(k)!.tag, w: weight(taste.get(k)!.tag) * imp(s, taste.get(k)!.tag) * Math.sqrt(taste.get(k)!.w) }))
       .sort((a, b) => b.w - a.w);
     if (own.length === 0) continue;
     // Every pair of the series' four best tags, the best pair counting most: a series with several

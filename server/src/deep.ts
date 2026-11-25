@@ -41,6 +41,8 @@ function storyKeys(tags: string[], hidden: Set<string>): Map<string, string> {
 export function findThemes(liked: LikedSeries[], weight: (tag: string) => number, hidden: Set<string> = new Set()): Theme[] {
   // Themes are what your series share, so the favorite-tags stand-in doesn't take part.
   const series = liked.filter((s) => s.weight > 0 && s.mangaId !== FAVORITES_ID).map((s) => ({ ...s, keys: storyKeys(s.tags, hidden) })).filter((s) => s.keys.size >= 2);
+  // How central a tag is to one series (primary, MangaBaka core…); 1 when unknown.
+  const centrality = (i: number, k: string) => series[i].importance?.(series[i].keys.get(k) ?? k) ?? 1;
   if (series.length < 2) return [];
   const label = new Map<string, string>();
   for (const s of series) for (const [k, t] of s.keys) if (!label.has(k)) label.set(k, t);
@@ -55,7 +57,8 @@ export function findThemes(liked: LikedSeries[], weight: (tag: string) => number
         const id = `${keys[x]}|${keys[y]}`;
         const p = pairs.get(id) ?? { a: keys[x], b: keys[y], members: [], weight: 0 };
         p.members.push(i);
-        p.weight += s.weight;
+        // A pair counts for as much as the series likes it and as central both tags are to it.
+        p.weight += s.weight * Math.sqrt(centrality(i, keys[x]) * centrality(i, keys[y]));
         pairs.set(id, p);
       }
     }
@@ -69,11 +72,17 @@ export function findThemes(liked: LikedSeries[], weight: (tag: string) => number
   const grown: Theme[] = scored.map((p) => {
     // A third tag that most of these same series also have makes the theme sharper.
     const counts = new Map<string, number>();
-    for (const i of p.members) for (const k of series[i].keys.keys()) if (k !== p.a && k !== p.b) counts.set(k, (counts.get(k) ?? 0) + 1);
+    const central = new Map<string, number>();
+    for (const i of p.members)
+      for (const k of series[i].keys.keys())
+        if (k !== p.a && k !== p.b) {
+          counts.set(k, (counts.get(k) ?? 0) + 1);
+          central.set(k, (central.get(k) ?? 0) + centrality(i, k));
+        }
     let third: string | null = null;
     let best = 0;
     for (const [k, n] of counts) {
-      const value = n * w(k);
+      const value = (central.get(k) ?? n) * w(k);
       if (n >= 2 && n >= Math.ceil(p.members.length * 0.6) && value > best) {
         best = value;
         third = k;
