@@ -127,6 +127,43 @@ export function parseSeries(raw: unknown): BakaSeries | null {
   };
 }
 
+/** A series MangaUpdates readers recommend alongside another (by name; found on your sources later). */
+export interface UpdatesRec {
+  id: string;
+  title: string;
+  /** Higher = recommended more often; readers' picks come before MangaUpdates' category matches. */
+  weight: number;
+}
+
+/** MangaUpdates' recommendations (readers' first, then category-based), best first, without repeats. */
+export function parseUpdatesRecs(raw: unknown): UpdatesRec[] {
+  const r = obj(obj(raw).data ?? raw);
+  const mu = obj(obj(r.source).manga_updates);
+  const resp = obj(mu.response);
+  const out: UpdatesRec[] = [];
+  const seen = new Set<string>();
+  const take = (list: unknown, bonus: number) => {
+    const items = (Array.isArray(list) ? list : [])
+      .map((x) => {
+        const o = obj(x);
+        const title = str(o.series_name) ?? str(o.name) ?? str(o.title);
+        const id = str(o.series_id) ?? (num(o.series_id) !== null ? String(num(o.series_id)) : null) ?? title;
+        return title && id ? { id, title, weight: (num(o.weight) ?? 0) + bonus } : null;
+      })
+      .filter((x): x is UpdatesRec => x !== null)
+      .sort((a, b) => b.weight - a.weight);
+    for (const it of items) {
+      const k = normalizeTitle(it.title);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      out.push(it);
+    }
+  };
+  take(resp.recommendations, 1000);
+  take(resp.category_recommendations, 0);
+  return out;
+}
+
 function parseHits(raw: unknown): BakaHit[] {
   const j = obj(raw);
   const list = Array.isArray(j.data) ? j.data : Array.isArray(j.results) ? j.results : Array.isArray(j.items) ? j.items : Array.isArray(raw) ? raw : [];
@@ -224,6 +261,20 @@ export class MangaBaka {
       out.push({ id, name, path: str(t.name_path) ?? name, count: num(t.series_count) });
     }
     return out.slice(0, 20);
+  }
+
+  /**
+   * MangaUpdates' reader recommendations for a series, as MangaBaka passes them on (the full record's
+   * source.manga_updates.response). Field names from the API docs; not checked live yet.
+   */
+  async updatesRecs(id: number): Promise<UpdatesRec[]> {
+    let j = await this.get(`/v1/series/${id}?schema=full`, this.gaps.other).catch(() => null);
+    let recs = parseUpdatesRecs(j);
+    if (recs.length === 0 && j === null) {
+      j = await this.get(`/v1/series/${id}`, this.gaps.other).catch(() => null);
+      recs = parseUpdatesRecs(j);
+    }
+    return recs;
   }
 
   async series(id: number): Promise<BakaSeries | null> {

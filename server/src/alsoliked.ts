@@ -75,9 +75,9 @@ export async function anilistRecommendations(store: Store, ids: number[], fetchI
 export async function findOnSources(
   config: Config,
   store: Store,
-  rec: { id: number; titles: string[] },
+  rec: { id: number | string; titles: string[] },
   opts: { fetchImpl?: FetchLike; scope: Scope; onResult?: SourceReport },
-  /** Which catalogue the id is from, so AniList and MangaBaka ids never share a remembered answer. */
+  /** Which catalogue the id is from, so AniList, MangaBaka and MangaUpdates ids never share a remembered answer. */
   prefix = "anilist_match",
 ): Promise<SeriesGroup | null> {
   const key = `${prefix}.${opts.scope}.${rec.id}`;
@@ -99,44 +99,85 @@ export async function findOnSources(
   return group;
 }
 
+export type RecSource = "AniList" | "MangaUpdates";
 export interface AlsoLikedRow {
   from: string;
   groups: SeriesGroup[];
+  /** Where this row's picks came from. */
+  via: RecSource[];
+}
+
+/** One recommendation before it's found on your sources. */
+interface Wanted {
+  id: number | string;
+  titles: string[];
+  via: RecSource;
 }
 
 /**
- * "Readers of X also liked": for the series you like most (read lately counts most), AniList's
- * community recommendations that are on your sources and not already yours.
+ * "Readers of X also liked": for the series you like most (read lately counts most), AniList's community
+ * recommendations and MangaUpdates' reader recommendations (through MangaBaka, which also covers many 18+
+ * series AniList doesn't), taking turns, that are on your sources and not already yours.
  */
 export async function alsoLiked(
   config: Config,
   store: Store,
   liked: { mangaId: number; title: string; weight: number }[],
-  opts: { fetchImpl?: FetchLike; scope: Scope; onResult?: SourceReport; skip: (g: SeriesGroup) => boolean },
+  opts: {
+    fetchImpl?: FetchLike;
+    scope: Scope;
+    onResult?: SourceReport;
+    skip: (g: SeriesGroup) => boolean;
+    /** MangaUpdates' recommendations for one of your series (empty when MangaBaka has none). */
+    updates?: (title: string) => Promise<{ id: string; title: string }[]>;
+  },
 ): Promise<AlsoLikedRow[]> {
   const top = [...liked].sort((a, b) => b.weight - a.weight).slice(0, SEEDS * 2);
   const meta = await ratingsFor(store, top.map((t) => t.title), opts.fetchImpl, {}, false).catch(() => new Map());
-  const seeds = top
-    .map((t) => ({ ...t, anilistId: meta.get(normalizeTitle(t.title))?.anilistId as number | null | undefined }))
-    .filter((t): t is typeof t & { anilistId: number } => typeof t.anilistId === "number")
+  const withIds = top.map((t) => ({ ...t, anilistId: meta.get(normalizeTitle(t.title))?.anilistId as number | null | undefined }));
+  const ids = withIds.map((t) => t.anilistId).filter((id): id is number => typeof id === "number");
+  const [recs, updates] = await Promise.all([
+    ids.length > 0 ? anilistRecommendations(store, ids, opts.fetchImpl) : Promise.resolve(new Map<number, AnilistRec[]>()),
+    Promise.all(withIds.map((t) => (opts.updates ? opts.updates(t.title).catch(() => []) : Promise.resolve([])))),
+  ]);
+  const seeds = withIds
+    .map((t, i) => {
+      const fromAnilist: Wanted[] = (typeof t.anilistId === "number" ? (recs.get(t.anilistId) ?? []) : [])
+        .filter((r) => opts.scope === "adult" || !r.adult)
+        .map((r) => ({ id: r.id, titles: r.titles, via: "AniList" as const }));
+      const fromUpdates: Wanted[] = updates[i].map((r) => ({ id: r.id, titles: [r.title], via: "MangaUpdates" as const }));
+      // Take turns, so neither list crowds out the other; the same series named by both counts once.
+      const wanted: Wanted[] = [];
+      const names = new Set<string>();
+      for (let j = 0; j < Math.max(fromAnilist.length, fromUpdates.length); j++) {
+        for (const w of [fromAnilist[j], fromUpdates[j]]) {
+          if (!w || w.titles.some((n) => names.has(normalizeTitle(n)))) continue;
+          w.titles.forEach((n) => names.add(normalizeTitle(n)));
+          wanted.push(w);
+        }
+      }
+      const both = fromAnilist.length > 0 && fromUpdates.length > 0;
+      return { title: t.title, wanted: wanted.slice(0, both ? PER_SEED + 4 : PER_SEED) };
+    })
+    .filter((s) => s.wanted.length > 0)
     .slice(0, SEEDS);
-  if (seeds.length === 0) return [];
-  const recs = await anilistRecommendations(store, seeds.map((s) => s.anilistId), opts.fetchImpl);
   const shown = new Set<string>();
   const rows: AlsoLikedRow[] = [];
   for (const seed of seeds) {
-    const wanted = (recs.get(seed.anilistId) ?? []).filter((r) => opts.scope === "adult" || !r.adult).slice(0, PER_SEED);
     const found: SeriesGroup[] = [];
+    const via = new Set<RecSource>();
     // A few at a time: each one searches every source.
-    for (let i = 0; i < wanted.length; i += 3) {
-      const batch = await Promise.all(wanted.slice(i, i + 3).map((r) => findOnSources(config, store, r, opts).catch(() => null)));
-      for (const g of batch) {
-        if (!g || shown.has(g.key) || opts.skip(g)) continue;
+    for (let i = 0; i < seed.wanted.length; i += 3) {
+      const part = seed.wanted.slice(i, i + 3);
+      const batch = await Promise.all(part.map((r) => findOnSources(config, store, r, opts, r.via === "AniList" ? "anilist_match" : "mu_match").catch(() => null)));
+      batch.forEach((g, j) => {
+        if (!g || shown.has(g.key) || opts.skip(g)) return;
         shown.add(g.key);
         found.push(g);
-      }
+        via.add(part[j].via);
+      });
     }
-    if (found.length > 0) rows.push({ from: seed.title, groups: found });
+    if (found.length > 0) rows.push({ from: seed.title, groups: found, via: [...via] });
   }
   return rows;
 }

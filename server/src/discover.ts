@@ -94,7 +94,29 @@ const VERY_COMMON = new Set(
 export interface TagKnowledge {
   weight(tag: string): number;
   tagsOf(mangaId: number): string[] | null;
+  /**
+   * How central each tag is to a candidate series (its primary tags, then MangaBaka's core/defining/...
+   * ranks), or null when Sapphire doesn't know (its tags then count equally).
+   */
+  importanceOf?(g: SeriesGroup): ((tag: string) => number) | null;
 }
+
+/**
+ * Adds up `value` over a candidate's tags, each times how central it is to that candidate, scaled so the
+ * average tag still counts 1: a candidate with MangaBaka data isn't ahead just for having it, but one whose
+ * matching tags are its core ones beats one where they're incidental.
+ */
+export function centralSum(keys: Iterable<string>, value: (k: string) => number, importance: ((tag: string) => number) | null | undefined): number {
+  const list = [...keys];
+  if (list.length === 0) return 0;
+  if (!importance) return list.reduce((n, k) => n + value(k), 0);
+  const imps = list.map((k) => importance(k));
+  const mean = imps.reduce((a, b) => a + b, 0) / list.length || 1;
+  return list.reduce((n, k, i) => n + value(k) * imps[i], 0) / mean;
+}
+
+/** Broad genres on nearly every series count half when choosing a series' own tags to search by. */
+export const commonFactor = (tag: string) => (VERY_COMMON.has(canonKey(tag)) ? 0.5 : 1);
 
 /**
  * Turns "how many known series carry each tag" into how telling a tag is: a tag on nearly every
@@ -120,7 +142,7 @@ const SIMILAR_MAX = 24;
 const plainKnowledge: TagKnowledge = { weight: tagWeights({ total: 0, counts: new Map() }), tagsOf: () => null };
 
 /**
- * Series like this one. Its tags are ranked by how telling they are (rare tags first), the best few
+ * Series like this one. Its tags are ranked by the weight passed in (how central each is to it), the best few
  * are searched in pairs (and alone if that finds too little), and every candidate is scored by the
  * weight of the tags it shares with this series, using its full tag list when Sapphire has seen it.
  */
@@ -226,7 +248,7 @@ const PER_SHELF = 18;
 /**
  * How much each tag says about your taste: the sum, over the series you like, of how much you like
  * that series times how central the tag is to it (`importance`) and the tag weight passed in (flat for
- * recommendations since Nov 24; Similar still uses rarity to pick its automatic tags).
+ * recommendations since Nov 24).
  */
 export function tasteWeights(liked: LikedSeries[], weight: (tag: string) => number, hidden: Set<string> = new Set()) {
   const out = new Map<string, { tag: string; w: number }>();
@@ -391,8 +413,8 @@ export async function recommendShelves(
     const known = g.hits.map((h) => knowledge.tagsOf(h.mangaId)).find((t) => t !== null);
     const keys = new Set((known ?? fallback).map(canonKey));
     if ([...keys].some((k) => hidden.has(k))) return null;
-    let total = 0;
-    for (const k of keys) total += taste.get(k)?.w ?? 0;
+    // Each shared tag counts by how central it is to the candidate too, where that's known.
+    let total = centralSum(keys, (k) => taste.get(k)?.w ?? 0, knowledge.importanceOf?.(g));
     // Well-rated series move up a little (at most ±15%); unknown scores stay as they are.
     const score = rated.get(g.key) ?? rated.get(normalizeTitle(g.title));
     if (boost) total *= boost(g);

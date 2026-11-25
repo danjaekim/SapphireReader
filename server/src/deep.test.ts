@@ -46,6 +46,14 @@ describe("tasteFit", () => {
     const sprawling = tasteFit(["Office", ...noise(60, "z")], taste, weight, new Set())!;
     expect(focused).toBeGreaterThan(sprawling);
   });
+  it("counts a candidate's own central tags for more", () => {
+    const tags = ["Office", "Murim", ...noise(4, "q")];
+    const officeCore = tasteFit(tags, taste, weight, new Set(), (t) => (t === "Office" ? 2 : 0.6))!;
+    const officeIncidental = tasteFit(tags, taste, weight, new Set(), (t) => (t === "Office" ? 0.6 : t === "Murim" ? 0.6 : 2))!;
+    expect(officeCore).toBeGreaterThan(officeIncidental);
+    // Unknown importance is the plain fit.
+    expect(tasteFit(tags, taste, weight, new Set(), null)).toBe(tasteFit(tags, taste, weight, new Set()));
+  });
   it("is null for a series with a hidden tag", () => {
     expect(tasteFit(["Office", "Gore"], taste, weight, new Set(["gore"]))).toBeNull();
   });

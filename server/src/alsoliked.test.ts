@@ -44,4 +44,31 @@ describe("readers also liked", () => {
     const rows = await alsoLiked(config, new Store(":memory:"), [{ mangaId: 99, title: "Solo Leveling", weight: 3 }], { fetchImpl: world(), scope: "safe", skip: (g) => g.title === "Nano Machine" });
     expect(rows).toEqual([]);
   });
+
+  it("adds MangaUpdates' reader recommendations, taking turns with AniList's and naming both", async () => {
+    const store = new Store(":memory:");
+    const log: string[] = [];
+    const rows = await alsoLiked(config, store, [{ mangaId: 99, title: "Solo Leveling", weight: 3 }], {
+      fetchImpl: world(log),
+      scope: "safe",
+      skip: () => false,
+      updates: async () => [{ id: "mu1", title: "Not Anywhere" }, { id: "mu2", title: "Nano Machine" }],
+    });
+    // Nano Machine was recommended by both; it shows once.
+    expect(rows[0].groups.map((g) => g.title)).toEqual(["Nano Machine"]);
+    expect(rows[0].via).toEqual(["AniList"]);
+    expect(log).toContain("Not Anywhere");
+  });
+
+  it("makes a row from MangaUpdates alone when AniList doesn't know the series", async () => {
+    const rows = await alsoLiked(config, new Store(":memory:"), [{ mangaId: 99, title: "Solo Leveling", weight: 3 }], {
+      fetchImpl: (async (url: string | URL | Request, init?: RequestInit) =>
+        String(url).includes("anilist") ? new Response(JSON.stringify({ data: { m0: null } })) : fakeEngine()(url, init)) as typeof fetch,
+      scope: "adult",
+      skip: () => false,
+      updates: async () => [{ id: "mu2", title: "Nano Machine" }],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].via).toEqual(["MangaUpdates"]);
+  });
 });

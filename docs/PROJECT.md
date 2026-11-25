@@ -82,9 +82,9 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `search.ts` | Source list and scopes (`inScope`, `scopedSources`), `searchAll`, `groupHits`, `interleaveGroups`, title keys and merge aliases (`normalizeTitle`, `rawTitleKey`, `displayTitle`, `primaryCover`, `primaryDescription`), `titleMatch` / `rankByQuery`, series details and chapter lists (live, and the engine's saved copy: `fetchStoredManga`, `fetchStoredChapters`), reading order. |
 | `browse.ts` | Genre browsing and sorting across sources: maps canonical genres and sort orders onto each source's own filters, text fallback, `orderGroups`. |
 | `genres.ts` | Canonical genre keys and labels (`canonKey`, `canonLabel`) so spellings across sources match. |
-| `discover.ts` | Popular/Latest lists, tag weights (`tagWeights`), Similar series, For you quick rows (`planShelves`, `recommendShelves`), format tags. |
+| `discover.ts` | Popular/Latest lists, `centralSum`, `commonFactor`, `tagWeights` (rarity; no longer used by recommendations), Similar series, For you quick rows (`planShelves`, `recommendShelves`), format tags. |
 | `deep.ts` | For you "Best matches" and "Your theme" rows (`findThemes`, `deepRecommendations`). |
-| `alsoliked.ts` | AniList "Readers of X also liked" rows. |
+| `alsoliked.ts` | "Readers of X also liked" rows (AniList and MangaUpdates recommendations). |
 | `ratings.ts` | AniList scores/popularity (and MangaUpdates fallback), cached in `anilist_meta` / `mu_meta`; `rankByAnilist` for rating/popular sorts. |
 | `passkeys.ts` | `Passkeys`: Face ID / fingerprint unlock for 18+ mode on `@simplewebauthn/server` (registration and login options, verification, one-use challenges). |
 | `adult.ts` | `AdultGate`: PIN, unlock sessions (cookie `sapphire_18`, 2 h idle lock). |
@@ -317,18 +317,31 @@ looked up elsewhere. Separate from move offers (§5.7), which still search and a
   your series of series weight × importance (`tasteWeights`); `planShelves` picks each series' pairs from
   its most central tags; `findThemes` counts a shared pair by the series' weight × √(importance of both)
   and picks a third tag by summed importance. The MangaBaka taste vector counts liked series' primary tags
-  double (`withPrimary`). The global tag weight for recommendations is flat (`flatWeight`); Similar still
-  uses rarity (`tagWeights`) for its automatic tag pick. Primary tags are part of the For you cache key.
+  double (`withPrimary`). The global tag weight for recommendations is flat (`flatWeight`). Primary tags
+  are part of the For you cache key.
+- **Candidates weighed the same way** (Dan, Nov 25): a suggested series' own tags count by how central they
+  are to it (`candidateImportance`: its primary tags, else its MangaBaka ranks, else unknown). Quick rows add
+  up taste × importance scaled so the candidate's average tag counts 1 (`centralSum`), so having MangaBaka
+  data is no bonus by itself but a match on its core tags beats one on its incidental ones; Best matches and
+  theme rows weight both sides of `tasteFit` by it. Cache keys carry "importance-v2".
   Format tags are ignored; hidden tags never seed or show.
 - **Quick rows** (`/api/for-you`): `planShelves` picks tag pairs that describe parts of your library
   ("Because you read X"), searches them per source, falls back to other mixes then single tags,
   nudged by AniList score.
 - **Deep rows** (`/api/for-you/deep`): "Best matches" (a wide pool ranked by full tag list fit) and
   up to 3 "Your theme" rows (tag combos shared by 2+ of your series). Built for many-tag 18+ series.
-- **AniList rows** (`/api/for-you/also-liked`): "Readers of X also liked", found on your sources by
-  exact name.
+- **Also liked rows** (`/api/for-you/also-liked`): "Readers of X also liked", found on your sources by
+  exact name. Two lists take turns (same series once): AniList's community recommendations and, since Nov 25,
+  MangaUpdates' (readers' picks, then category picks) as MangaBaka passes them on in the full record
+  (`source.manga_updates.response.recommendations` / `category_recommendations`, fetched with
+  `GET /v1/series/{id}?schema=full`, falling back to the plain record; `parseUpdatesRecs`; cached a week as
+  `mu_recs.<mbId>`, matches as `mu_match.*`). A series MangaBaka knows but AniList doesn't (many 18+ ones) now
+  gets a row too. The header says which lists it came from ("from AniList and MangaUpdates"). The ordinary
+  page skips picks MangaBaka rates explicit. Field names are from the API docs, not checked live.
 - **Not interested** never suggests a series again and counts its tags against.
-- **Similar** on the series page: by the series' most telling tags, both together then one.
+- **Similar** on the series page: by the series' most central tags, both together then one. Without
+  primary tags, its source-side pick weighs each tag by how central it is to the series (`importanceFor`:
+  MangaBaka's rank, else 1) with very common genres at half (`commonFactor`), not by rarity (Dan, Nov 25).
 - **Primary tags** (Dan, Nov 24): on the series page, "◇ Primary" (next to "☆ Favorites") lets you tap up
   to 8 tags the series is really about: source tags, MangaBaka tags, and parody/group/character names.
   They're stored per series (setting `primary_tags.<title key>`, `PUT /api/manga/:id/primary-tags`,
@@ -479,7 +492,7 @@ downloaded from Settings.
   - Similar (rebuilt Nov 24 at Dan's ask, "match on the detailed tags"): the candidate pool is MangaBaka's
     own similar list (`GET /v1/series/{id}/similar`, +0.1 head start since it also weighs author/relations)
     plus the series carrying this one's most telling tags (4, or 5 for explicit series; core, then defining,
-    then recurrent; rarer first by `series_count`; no genres, spoilers or broad tags: demographics like
+    then recurrent, MangaBaka's order within a rank (not rarity, since Nov 25); no genres, spoilers or broad tags: demographics like
     Seinen, Male/Female Lead, Adult/Smut-style labels, any tag on over 15,000 series), one
     `GET /v1/series/search?tag=ID&limit=50` each, cached a week as `mb_tag.<id>`. For an explicit series the
     search adds `content_rating=<its rating>` (cached as `mb_tag.<id>.<rating>`), since unfiltered pools were
@@ -534,6 +547,8 @@ Keep this list current: add items when they come up, remove them when done or dr
 - Suggested merges and the compare sheet on Dan's real listings (page previews depend on the sources serving pages).
 - MangaBaka: effect of the re-ranking on real For you rows, and the new Similar, not yet judged by Dan.
 - For you deep rows and AniList "also liked" rows on real sources.
+- MangaUpdates recommendations through MangaBaka (`?schema=full` and the `response` field names) and the
+  candidate-side importance weighting (Nov 25).
 - Version-aware move offers and the "Also on" memory on Dan's real libraries.
 
 ## Keeping this document current

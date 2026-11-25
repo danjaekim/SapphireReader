@@ -306,3 +306,24 @@ describe("tag importance in recommendations", () => {
     expect(planShelves(liked, () => 1)[0].tags).toEqual(["Revenge", "Action"]);
   });
 });
+
+describe("candidate tag importance", () => {
+  it("ranks a candidate whose matching tags are central to it above one where they're incidental", async () => {
+    const { recommendShelves, centralSum } = await import("./discover.js");
+    const hit = (title: string, id: number) => ({ key: title.toLowerCase(), title, hits: [{ mangaId: id, sourceId: "3", sourceName: "Site", title, thumbnailUrl: null }] });
+    const tags: Record<number, string[]> = { 1: ["Revenge", "Office", "Cooking"], 2: ["Revenge", "Office", "Cooking"] };
+    const out = await recommendShelves(config, [{ mangaId: 9, title: "Mine", tags: ["Revenge", "Office"], weight: 2 }], ["Mine"], {
+      knowledge: {
+        weight: () => 1,
+        tagsOf: (m) => tags[m] ?? null,
+        // Both carry the same tags, but for "Side Dish" revenge is incidental and cooking is what it's about.
+        importanceOf: (g) => (g.title === "Side Dish" ? (t) => (t === "cooking" ? 2 : 0.6) : (t) => (t === "cooking" ? 0.6 : 2)),
+      },
+      browse: async () => ({ groups: [hit("Side Dish", 1), hit("Main Course", 2)], failed: [], searched: 1 }),
+    });
+    expect(out.groups.map((g) => g.title)).toEqual(["Main Course", "Side Dish"]);
+    // Knowing importance never inflates a score on its own: all-equal importance gives the plain sum.
+    expect(centralSum(["a", "b"], () => 1, () => 2)).toBeCloseTo(2);
+    expect(centralSum(["a", "b"], () => 1, null)).toBe(2);
+  });
+});

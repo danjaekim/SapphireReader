@@ -120,10 +120,17 @@ export function findThemes(liked: LikedSeries[], weight: (tag: string) => number
 
 /**
  * How well a series' full tag list fits your taste: the taste weight of each of its tags, divided by
- * the size of its tag list (so a series with fifty tags doesn't win just by having many). Returns
- * null for a series with a hidden tag.
+ * the size of its tag list (so a series with fifty tags doesn't win just by having many). Where it's known
+ * how central each tag is to the candidate (`importance`), its central tags count more on both sides, so a
+ * match on its core tags beats one on its incidental ones. Returns null for a series with a hidden tag.
  */
-export function tasteFit(tags: string[], taste: Map<string, { w: number }>, weight: (tag: string) => number, hidden: Set<string>): number | null {
+export function tasteFit(
+  tags: string[],
+  taste: Map<string, { w: number }>,
+  weight: (tag: string) => number,
+  hidden: Set<string>,
+  importance?: ((tag: string) => number) | null,
+): number | null {
   const keys = new Map<string, string>();
   for (const t of tags) {
     const k = canonKey(t);
@@ -135,8 +142,9 @@ export function tasteFit(tags: string[], taste: Map<string, { w: number }>, weig
   let total = 0;
   let norm = 0;
   for (const [k, t] of keys) {
-    total += taste.get(k)?.w ?? 0;
-    norm += weight(t) ** 2;
+    const c = importance ? importance(t) : 1;
+    total += (taste.get(k)?.w ?? 0) * c;
+    norm += (weight(t) * c) ** 2;
   }
   return total / Math.sqrt(Math.max(norm, 1));
 }
@@ -168,9 +176,11 @@ export async function deepRecommendations(
     disliked?: { mangaId: number; titleKey: string; tags: string[] }[];
     /** Multiplies a candidate's fit by how well its MangaBaka tags match your taste (1 = unknown). */
     boost?: (g: SeriesGroup) => number;
+    /** How central each tag is to a candidate (primary tags, MangaBaka ranks), or null when unknown. */
+    importanceOf?: (g: SeriesGroup) => ((tag: string) => number) | null;
   },
 ): Promise<DeepRow[]> {
-  const { weight, tagsOf, fetchTags, browse, hidden = new Set<string>(), disliked = [], boost } = opts;
+  const { weight, tagsOf, fetchTags, browse, hidden = new Set<string>(), disliked = [], boost, importanceOf } = opts;
   const signals = [...liked, ...disliked.map((d) => ({ mangaId: d.mangaId, title: "", tags: d.tags, weight: -0.8 }))];
   const taste = tasteWeights(signals, weight, hidden);
   if ([...taste.values()].every((t) => t.w <= 0)) return [];
@@ -216,7 +226,7 @@ export async function deepRecommendations(
 
   const fitOf = (g: SeriesGroup) => {
     const tags = tagsFor.get(g.key);
-    const f = tags ? tasteFit(tags, taste, weight, hidden) : undefined;
+    const f = tags ? tasteFit(tags, taste, weight, hidden, importanceOf?.(g)) : undefined;
     return typeof f === "number" && boost ? f * boost(g) : f;
   };
   const rows: DeepRow[] = [];

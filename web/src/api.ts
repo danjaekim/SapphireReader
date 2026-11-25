@@ -269,7 +269,7 @@ export interface Freshness {
   stale?: boolean;
 }
 export const alsoLiked = (adult = false, refresh = false) =>
-  getJson<{ rows: { from: string; groups: SeriesGroup[] }[] } & Freshness>(`/api/for-you/also-liked${recQs(adult, refresh)}`);
+  getJson<{ rows: { from: string; groups: SeriesGroup[]; via?: ("AniList" | "MangaUpdates")[] }[] } & Freshness>(`/api/for-you/also-liked${recQs(adult, refresh)}`);
 export interface DeepRow {
   kind: "best" | "theme";
   tags: string[];

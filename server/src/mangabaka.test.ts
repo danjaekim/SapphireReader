@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
-import { MangaBaka, findOnBaka, parseSeries } from "./mangabaka.js";
+import { MangaBaka, findOnBaka, parseSeries, parseUpdatesRecs } from "./mangabaka.js";
 import { Store } from "./store.js";
 
 const config = loadConfig({ WEB_DIR: "./does-not-exist" });
@@ -133,5 +133,33 @@ describe("MangaBaka endpoints", () => {
     const r = (await app.inject({ method: "GET", url: "/api/manga/50/mangabaka?refresh=1" })).json();
     expect(r.status).toBe("unavailable");
     expect(r.match.id).toBe(685);
+  });
+});
+
+describe("MangaUpdates recommendations", () => {
+  it("reads readers' picks before category matches, best first, without repeats", () => {
+    const recs = parseUpdatesRecs({
+      data: {
+        id: 1,
+        source: {
+          manga_updates: {
+            id: "abc",
+            response: {
+              recommendations: [
+                { series_name: "Second", series_id: 2, weight: 3 },
+                { series_name: "First", series_id: 1, weight: 9 },
+              ],
+              category_recommendations: [
+                { series_name: "first", series_id: 1, weight: 50 },
+                { series_name: "Third", series_id: 3, weight: 40 },
+              ],
+            },
+          },
+        },
+      },
+    });
+    expect(recs.map((r) => r.title)).toEqual(["First", "Second", "Third"]);
+    expect(recs[0].id).toBe("1");
+    expect(parseUpdatesRecs({ data: { id: 1 } })).toEqual([]);
   });
 });

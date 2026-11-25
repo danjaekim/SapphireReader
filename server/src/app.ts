@@ -19,12 +19,12 @@ import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } fro
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { alsoLiked } from "./alsoliked.js";
 import { deepRecommendations } from "./deep.js";
-import { discover, FAVORITES_ID, FAVORITES_WEIGHT, primaryBrowse, recommendShelves, similarTo, tagWeights, type DiscoverSort, type LikedSeries } from "./discover.js";
+import { discover, FAVORITES_ID, FAVORITES_WEIGHT, commonFactor, primaryBrowse, recommendShelves, similarTo, type DiscoverSort, type LikedSeries } from "./discover.js";
 import { Downloader, mimeForFile } from "./downloader.js";
 import { backupName, snapshot } from "./backup.js";
 import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
 import { checkLibrary } from "./checker.js";
-import { MangaBaka, bakaUrl, findOnBaka, type BakaSeries, type BakaTag, type TagWeight } from "./mangabaka.js";
+import { MangaBaka, bakaUrl, findOnBaka, type BakaSeries, type BakaTag, type TagWeight, type UpdatesRec } from "./mangabaka.js";
 import { bakaVector, boostFrom, cosine, tasteVector, type TagVector } from "./bakatags.js";
 import { findOnSources } from "./alsoliked.js";
 import { pairKey, splitVersion, suggestMerges } from "./mergehints.js";
@@ -322,7 +322,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
    * defining 1.5, recurrent 1, incidental 0.6; a source tag MangaBaka doesn't list 0.8), else 1.
    */
   const IMPORTANCE: Record<string, number> = { core: 2, defining: 1.5, recurrent: 1, incidental: 0.6, unweighted: 0.8 };
-  function importanceFor(title: string): { importance: (tag: string) => number; primary: string[] } {
+  function importanceFor(title: string): { importance: (tag: string) => number; primary: string[]; known: boolean } {
     const primary = primaryTagsOf(title);
     const pKeys = new Set(primary.map(canonKey));
     const data = store.bakaLink(normalizeTitle(title))?.data as BakaSeries | null | undefined;
@@ -331,6 +331,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const hasMb = mb.size > 0;
     return {
       primary,
+      known: hasMb || primary.length > 0,
       importance: (tag) => {
         const k = canonKey(tag);
         return pKeys.has(k) ? 3 : (mb.get(k) ?? (hasMb ? 0.8 : 1));
@@ -339,6 +340,14 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   }
   /** Recommendations weigh tags by how central they are to your series, not by how rare they are (Dan, Nov 24). */
   const flatWeight = () => 1;
+  /** The same for a suggested series: how central each of its tags is to it, or null when Sapphire doesn't know. */
+  function candidateImportance(g: SeriesGroup): ((tag: string) => number) | null {
+    for (const title of [g.title, ...g.hits.map((h) => h.title)]) {
+      const i = importanceFor(title);
+      if (i.known) return i.importance;
+    }
+    return null;
+  }
   function tasteSignals(adult: boolean): LikedSeries[] {
     const liked = store.likedSeries(adult).map((l) => ({ ...l, ...importanceFor(l.title) }));
     const favs = favoriteTags(adult);
@@ -964,7 +973,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const liked = tasteSignals(adult);
     const titles = store.libraryTitles(adult);
-    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10), l.tags ?? null, l.primary ?? null]), titles.length, bakaKnown(liked), "importance-v1"]);
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10), l.tags ?? null, l.primary ?? null]), titles.length, bakaKnown(liked), "importance-v2"]);
     try {
       return await recommend("for-you", adult, key, req.query.refresh === "1", async () => {
         const result = await recommendShelves(config, liked, titles, {
@@ -978,7 +987,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           browse: adult
             ? (tags, strict) => adultWithMixed((scope, only) => browseByGenres(config, tags, { fetchImpl, onResult: report, scope, only, strict, timeoutMs: 9000 }))
             : undefined,
-          knowledge: { weight: flatWeight, tagsOf: (m) => store.seriesTags(m) },
+          knowledge: { weight: flatWeight, tagsOf: (m) => store.seriesTags(m), importanceOf: candidateImportance },
           scores: async (list) => {
             const meta = await ratingsFor(store, list, fetchImpl, {}, false);
             return new Map([...meta].map(([k, m]) => [k, m.score]));
@@ -993,13 +1002,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     }
   });
 
-  // "Readers of X also liked" (AniList's community recommendations, found on your sources). Separate from
+  // "Readers of X also liked" (AniList's and MangaUpdates' reader recommendations, found on your sources). Separate from
   // /api/for-you because finding each one on your sources is slow; the page adds these rows when they arrive.
   app.get<{ Querystring: { adult?: string; refresh?: string } }>("/api/for-you/also-liked", async (req, reply) => {
     const adult = req.query.adult === "1";
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const liked = store.likedSeries(adult);
-    const key = JSON.stringify(liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]));
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10)]), "mu-v1"]);
     try {
       return await recommend("also-liked", adult, key, req.query.refresh === "1", async () => {
         const own = new Set(store.libraryTitles(adult).map(normalizeTitle));
@@ -1009,7 +1018,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           onResult: report,
           // On the 18+ page an AniList pick may be on any of your sources, mixed ones included.
           scope: adult ? "all" : "safe",
-          skip: (g) => own.has(g.key) || notKeys.has(g.key) || g.hits.some((h) => store.inLibrary(h.mangaId)),
+          skip: (g) => own.has(g.key) || notKeys.has(g.key) || g.hits.some((h) => store.inLibrary(h.mangaId)) || (!adult && explicitOnBaka(g)),
+          updates: updatesRecsFor,
         });
         return { rows };
       });
@@ -1026,12 +1036,13 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (adult && !gate.unlocked(req.headers.cookie)) return reply.code(403).send({ error: "18+ mode is locked." });
     const liked = tasteSignals(adult);
     const titles = store.libraryTitles(adult);
-    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10), l.tags ?? null, l.primary ?? null]), titles.length, bakaKnown(liked), "importance-v1"]);
+    const key = JSON.stringify([liked.map((l) => [l.mangaId, Math.round(l.weight * 10), l.tags ?? null, l.primary ?? null]), titles.length, bakaKnown(liked), "importance-v2"]);
     try {
       return await recommend("deep", adult, key, req.query.refresh === "1", async () => {
         const rows = await deepRecommendations(liked, titles, {
           boost: tasteBoost(liked, store.notInterested(adult)),
           weight: flatWeight,
+          importanceOf: candidateImportance,
           tagsOf: (m) => store.seriesTags(m),
           fetchTags: async (id) => {
             const tags = (await detailsFor(id)).genre ?? [];
@@ -1440,6 +1451,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const genreNames = new Map([...manga.genre, ...(about.tags ?? [])].map((g) => [canonKey(g), g] as const));
       const primaryGenres = primary.filter((t) => genreNames.has(canonKey(t))).map((t) => genreNames.get(canonKey(t))!);
       const primaryLower = new Set(primary.map((t) => t.toLowerCase()));
+      const selfImportance = importanceFor(manga.title).importance;
       const boost = selfVec ? (g: SeriesGroup) => { const v = groupVec(g); return boostFrom(v ? cosine(selfVec, v) : null); } : undefined;
       const sourceSide = async () => {
         const prim = primaryGenres.length > 0 ? await primaryBrowse(config, manga.title, primaryGenres, { fetchImpl, onResult: report, scope, selfId: id, boost }) : null;
@@ -1450,7 +1462,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           onResult: report,
           scope,
           selfId: id,
-          knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
+          // Its own tags count by how central they are to it (MangaBaka's ranks), not by rarity (Dan, Nov 25).
+          knowledge: { weight: (t) => selfImportance(t) * commonFactor(t), tagsOf: (m) => store.seriesTags(m) },
           boost,
         });
         return { ...auto, prim };
@@ -1697,6 +1710,25 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return list;
   }
 
+  /** MangaBaka rates this series erotica or pornographic (the ordinary page leaves those out). */
+  const explicitOnBaka = (g: SeriesGroup) => EXPLICIT.has((store.bakaLink(g.key)?.data as BakaSeries | null | undefined)?.contentRating ?? "");
+
+  /** MangaUpdates' reader recommendations for one of your series, through its MangaBaka match. Remembered a week. */
+  async function updatesRecsFor(title: string): Promise<UpdatesRec[]> {
+    const mbId = store.bakaLink(normalizeTitle(title))?.mbId;
+    if (!mbId) return [];
+    const key = `mu_recs.${mbId}`;
+    try {
+      const c = JSON.parse(store.getSetting(key) ?? "null") as { at: number; recs: UpdatesRec[] } | null;
+      if (c && Date.now() - c.at < 7 * 24 * 3600 * 1000) return c.recs;
+    } catch {
+      // Ask again.
+    }
+    const recs = (await baka.updatesRecs(mbId)).slice(0, 20);
+    store.setSetting(key, JSON.stringify({ at: Date.now(), recs }));
+    return recs;
+  }
+
   /**
    * Tags too broad to find neighbours by: reader demographics and who the lead is. Thousands of series carry
    * them, so a 50-title search on one returns the most popular of everything (Dan, Nov 24: "Matched mostly on
@@ -1705,12 +1737,15 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const BROAD_TAG = /^(seinen|shou?nen|josei|shou?jo|kodomo|male lead|female lead|male protagonist|female protagonist|adult|mature|ecchi|smut|hentai|pornographic|erotica|manhwa|manhua|manga|webtoon|full colou?r|long strip)$/i;
   const broadTag = (t: BakaTag) => BROAD_TAG.test(t.name.trim()) || /^demographic/i.test(t.path) || (t.count !== undefined && t.count > 15000);
 
-  /** The tags that say most about a series: central ones first, rarer ones before common ones, no genres, spoilers or broad tags. */
+  /**
+   * The tags that say most about a series: the most central first (core, then defining, then recurrent; MangaBaka's
+   * own order within a rank), no genres, spoilers or broad tags. Not by rarity (Dan, Nov 25).
+   */
   function tellingTags(s: BakaSeries, n: number) {
     const rank: Record<string, number> = { core: 0, defining: 1, recurrent: 2 };
     return s.tags
       .filter((t) => t.id !== undefined && !t.genre && !t.spoiler && t.weight in rank && !broadTag(t))
-      .sort((a, b) => rank[a.weight] - rank[b.weight] || (a.count ?? 1e9) - (b.count ?? 1e9))
+      .sort((a, b) => rank[a.weight] - rank[b.weight])
       .slice(0, n);
   }
 

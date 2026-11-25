@@ -28,7 +28,7 @@ const MODES: { id: Mode; label: string }[] = [
  * and offers only their genres; the ordinary page does the opposite.
  */
 /** AniList rows take a while (each series is looked for on your sources), so they load after the rest. */
-const alsoCache = new Map<boolean, { rows: { from: string; groups: SeriesGroup[] }[] }>();
+const alsoCache = new Map<boolean, Awaited<ReturnType<typeof alsoLiked>>>();
 const deepCache = new Map<boolean, DeepRow[]>();
 const forgetAlsoLiked = () => {
   alsoCache.clear();
@@ -123,7 +123,7 @@ function AlsoLikedRows({ adult, scopeTag, onDismiss }: { adult: boolean; scopeTa
         <section key={`al-${r.from}`} className="shelf">
           <header className="shelfHead">
             <h3 title={r.from}>Readers of <em>{tidyTitle(r.from)}</em> also liked</h3>
-            <span className="shelfMore">from AniList</span>
+            <span className="shelfMore">from {(r.via?.length ? r.via : ["AniList"]).join(" and ")}</span>
           </header>
           <Results result={{ groups: r.groups, failed: [], searched: 0 }} lookups={false} compact onDismiss={onDismiss} />
         </section>
