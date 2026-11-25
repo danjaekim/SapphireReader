@@ -568,7 +568,7 @@ a.tag:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 @media (max-width: 900px) { .seriesBackdrop.banner { height: 260px; } }
 
 .seriesChapters .chapters { overflow-y: auto; overscroll-behavior: contain; }
-@media (max-width: 900px) { .seriesChapters .chapters { max-height: none !important; overflow: visible; } }
+@media (max-width: 900px) { .seriesChapters .chapters { max-height: none !important; overflow: clip; } }
 
 /* Series header: one line of other names, then rank and every rating we found. */
 .altTitles { position: relative; }
