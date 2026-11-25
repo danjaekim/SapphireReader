@@ -1132,7 +1132,8 @@ export class Store {
     // A ♥ is the clearest signal there is: it counts most, in the library or not.
     const likes = this.db.prepare("SELECT manga_id AS id, title FROM likes WHERE adult = ?").all(adult ? 1 : 0) as { id: number; title: string }[];
     for (const r of likes) {
-      const have = out.find((o) => o.mangaId === r.id);
+      // A ♥ on another listing of a series in your library (another source, a merged name) is still that series.
+      const have = out.find((o) => o.mangaId === r.id || normalizeTitle(o.title) === normalizeTitle(r.title));
       if (have) {
         have.weight += 3;
         continue;
@@ -1156,7 +1157,21 @@ export class Store {
       if (!tags || tags.length === 0) continue;
       out.push({ mangaId: r.id, title: r.title, tags, weight: 1.5 * recency(r.lastRead) });
     }
-    return out;
+    // One series counts once, however many listings of it you have (sources, merged names): at its strongest
+    // weight, with every tag any of its listings carries (Dan, Nov 25: a theme said "like X and X").
+    const bySeries = new Map<string, (typeof out)[number]>();
+    for (const o of out) {
+      const k = normalizeTitle(o.title) || `#${o.mangaId}`;
+      const have = bySeries.get(k);
+      if (!have) {
+        bySeries.set(k, { ...o, tags: [...o.tags] });
+        continue;
+      }
+      const lower = new Set(have.tags.map((t) => t.toLowerCase()));
+      const tags = [...have.tags, ...o.tags.filter((t) => !lower.has(t.toLowerCase()))];
+      bySeries.set(k, o.weight > have.weight ? { ...o, tags } : { ...have, tags });
+    }
+    return [...bySeries.values()];
   }
 
   setLiked(mangaId: number, title: string, adult: boolean, on: boolean): void {

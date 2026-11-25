@@ -113,4 +113,19 @@ describe("marking chapters by hand", () => {
   });
 
 
+
+  it("counts a series once in your taste, however many listings of it you have", () => {
+    const store = new Store(":memory:");
+    store.addToLibrary({ mangaId: 1, sourceId: "s", sourceName: null, title: "Someone Stop Her" });
+    store.setGenres(1, ["Romance", "Harem"]);
+    store.addToLibrary({ mangaId: 2, sourceId: "t", sourceName: null, title: "Someone Stop Her!" });
+    store.setGenres(2, ["Romance", "Big Breasts"]);
+    store.recordSeriesTags(3, ["Drama"]);
+    store.setLiked(3, "Someone Stop Her", false, true);
+    const liked = store.likedSeries();
+    expect(liked).toHaveLength(1);
+    expect(liked[0].tags).toEqual(["Romance", "Harem", "Big Breasts"]);
+    // The ♥ on another listing still adds to the series.
+    expect(liked[0].weight).toBe(4);
+  });
 });

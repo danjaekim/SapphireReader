@@ -310,7 +310,9 @@ looked up elsewhere. Separate from move offers (§5.7), which still search and a
 ### 5.5 Recommendations
 
 - **Taste** per side: library series (weighted by reading and recency) and likes, plus favorite tags
-  as a stand-in series (`FAVORITES_ID = -1`, weight 6). Since Nov 24 (Dan: "rarity doesn't equate to how
+  as a stand-in series (`FAVORITES_ID = -1`, weight 6). A series counts once however many listings of it you have
+  (`likedSeries` groups by `normalizeTitle`, so other sources and merged names join): at its strongest weight,
+  with the union of its listings' tags; a ♥ on another listing of a library series adds +3 to it (Nov 25). Since Nov 24 (Dan: "rarity doesn't equate to how
   telling a tag is") tags are weighted by how central they are to each of your series, not by rarity:
   `importanceFor` gives a primary tag 3, then MangaBaka's rank for it (core 2, defining 1.5, recurrent 1,
   incidental 0.6; a source tag MangaBaka doesn't list 0.8), else 1. A tag's taste weight is the sum over
