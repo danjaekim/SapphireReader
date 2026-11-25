@@ -318,7 +318,12 @@ looked up elsewhere. Separate from move offers (§5.7), which still search and a
   its most central tags; `findThemes` counts a shared pair by the series' weight × √(importance of both)
   and picks a third tag by summed importance. The MangaBaka taste vector counts liked series' primary tags
   double (`withPrimary`). The global tag weight for recommendations is flat (`flatWeight`). Primary tags
-  are part of the For you cache key.
+  are part of the For you cache key, and setting them clears the For you cache (`recCacheClear`) so the next
+  visit rebuilds instead of waiting out the 3h gap. Primary tags the source doesn't list (MangaBaka or
+  description tags) are added to that series' tags for taste. In `planShelves` a series with 2+ primary tags
+  votes only for pairs of them, and one with a single primary tag only for pairs that include it, so its
+  "Because you read" row is never its generic tags (Dan, Nov 25: "Romance + Drama" despite primaries). A pair a
+  site can't filter by finds nothing and the next pair is tried as usual.
 - **Candidates weighed the same way** (Dan, Nov 25): a suggested series' own tags count by how central they
   are to it (`candidateImportance`: its primary tags, else its MangaBaka ranks, else unknown). Quick rows add
   up taste × importance scaled so the candidate's average tag counts 1 (`centralSum`), so having MangaBaka

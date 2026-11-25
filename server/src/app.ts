@@ -310,6 +310,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     if (tags.length > 8) return reply.code(400).send({ error: "Pick at most 8 primary tags." });
     store.setSetting(primaryKey(manga.title), JSON.stringify(tags));
     for (const k of [...similarCache.keys()]) if (k.startsWith(`${id}|`)) similarCache.delete(k);
+    // You just said what this series is about: For you rebuilds on the next visit instead of waiting out its 3h gap.
+    store.recCacheClear();
     return { tags };
   });
 
@@ -349,7 +351,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return null;
   }
   function tasteSignals(adult: boolean): LikedSeries[] {
-    const liked = store.likedSeries(adult).map((l) => ({ ...l, ...importanceFor(l.title) }));
+    const liked = store.likedSeries(adult).map((l) => {
+      const imp = importanceFor(l.title);
+      // Primary tags count even when the source doesn't list them (MangaBaka tags, description tags).
+      const have = new Set(l.tags.map(canonKey));
+      return { ...l, ...imp, tags: [...l.tags, ...imp.primary.filter((t) => !have.has(canonKey(t)))] };
+    });
     const favs = favoriteTags(adult);
     return favs.length > 0 ? [...liked, { mangaId: FAVORITES_ID, title: "", tags: favs, weight: FAVORITES_WEIGHT }] : liked;
   }

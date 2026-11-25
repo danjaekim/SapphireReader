@@ -288,11 +288,19 @@ export function planShelves(
       .map((k) => ({ k, tag: taste.get(k)!.tag, w: weight(taste.get(k)!.tag) * imp(s, taste.get(k)!.tag) * Math.sqrt(taste.get(k)!.w) }))
       .sort((a, b) => b.w - a.w);
     if (own.length === 0) continue;
-    // Every pair of the series' four best tags, the best pair counting most: a series with several
+    // A series with primary tags is about those: its pairs are made of them (or each pair with one of them,
+    // when only one is known), never of its generic tags (Dan, Nov 25: "Romance + Drama" despite primaries).
+    const pKeys = new Set((s.primary ?? []).map(canonKey));
+    const prim = own.filter((o) => pKeys.has(o.k));
+    // Otherwise every pair of the series' four best tags, the best pair counting most: a series with several
     // sides can seed more than one row, and there are spare pairs to try when one finds nothing.
-    const top = own.slice(0, 4);
+    const top = prim.length >= 2 ? prim.slice(0, 4) : own.slice(0, 4);
     const picks: (typeof own)[] = [];
     for (let a = 0; a < top.length; a++) for (let b = a + 1; b < top.length; b++) picks.push([top[a], top[b]]);
+    if (prim.length === 1) {
+      picks.length = 0;
+      for (const o of own) if (o.k !== prim[0].k && picks.length < 3) picks.push([prim[0], o]);
+    }
     if (picks.length === 0) picks.push([own[0]]);
     picks.forEach((pick, i) => {
       const key = pick.map((p) => p.k).sort().join("+");

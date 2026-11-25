@@ -305,6 +305,20 @@ describe("tag importance in recommendations", () => {
     // The series' row leads with its most central pair.
     expect(planShelves(liked, () => 1)[0].tags).toEqual(["Revenge", "Action"]);
   });
+
+  it("makes a series with primary tags vote only for pairs of them, however common its other tags are", async () => {
+    const { planShelves } = await import("./discover.js");
+    const prim = new Set(["big breasts", "harem", "tall female lead"]);
+    const liked = [
+      { mangaId: 1, title: "Someone Stop Her", tags: ["Romance", "Drama", "Big Breasts", "Harem", "Tall Female Lead"], weight: 4, primary: ["Big Breasts", "Harem", "Tall Female Lead"], importance: (t: string) => (prim.has(t.toLowerCase()) ? 3 : 1) },
+      // Lots of other series pile weight onto Romance and Drama.
+      ...[2, 3, 4, 5].map((id) => ({ mangaId: id, title: `Other ${id}`, tags: ["Romance", "Drama"], weight: 3 })),
+    ];
+    const plan = planShelves(liked, () => 1);
+    const mine = plan.filter((p) => p.from === "Someone Stop Her");
+    expect(mine.length).toBeGreaterThan(0);
+    for (const p of mine) expect(p.tags.every((t) => prim.has(t.toLowerCase()))).toBe(true);
+  });
 });
 
 describe("candidate tag importance", () => {
