@@ -19,7 +19,7 @@ import { browseByGenres, genreSupport, listGenres, SORT_KEYS, type SortKey } fro
 import { changeExtension, listExtensions, refreshExtensions, type ExtensionAction } from "./extensions.js";
 import { alsoLiked } from "./alsoliked.js";
 import { deepRecommendations } from "./deep.js";
-import { discover, FAVORITES_ID, FAVORITES_WEIGHT, recommendShelves, similarTo, tagWeights, type DiscoverSort, type LikedSeries } from "./discover.js";
+import { discover, FAVORITES_ID, FAVORITES_WEIGHT, primaryBrowse, recommendShelves, similarTo, tagWeights, type DiscoverSort, type LikedSeries } from "./discover.js";
 import { Downloader, mimeForFile } from "./downloader.js";
 import { backupName, snapshot } from "./backup.js";
 import { anilistSearch, anilistSetProgress, anilistViewer } from "./tracker.js";
@@ -287,6 +287,32 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     store.setSetting(adult ? "favorite_tags.adult" : "favorite_tags", JSON.stringify(tags));
     return { tags: favoriteTags(adult) };
   });
+  // --- Primary tags: the few tags you say a series is really about; Similar matches on them first. ------
+  const primaryKey = (title: string) => `primary_tags.${normalizeTitle(title)}`;
+  function primaryTagsOf(title: string): string[] {
+    return tagSetting(primaryKey(title));
+  }
+  app.put<{ Params: { id: string }; Body: { tags?: unknown } }>("/api/manga/:id/primary-tags", async (req, reply) => {
+    const id = Number(req.params.id);
+    const raw = req.body?.tags;
+    if (!Number.isInteger(id) || id < 0 || !Array.isArray(raw) || raw.some((t) => typeof t !== "string")) return reply.code(400).send({ error: "tags is a list of names." });
+    const manga = await detailsFor(id).catch(() => null);
+    if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
+    // Kept as written (character and parody names aren't genres), one per name, at most eight.
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const t of raw as string[]) {
+      const name = t.trim().slice(0, 80);
+      if (!name || seen.has(name.toLowerCase())) continue;
+      seen.add(name.toLowerCase());
+      tags.push(name);
+    }
+    if (tags.length > 8) return reply.code(400).send({ error: "Pick at most 8 primary tags." });
+    store.setSetting(primaryKey(manga.title), JSON.stringify(tags));
+    for (const k of [...similarCache.keys()]) if (k.startsWith(`${id}|`)) similarCache.delete(k);
+    return { tags };
+  });
+
   /**
    * What "For you" learns from: the series you like, plus your favorite tags as one stand-in series
    * that counts as much as a few liked ones (it has no id or title, so rows from it say "favorite tags").
@@ -1248,7 +1274,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return { ok: true };
   });
 
-  const similarCache = new Map<string, { at: number; groups: unknown[]; basedOn: string[] }>();
+  type FacetRow = { label: string; value: string; groups: SeriesGroup[] };
+  type PrimaryInfo = { tags: string[]; matchedAll: boolean; subsets: { tags: string[]; groups: SeriesGroup[] }[] };
+  const similarCache = new Map<string, { at: number; groups: unknown[]; basedOn: string[]; primary?: PrimaryInfo; facetRows?: FacetRow[] }>();
   /** Similar series fill whole rows, so ones with a hidden tag are taken out here rather than on the card. */
   async function withoutHidden(groups: SeriesGroup[]): Promise<SeriesGroup[]> {
     const gone = await withHiddenTags(groups.map((g) => g.hits[0].mangaId)).catch(() => new Set<number>());
@@ -1321,48 +1349,107 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     return out;
   }
 
-  app.get<{ Params: { id: string }; Querystring: { debug?: string } }>("/api/manga/:id/similar", async (req, reply) => {
+  // Names in a gallery-style description that other series share: the work parodied, the circle, the characters.
+  const FACET_ROWS: Record<string, string> = { Parodies: "Same parody", Groups: "Same group", Characters: "Same character" };
+  /**
+   * Rows of series sharing this one's parody, group or character (Dan, Nov 24), found by searching your
+   * sources for the name. Primary ones first, then the first parody and group; characters only when you
+   * picked one (names alone are noisy). At most three rows.
+   */
+  async function facetRowsFor(about: ReturnType<typeof parseDescription>, primaryLower: Set<string>, scope: Scope, selfKey: string, selfId: number): Promise<FacetRow[]> {
+    const facets = (about.facets ?? []).filter((f) => f.label in FACET_ROWS);
+    const picks: { label: string; value: string }[] = [];
+    const add = (label: string, value: string) => {
+      if (!picks.some((p) => p.value.toLowerCase() === value.toLowerCase())) picks.push({ label, value });
+    };
+    for (const f of facets) for (const v of f.values) if (primaryLower.has(v.toLowerCase())) add(f.label, v);
+    for (const label of ["Parodies", "Groups"]) {
+      const v = facets.find((f) => f.label === label)?.values[0];
+      if (v) add(label, v);
+    }
+    const rows = await Promise.all(
+      picks.slice(0, 3).map(async (p) => {
+        const r = await searchAll(config, p.value, { fetchImpl, scope, onResult: report }).catch(() => null);
+        const groups = (r?.groups ?? []).filter((g) => g.key !== selfKey && !g.hits.some((h) => h.mangaId === selfId)).slice(0, 18);
+        return { label: FACET_ROWS[p.label], value: p.value, groups };
+      }),
+    );
+    return rows.filter((r) => r.groups.length > 0);
+  }
+
+  app.get<{ Params: { id: string }; Querystring: { debug?: string; tags?: string } }>("/api/manga/:id/similar", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
     try {
       const manga = await detailsFor(id);
       const scope = scopeFor(req);
-      const key = `${id}|${scope}`;
+      // ?tags=a|b tries a subset of the primary tags (the "try with fewer" options) without saving it.
+      const override = typeof req.query.tags === "string" ? req.query.tags.split("|").map((t) => t.trim()).filter(Boolean).slice(0, 8) : null;
+      const primary = override ?? primaryTagsOf(manga.title);
+      const key = `${id}|${scope}|${primary.join("|")}`;
       const debug = req.query.debug === "1";
+      const finish = async (c: { groups: unknown[]; basedOn: string[]; primary?: PrimaryInfo; facetRows?: FacetRow[] }) => {
+        const split = splitSame(manga.title, c.groups as SeriesGroup[]);
+        const shown = await withoutHidden(split.groups);
+        const shownKeys = new Set(shown.map((g) => g.key));
+        const facetRows = [];
+        for (const r of c.facetRows ?? []) {
+          // A series already in the main grid isn't repeated in a row below it.
+          const groups = (await withoutHidden(r.groups)).filter((g) => !shownKeys.has(g.key));
+          if (groups.length > 0) facetRows.push({ ...r, groups });
+        }
+        const primaryOut = c.primary
+          ? { ...c.primary, subsets: await Promise.all(c.primary.subsets.map(async (x) => ({ tags: x.tags, groups: await withoutHidden(x.groups) }))) }
+          : undefined;
+        return { groups: shown, basedOn: c.basedOn, sameSeries: split.sameSeries, ...(primaryOut ? { primary: primaryOut } : {}), facetRows };
+      };
       const cached = similarCache.get(key);
-      if (cached && !debug && Date.now() - cached.at < 60 * 60 * 1000) {
-        const split = splitSame(manga.title, cached.groups as SeriesGroup[]);
-        return { groups: await withoutHidden(split.groups), basedOn: cached.basedOn, sameSeries: split.sameSeries };
-      }
+      if (cached && !debug && Date.now() - cached.at < 60 * 60 * 1000) return await finish(cached);
       // MangaBaka's view of this series (remembered, so usually instant) sharpens the ranking and adds its own picks.
       const mb = await bakaFor(id, false).catch(() => null);
       const self = mb?.match ? (store.bakaLink(normalizeTitle(manga.title))?.data as BakaSeries | null) : null;
       const selfVec = self ? bakaVector(self.tags) : null;
       const selfAdult = await adultFor(manga.sourceId, manga.title).catch(() => false);
-      const [source, fromBaka] = await Promise.all([
-        similarTo(config, manga.title, manga.genre, {
+      const selfExplicit = self?.contentRating ? EXPLICIT.has(self.contentRating) : selfAdult;
+      const selfKey = normalizeTitle(manga.title);
+      const description = await shownDescription(manga).catch(() => manga.description);
+      const about = parseDescription(description, manga.title);
+      // Primary tags, split by where they can be matched: the sites' genres, MangaBaka's tags, or a parody/group/character name.
+      const genreNames = new Map([...manga.genre, ...(about.tags ?? [])].map((g) => [canonKey(g), g] as const));
+      const primaryGenres = primary.filter((t) => genreNames.has(canonKey(t))).map((t) => genreNames.get(canonKey(t))!);
+      const primaryLower = new Set(primary.map((t) => t.toLowerCase()));
+      const boost = selfVec ? (g: SeriesGroup) => { const v = groupVec(g); return boostFrom(v ? cosine(selfVec, v) : null); } : undefined;
+      const sourceSide = async () => {
+        const prim = primaryGenres.length > 0 ? await primaryBrowse(config, manga.title, primaryGenres, { fetchImpl, onResult: report, scope, selfId: id, boost }) : null;
+        if (prim && prim.groups.length > 0) return { groups: prim.groups, basedOn: prim.matchedAll ? primaryGenres : prim.subsets[0].tags, prim };
+        // No primary genres, or nothing at all found with them: the automatic pick.
+        const auto = await similarTo(config, manga.title, manga.genre, {
           fetchImpl,
           onResult: report,
           scope,
           selfId: id,
           knowledge: { weight: tagWeights(store.tagStats(canonKey)), tagsOf: (m) => store.seriesTags(m) },
-          boost: selfVec ? (g) => { const v = groupVec(g); return boostFrom(v ? cosine(selfVec, v) : null); } : undefined,
-        }),
-        self ? bakaSimilar(self, { scope, explicit: self.contentRating ? EXPLICIT.has(self.contentRating) : selfAdult }).catch(() => ({ groups: [] as SeriesGroup[], shared: [] as string[], stats: null })) : Promise.resolve({ groups: [] as SeriesGroup[], shared: [] as string[], stats: null }),
+          boost,
+        });
+        return { ...auto, prim };
+      };
+      const [source, fromBaka, rawFacetRows] = await Promise.all([
+        sourceSide(),
+        self ? bakaSimilar(self, { scope, explicit: selfExplicit, primary }).catch(() => ({ groups: [] as SeriesGroup[], shared: [] as string[], stats: null })) : Promise.resolve({ groups: [] as SeriesGroup[], shared: [] as string[], stats: null }),
+        facetRowsFor(about, primaryLower, scope, selfKey, id).catch(() => [] as FacetRow[]),
       ]);
       // MangaBaka's picks lead (they share this series' specific tags, not just its broad genres). After them
       // come the genre-based ones, closest first, leaving out any MangaBaka knows to share almost nothing.
-      const selfKey = normalizeTitle(manga.title);
       const groups: SeriesGroup[] = [];
       const seenKeys = new Set<string>([selfKey]);
       const unrelated = (g: SeriesGroup) => {
-        if (!selfVec || fromBaka.groups.length === 0) return false;
+        if (!selfVec || fromBaka.groups.length === 0 || source.prim?.groups.length) return false;
         const v = groupVec(g);
         return v !== null && cosine(selfVec, v) < 0.08;
       };
       // Explicit series suggest explicit series, and the rest don't suggest explicit ones (Dan, Nov 24).
-      const selfExplicit = self?.contentRating ? EXPLICIT.has(self.contentRating) : selfAdult;
-      const ratings = await groupRatings([...fromBaka.groups, ...source.groups]);
+      const subsetGroups = (source.prim?.subsets ?? []).flatMap((x) => x.groups);
+      const ratings = await groupRatings([...fromBaka.groups, ...source.groups, ...rawFacetRows.flatMap((r) => r.groups), ...subsetGroups]);
       const fits = (g: SeriesGroup) => {
         const r = ratings.get(g.key) ?? null;
         return selfExplicit ? r === "explicit" : r !== "explicit";
@@ -1372,11 +1459,25 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
         seenKeys.add(g.key);
         groups.push(g);
       }
-      const basedOn = fromBaka.groups.length > 0 && fromBaka.shared.length > 0 ? fromBaka.shared : source.basedOn;
+      const usedPrimary = primary.length > 0 && (source.prim?.groups.length || fromBaka.shared.some((n) => primaryLower.has(n.toLowerCase())));
+      const basedOn = usedPrimary
+        ? [...new Set([...(source.prim?.groups.length ? source.basedOn : []), ...fromBaka.shared.filter((n) => primaryLower.has(n.toLowerCase()))])]
+        : fromBaka.groups.length > 0 && fromBaka.shared.length > 0
+          ? fromBaka.shared
+          : source.basedOn;
+      const primaryInfo: PrimaryInfo | undefined =
+        primary.length > 0
+          ? {
+              tags: primary,
+              matchedAll: primaryGenres.length === 0 || source.prim?.matchedAll === true,
+              subsets: (source.prim?.subsets ?? []).map((x) => ({ tags: x.tags, groups: x.groups.filter(fits) })).filter((x) => x.groups.length > 0),
+            }
+          : undefined;
+      const facetRows = rawFacetRows.map((r) => ({ ...r, groups: r.groups.filter(fits) })).filter((r) => r.groups.length > 0);
       enrichGroups(source.groups, 12);
-      if (groups.length > 0) similarCache.set(key, { at: Date.now(), groups, basedOn });
-      const split = splitSame(manga.title, groups);
-      const result = { groups: await withoutHidden(split.groups), basedOn, sameSeries: split.sameSeries };
+      const entry = { at: Date.now(), groups, basedOn, primary: primaryInfo, facetRows };
+      if (groups.length > 0 || facetRows.length > 0) similarCache.set(key, entry);
+      const result = await finish(entry);
       // ?debug=1 says how the list was built, for checking against live MangaBaka and sources.
       if (debug) {
         return {
@@ -1384,8 +1485,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
           debug: {
             mangabaka: self ? { id: self.id, rating: self.contentRating, tags: self.tags.length, withIds: self.tags.filter((t) => t.id !== undefined).length } : null,
             explicit: selfExplicit,
+            primary: { all: primary, genres: primaryGenres },
             baka: fromBaka.stats,
             genre: { found: source.groups.length, kept: source.groups.filter((g) => !unrelated(g) && fits(g)).length },
+            facets: rawFacetRows.map((r) => ({ value: r.value, found: r.groups.length })),
           },
         };
       }
@@ -1584,23 +1687,29 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
    * the same content rating, and the best are looked up on your sources until enough are found. Explicit
    * series get a bigger search: their neighbours are less often on any one source.
    */
-  async function bakaSimilar(self: BakaSeries, opts: { scope: Scope; explicit: boolean }): Promise<{ groups: SeriesGroup[]; shared: string[]; stats: SimilarStats }> {
+  async function bakaSimilar(self: BakaSeries, opts: { scope: Scope; explicit: boolean; primary?: string[] }): Promise<{ groups: SeriesGroup[]; shared: string[]; stats: SimilarStats }> {
     const fits = (r: BakaSeries) => r.id !== self.id && (opts.explicit ? EXPLICIT.has(r.contentRating ?? "") : !EXPLICIT.has(r.contentRating ?? ""));
     const selfVec = bakaVector(self.tags);
     const pool = new Map<number, { series: BakaSeries; bonus: number }>();
     const listed = await baka.similar(self.id).catch(() => []);
     // MangaBaka's own list also weighs author and relations, so its picks get a small head start.
     for (const x of listed) if (fits(x.series)) pool.set(x.series.id, { series: x.series, bonus: 0.1 });
-    const telling = tellingTags(self, opts.explicit ? 5 : 4);
+    // Your primary tags for this series, where MangaBaka has them, replace the automatic pick (Dan, Nov 24).
+    const lower = new Set((opts.primary ?? []).map((n) => n.trim().toLowerCase()));
+    const primaryTags = self.tags.filter((t) => t.id !== undefined && lower.has(t.name.toLowerCase()));
+    const telling = primaryTags.length > 0 ? primaryTags : tellingTags(self, opts.explicit ? 5 : 4);
+    const pNames = new Set(primaryTags.map((t) => t.name.toLowerCase()));
+    const carries = (r: BakaSeries) => (pNames.size === 0 ? 0 : r.tags.filter((t) => pNames.has(t.name.toLowerCase())).length);
     // An explicit series searches its own rating; others search unfiltered and drop explicit ones below.
     const rating = opts.explicit ? (self.contentRating && EXPLICIT.has(self.contentRating) ? self.contentRating : "pornographic") : undefined;
     for (const t of telling) {
       for (const r of await bakaTagPool(t.id!, rating).catch(() => [] as BakaSeries[])) if (fits(r) && !pool.has(r.id)) pool.set(r.id, { series: r, bonus: 0 });
     }
+    // With primary tags, the ones carrying more of them come first; closeness on every tag orders the rest.
     const ranked = [...pool.values()]
-      .map((x) => ({ ...x, score: cosine(selfVec, bakaVector(x.series.tags)) + x.bonus }))
-      .filter((x) => x.score > 0.12)
-      .sort((a, b) => b.score - a.score);
+      .map((x) => ({ ...x, score: cosine(selfVec, bakaVector(x.series.tags)) + x.bonus, p: carries(x.series) }))
+      .filter((x) => x.score > 0.12 || x.p > 0)
+      .sort((a, b) => b.p - a.p || b.score - a.score);
     // Remember these records, so their tags and rating are known later without another lookup.
     for (const { series } of ranked) {
       const k = normalizeTitle(series.title);
@@ -1632,6 +1741,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     for (const f of found) for (const t of f.tags) if (names.has(t.name)) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
     const shared = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n);
     const stats = { telling: telling.map((t) => t.name), listed: listed.length, pool: pool.size, ranked: ranked.length, tried, found: out.length };
+    if (primaryTags.length > 0) return { groups: out, shared: primaryTags.map((t) => t.name), stats };
     return { groups: out, shared: shared.length ? shared : telling.map((t) => t.name), stats };
   }
 
@@ -1732,6 +1842,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       progress: store.getProgress(id),
       readChapterIds: store.readChapterIds(id),
       categories: store.seriesCategories(id),
+      primaryTags: primaryTagsOf(manga.title),
       ...(live ? {} : { saved: true }),
     };
   }

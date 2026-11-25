@@ -5,7 +5,7 @@ import { tidyTitle } from "./titles";
 import { CompareSheet, type CompareSide } from "./Merges";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { dismissMerge, type SameSeries, addToLibrary, mangaBaka, setMangaBaka, autoMangaBaka, searchMangaBaka, type BakaInfo, type BakaHit, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, seriesSaved, similar, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
+import { dismissMerge, type SameSeries, addToLibrary, mangaBaka, setMangaBaka, autoMangaBaka, searchMangaBaka, type BakaInfo, type BakaHit, alternatives, favoriteTags, setFavoriteTags, setLiked, setAdultMark, mergeTitle, unmergeTitle, setDisplay, setVersion, setPreferredVersion, VERSION_PRESETS, mergePreviews, rawThumbnailUrl, type DisplayChoice, coversChanged, type MergedName, search as searchSources, chapterPages, categories as loadCategories, markChapters, setSeriesCategories, type Category, removeFromLibrary, series, seriesSaved, setPrimaryTags, similar, type SimilarResult, thumbnailUrl, type Alternative, type ChapterInfo, type SeriesData, type SeriesGroup } from "./api";
 import { genreHref, goBack, readHref, searchHref } from "./route";
 import { TrackerLinkCard } from "./Trackers";
 import { useSeriesDownloads } from "./useDownloads";
@@ -261,6 +261,32 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
     };
   }, [data !== null, favAdult]);
   const favKeys = new Set((favs ?? []).map(canonKey));
+  // Primary tags: picked here (◇ Primary), shown first with an accent ring, matched first by Similar.
+  const [primarying, setPrimarying] = useState(false);
+  const primaryTags = data?.primaryTags ?? [];
+  const primaryKeys = new Set(primaryTags.map((t) => t.toLowerCase()));
+  const isPrimary = (t: string) => primaryKeys.has(t.toLowerCase());
+  function togglePrimary(tag: string) {
+    if (!data) return;
+    const before = primaryTags;
+    const next = isPrimary(tag) ? before.filter((t) => t.toLowerCase() !== tag.toLowerCase()) : [...before, tag];
+    if (next.length > 8) {
+      toastError("Pick at most 8 primary tags.");
+      return;
+    }
+    setData({ ...data, primaryTags: next });
+    setPrimaryTags(mangaId, next).then(
+      (r) => {
+        setData((d) => (d ? { ...d, primaryTags: r.tags } : d));
+        setSubsetTry(null);
+        setSimilarRun((n) => n + 1);
+      },
+      () => {
+        setData((d) => (d ? { ...d, primaryTags: before } : d));
+        toastError("Couldn't save that. Try again.");
+      },
+    );
+  }
   function toggleFav(tag: string) {
     if (!favs) return;
     const before = favs;
@@ -352,24 +378,33 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
 
   // Similar series load on their own once the series itself is up, so the page isn't held back.
   const loaded = data !== null;
+  // Primary-tag details and parody/group/character rows from the last Similar answer; `subsetTry` is a
+  // smaller set of primary tags you're trying out (not saved); `similarRun` asks again after a change.
+  const [primaryInfo, setPrimaryInfo] = useState<SimilarResult["primary"]>(undefined);
+  const [facetRows, setFacetRows] = useState<NonNullable<SimilarResult["facetRows"]>>([]);
+  const [subsetTry, setSubsetTry] = useState<string[] | null>(null);
+  const [similarRun, setSimilarRun] = useState(0);
+  useEffect(() => setSubsetTry(null), [mangaId]);
   useEffect(() => {
     setSimilarGroups(null);
     setSameSeries([]);
     if (!loaded) return;
     let cancelled = false;
-    similar(mangaId).then(
+    similar(mangaId, subsetTry ?? undefined).then(
       (r) => {
         if (cancelled) return;
         setSimilarGroups(r.groups);
         setBasedOn(r.basedOn ?? []);
         setSameSeries(r.sameSeries ?? []);
+        setPrimaryInfo(r.primary);
+        setFacetRows(r.facetRows ?? []);
       },
       () => !cancelled && setSimilarGroups([]),
     );
     return () => {
       cancelled = true;
     };
-  }, [mangaId, loaded]);
+  }, [mangaId, loaded, subsetTry, similarRun]);
 
   // Bumped after a merge, so "Also on" looks again under every merged name.
   const [altRun, setAltRun] = useState(0);
@@ -651,14 +686,16 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
   const isRating = (label: string) => /rating|score/i.test(label);
   // The description can name details the source's own fields leave out (tags, author, artist, status, year).
   const info = about.info ?? {};
-  const genres = data ? [...data.manga.genre, ...(about.tags ?? []).filter((t) => !data.manga.genre.some((g) => canonKey(g) === canonKey(t)))] : [];
+  const allGenres = data ? [...data.manga.genre, ...(about.tags ?? []).filter((t) => !data.manga.genre.some((g) => canonKey(g) === canonKey(t)))] : [];
+  // Primary tags come first.
+  const genres = [...allGenres.filter((g) => isPrimary(g)), ...allGenres.filter((g) => !isPrimary(g))];
   // MangaBaka tags the source's own list doesn't have: core and defining ones up front, the rest on request.
   const bakaExtra = baka?.match ? baka.match.tags.filter((t) => !genres.some((g) => canonKey(g) === canonKey(t.name))) : [];
-  const bakaMain = bakaExtra.filter((t) => t.weight === "core" || t.weight === "defining");
+  const bakaMain = [...bakaExtra.filter((t) => isPrimary(t.name)), ...bakaExtra.filter((t) => !isPrimary(t.name) && (t.weight === "core" || t.weight === "defining"))];
   // One tag row: the source's tags, then MangaBaka's central ones (outlined), capped until "+N more"
   // opens everything, MangaBaka's minor tags included.
   const tagsShown = allTags
-    ? { source: genres, baka: bakaExtra }
+    ? { source: genres, baka: [...bakaExtra.filter((t) => isPrimary(t.name)), ...bakaExtra.filter((t) => !isPrimary(t.name))] }
     : { source: genres.slice(0, TAG_CAP), baka: bakaMain.slice(0, Math.max(0, TAG_CAP - Math.min(genres.length, TAG_CAP)) + 4) };
   const tagsHidden = allTags ? 0 : genres.length + bakaExtra.length - tagsShown.source.length - tagsShown.baka.length;
   const status = data && statusLabel(data.manga.status) !== "Unknown" ? statusLabel(data.manga.status) : info.status ?? "Unknown";
@@ -934,17 +971,23 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                 )}
                 {(genres.length > 0 || bakaExtra.length > 0) && (
                   <div className="introTags">
-                    <ul className={`genres ${starring ? "starring" : ""}`} aria-label="Tags">
-                      {(starring ? genres : tagsShown.source).map((g) => {
+                    <ul className={`genres ${starring || primarying ? "starring" : ""}`} aria-label="Tags">
+                      {(starring || primarying ? genres : tagsShown.source).map((g) => {
                         const fav = favKeys.has(canonKey(g));
+                        const prim = isPrimary(g);
+                        const marks = `${fav ? "fav" : ""} ${prim ? "primary" : ""}`;
                         return (
                           <li key={g}>
                             {starring ? (
-                              <button type="button" className={`tag starTag ${fav ? "fav" : ""}`} aria-pressed={fav} onClick={() => toggleFav(g)}>
+                              <button type="button" className={`tag starTag ${marks}`} aria-pressed={fav} onClick={() => toggleFav(g)}>
                                 <span aria-hidden="true">{fav ? "★" : "☆"}</span> {g}
                               </button>
+                            ) : primarying ? (
+                              <button type="button" className={`tag starTag primaryPick ${marks}`} aria-pressed={prim} onClick={() => togglePrimary(g)}>
+                                <span aria-hidden="true">{prim ? "◆" : "◇"}</span> {g}
+                              </button>
                             ) : (
-                              <a className={`tag ${fav ? "fav" : ""}`} href={genreHref(g, data.manga.id, data.adult)} title={fav ? "One of your favorite tags" : undefined}>
+                              <a className={`tag ${marks}`} href={genreHref(g, data.manga.id, data.adult)} title={[prim && "Primary tag: Similar matches on it first", fav && "One of your favorite tags"].filter(Boolean).join(". ") || undefined}>
                                 {fav && <span aria-hidden="true">★ </span>}
                                 {g}
                               </a>
@@ -953,30 +996,47 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                         );
                       })}
                       {!starring &&
-                        tagsShown.baka.map((t) => (
-                          <li key={t.path}>
-                            <span className={`tag bakaTag ${t.weight}`} title={`${t.path} (${WEIGHT_LABEL[t.weight]}, from MangaBaka)`}>{t.name}</span>
-                          </li>
-                        ))}
-                      {!starring && tagsHidden > 0 && (
+                        (primarying ? bakaExtra : tagsShown.baka).map((t) => {
+                          const prim = isPrimary(t.name);
+                          return (
+                            <li key={t.path}>
+                              {primarying ? (
+                                <button type="button" className={`tag starTag primaryPick bakaTag ${t.weight} ${prim ? "primary" : ""}`} aria-pressed={prim} onClick={() => togglePrimary(t.name)}>
+                                  <span aria-hidden="true">{prim ? "◆" : "◇"}</span> {t.name}
+                                </button>
+                              ) : (
+                                <span className={`tag bakaTag ${t.weight} ${prim ? "primary" : ""}`} title={`${t.path} (${WEIGHT_LABEL[t.weight]}, from MangaBaka)${prim ? ". Primary tag" : ""}`}>{t.name}</span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      {!starring && !primarying && tagsHidden > 0 && (
                         <li>
                           <button type="button" className="tag moreTag" onClick={() => setAllTags(true)}>+{tagsHidden} more</button>
                         </li>
                       )}
-                      {!starring && allTags && (
+                      {!starring && !primarying && allTags && (
                         <li>
                           <button type="button" className="tag moreTag" onClick={() => setAllTags(false)}>Fewer</button>
                         </li>
                       )}
-                      {favs && genres.length > 0 && (
+                      {favs && genres.length > 0 && !primarying && (
                         <li>
                           <button type="button" className="tag moreTag" onClick={() => setStarring((v) => !v)} title="Favorite tags count strongly toward For you">
                             {starring ? "Done" : <><span aria-hidden="true">☆</span> Favorites</>}
                           </button>
                         </li>
                       )}
+                      {!starring && (
+                        <li>
+                          <button type="button" className="tag moreTag" onClick={() => setPrimarying((v) => !v)} title="Pick the few tags this series is really about; Similar matches on them first">
+                            {primarying ? "Done" : <><span aria-hidden="true">◇</span> Primary</>}
+                          </button>
+                        </li>
+                      )}
                     </ul>
-                    {bakaExtra.length > 0 && baka?.match && !starring && (
+                    {primarying && <p className="tagsNote muted small">Tap the tags this series is really about (up to 8), including parody, group or character names below. Similar matches on them first.</p>}
+                    {bakaExtra.length > 0 && baka?.match && !starring && !primarying && (
                       <p className="tagsNote muted small">
                         Outlined tags are from <a href={baka.match.url} target="_blank" rel="noreferrer">MangaBaka</a>
                         {baka.match.contentRating && baka.match.contentRating !== "safe" ? ` (rated ${baka.match.contentRating})` : ""}.
@@ -988,8 +1048,16 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
                   <div key={f.label} className="facet">
                     <span className="facetLabel muted small">{f.label}</span>
                     <ul className="genres">
-                      {f.values.map((v) => (
-                        <li key={v}><a className="tag facetTag" href={searchHref(v)} title={`Search for ${v}`}>{v}</a></li>
+                      {[...f.values.filter((v) => isPrimary(v)), ...f.values.filter((v) => !isPrimary(v))].map((v) => (
+                        <li key={v}>
+                          {primarying && f.label !== "Languages" && f.label !== "Categories" ? (
+                            <button type="button" className={`tag starTag primaryPick facetTag ${isPrimary(v) ? "primary" : ""}`} aria-pressed={isPrimary(v)} onClick={() => togglePrimary(v)}>
+                              <span aria-hidden="true">{isPrimary(v) ? "◆" : "◇"}</span> {v}
+                            </button>
+                          ) : (
+                            <a className={`tag facetTag ${isPrimary(v) ? "primary" : ""}`} href={searchHref(v)} title={`Search for ${v}${isPrimary(v) ? ". Primary tag" : ""}`}>{v}</a>
+                          )}
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -1277,13 +1345,46 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
               </div>
             </div>
           )}
-          {similarGroups && similarGroups.length > 0 && (
+          {similarGroups && (similarGroups.length > 0 || primaryInfo) && (
             <div className="card similarCard">
               <h3>Similar series</h3>
-              {basedOn.length > 0 && <p className="muted small">Matched mostly on {basedOn.join(", ")}.</p>}
-              <SimilarGrid groups={similarGroups} />
+              {primaryInfo ? (
+                <div className="primaryNote muted small">
+                  {primaryInfo.matchedAll ? (
+                    <p>Matched on {subsetTry ? "" : "your primary tags: "}{basedOn.join(", ")}.</p>
+                  ) : (
+                    <p>
+                      Nothing on your sources has all of {primaryInfo.tags.join(", ")}.
+                      {primaryInfo.subsets.length > 0 ? ` Showing series with ${primaryInfo.subsets[0].tags.join(", ")}.` : " Showing the usual matches instead."}
+                    </p>
+                  )}
+                  {(primaryInfo.subsets.length > 1 || subsetTry) && (
+                    <div className="chips subsetChips" aria-label="Try fewer primary tags">
+                      {subsetTry && (
+                        <button type="button" className="chip small" onClick={() => setSubsetTry(null)}>All primary tags</button>
+                      )}
+                      {primaryInfo.subsets.slice(subsetTry ? 0 : 1).map((x) => (
+                        <button key={x.tags.join("|")} type="button" className="chip small" onClick={() => setSubsetTry(x.tags)} title={`${x.groups.length} found`}>
+                          {x.tags.join(" + ")}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                basedOn.length > 0 && <p className="muted small">Matched mostly on {basedOn.join(", ")}.</p>
+              )}
+              {similarGroups.length > 0 ? <SimilarGrid groups={similarGroups} /> : <p className="muted small">Nothing found.</p>}
             </div>
           )}
+          {facetRows.map((r) => (
+            <div key={`${r.label}|${r.value}`} className="card similarCard facetRow">
+              <h3>
+                {r.label}: <em>{r.value}</em>
+              </h3>
+              <SimilarGrid groups={r.groups} />
+            </div>
+          ))}
         </>
       )}
     </section>

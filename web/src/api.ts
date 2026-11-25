@@ -128,6 +128,8 @@ export interface SeriesData {
   categories?: number[];
   /** The quick answer from what the engine saved last time; the live one replaces it. */
   saved?: boolean;
+  /** Tags you picked as what this series is really about; Similar matches on them first. */
+  primaryTags?: string[];
 }
 
 export interface LibraryItem {
@@ -361,7 +363,19 @@ export const unlockAdult = (pin: string) => send("POST", "/api/adult/unlock", { 
 export const lockAdult = () => send("POST", "/api/adult/lock") as Promise<AdultState>;
 /** A listing that looks like this same series (same MangaBaka entry, or same name apart from a version word). */
 export interface SameSeries { mangaId: number; title: string; sourceName: string; label: string | null; selfLabel: string | null }
-export const similar = (mangaId: number) => getJson<{ groups: SeriesGroup[]; basedOn?: string[]; sameSeries?: SameSeries[] }>(`/api/manga/${mangaId}/similar`);
+export interface SimilarResult {
+  groups: SeriesGroup[];
+  basedOn?: string[];
+  sameSeries?: SameSeries[];
+  /** Present when the series has primary tags (or a smaller set was asked for). */
+  primary?: { tags: string[]; matchedAll: boolean; subsets: { tags: string[]; groups: SeriesGroup[] }[] };
+  /** Series sharing this one's parody, group or character. */
+  facetRows?: { label: string; value: string; groups: SeriesGroup[] }[];
+}
+/** `tags` tries a smaller set of the primary tags for this one request (not saved). */
+export const similar = (mangaId: number, tags?: string[]) =>
+  getJson<SimilarResult>(`/api/manga/${mangaId}/similar${tags ? `?tags=${encodeURIComponent(tags.join("|"))}` : ""}`);
+export const setPrimaryTags = (mangaId: number, tags: string[]) => send("PUT", `/api/manga/${mangaId}/primary-tags`, { tags }) as Promise<{ tags: string[] }>;
 export interface MergeListing { mangaId: number; title: string; sourceName: string | null; adult: boolean; label: string | null }
 export interface MergeSuggestion { key: string; reason: "mangabaka" | "version"; a: MergeListing; b: MergeListing }
 export const mergeSuggestions = () => getJson<{ suggestions: MergeSuggestion[] }>("/api/merge-suggestions");

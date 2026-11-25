@@ -321,6 +321,20 @@ looked up elsewhere. Separate from move offers (§5.7), which still search and a
   exact name.
 - **Not interested** never suggests a series again and counts its tags against.
 - **Similar** on the series page: by the series' most telling tags, both together then one.
+- **Primary tags** (Dan, Nov 24): on the series page, "◇ Primary" (next to "☆ Favorites") lets you tap up
+  to 8 tags the series is really about: source tags, MangaBaka tags, and parody/group/character names.
+  They're stored per series (setting `primary_tags.<title key>`, `PUT /api/manga/:id/primary-tags`,
+  returned as `primaryTags` with the series), shown first in each tag list with an accent ring (a
+  favorite that's also primary keeps its fill and gets the ring too). Similar then matches on them:
+  source genres among them are browsed together (`primaryBrowse` in `discover.ts`); if nothing carries
+  them all, every set with one left out is tried and the ones that find something are offered as chips
+  ("Showing series with A, B" plus other sets, `GET /api/manga/:id/similar?tags=a|b`, not saved);
+  MangaBaka tags among them replace the automatic tag pick and candidates carrying more of them come
+  first. With no primary tags, or when primary genres find nothing at all, the automatic method is used.
+- **Same parody / group / character rows** under Similar: from the description's Parodies/Groups/
+  Characters lists, each name searched across your sources (`searchAll`). Primary names first, then the
+  first parody and first group (characters only when picked as primary), at most three rows, same
+  content-rating rule as Similar, minus series already in the main grid.
   Content rating (Dan, Nov 24): an explicit series (MangaBaka erotica/pornographic, else 18+ source or
   mark) only suggests explicit series, and any other series never suggests explicit ones. A suggestion's
   rating comes from its MangaBaka record where known, else any listing on an 18+ source, marked or

@@ -422,3 +422,37 @@ export async function recommendShelves(
   }
   return { shelves, groups, because };
 }
+
+/** One way to cut a primary-tag search down when nothing carries all of them. */
+export interface PrimarySubset {
+  tags: string[];
+  groups: SeriesGroup[];
+}
+
+/**
+ * Similar by the tags you picked as this series' primary ones (Dan, Nov 24): one browse with all of them.
+ * When nothing has them all, every set with one left out is tried, and the ones that find something are
+ * offered (best first) so you can pick. Candidates are ordered by `boost` (MangaBaka closeness) where known.
+ */
+export async function primaryBrowse(
+  config: Config,
+  title: string,
+  primary: string[],
+  opts: { fetchImpl?: FetchLike; onResult?: SourceReport; scope?: Scope; selfId?: number; boost?: (g: SeriesGroup) => number } = {},
+): Promise<{ groups: SeriesGroup[]; matchedAll: boolean; subsets: PrimarySubset[] }> {
+  const { selfId, boost, ...browseOpts } = opts;
+  const self = normalizeTitle(title);
+  const find = async (tags: string[]) => {
+    const r = await browseByGenres(config, tags, { ...browseOpts, strict: true, timeoutMs: 8000 }).catch(() => null);
+    const groups = (r?.groups ?? []).filter((g) => g.key !== self && !g.hits.some((h) => h.mangaId === selfId));
+    // Stable: equally close ones keep the sites' order.
+    return boost ? groups.map((g, i) => ({ g, b: boost(g), i })).sort((a, b) => b.b - a.b || a.i - b.i).map((x) => x.g).slice(0, SIMILAR_MAX) : groups.slice(0, SIMILAR_MAX);
+  };
+  if (primary.length === 0) return { groups: [], matchedAll: false, subsets: [] };
+  const all = await find(primary);
+  if (all.length > 0 || primary.length === 1) return { groups: all, matchedAll: all.length > 0, subsets: [] };
+  const cuts = primary.map((_, i) => primary.filter((__, j) => j !== i));
+  const found = await Promise.all(cuts.map(async (tags) => ({ tags, groups: await find(tags) })));
+  const subsets = found.filter((s) => s.groups.length > 0).sort((a, b) => b.groups.length - a.groups.length);
+  return { groups: subsets[0]?.groups ?? [], matchedAll: false, subsets };
+}
