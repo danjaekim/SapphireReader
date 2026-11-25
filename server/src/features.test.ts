@@ -408,3 +408,25 @@ describe("marking several titles at once", () => {
     expect((await app.inject({ method: "PUT", url: "/api/adult-marks", payload: { titles: [], mark: true } })).statusCode).toBe(400);
   });
 });
+
+describe("changing merges", () => {
+  it("unmerges without waiting on the series' source, using the name Sapphire already knows", async () => {
+    const store = new Store(":memory:");
+    store.recordSeriesMeta(10, "Nano Machine", "Asura Scans", false);
+    // The source is down: every call fails.
+    const down = (async () => new Response("nope", { status: 500 })) as unknown as typeof fetch;
+    const app = await buildApp(config, { fetchImpl: down, store });
+    const { setTitleAliases } = await import("./search.js");
+    try {
+      const merged = await app.inject({ method: "POST", url: "/api/manga/10/merge", payload: { title: "Other Name", mangaId: 77 } });
+      expect(merged.statusCode).toBe(200);
+      const other = merged.json().mergedWith.find((m: { canon: boolean }) => !m.canon);
+      expect(other.title).toBe("Other Name");
+      const gone = await app.inject({ method: "DELETE", url: `/api/manga/10/merge/${encodeURIComponent(other.key)}` });
+      expect(gone.statusCode).toBe(200);
+      expect(gone.json().mergedWith).toEqual([]);
+    } finally {
+      setTitleAliases(new Map());
+    }
+  });
+});

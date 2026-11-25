@@ -568,8 +568,9 @@ export function SeriesPage({ mangaId }: { mangaId: number }) {
       clearPagedCache();
       setAltRun((n) => n + 1);
       if (done) toast(done);
-    } catch {
-      toastError("Couldn't change that. Try again.");
+    } catch (err) {
+      // Say what went wrong (the server's reason, or a failure in updating the page), not just "try again".
+      toastError(err instanceof Error && err.message ? `Couldn't change that: ${err.message}` : "Couldn't change that. Try again.");
     }
   }
 

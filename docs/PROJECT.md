@@ -396,6 +396,9 @@ looked up elsewhere. An update row is "read" once that chapter number (or later)
   differently named listings count as one series everywhere (search, Also on, library, progress
   carry-over, recommendations). Merge search finds listings by name or by series number / pasted
   `/series/1234` address and leaves out the series itself and what's already merged.
+  Merge, unmerge and "make main" only need the series' name, so they use the name Sapphire last saw it under
+  (`titleForMerge`, falling back to reading the source) and never wait on a slow or blocked site (Nov 25: unmerge
+  failed with "Couldn't change that"). The series page's merge-change toast now says the real reason.
 - **Display choice** (`title_primary`): name, cover and description can each come from any merged
   listing (Edit name, cover & description sheet). The description is read live from the chosen
   listing (falls back to the opened one's). Unmerging a listing the display used resets the display.

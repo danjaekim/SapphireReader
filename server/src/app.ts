@@ -1191,12 +1191,21 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     similarCache.clear();
     chapterCache.clear();
   };
+  /**
+   * The name this series goes by, for merge changes that only need its title: the name Sapphire last saw it under
+   * (no site call, so a slow or blocked source can't make unmerging fail), else read from the source.
+   */
+  async function titleForMerge(id: number): Promise<{ title: string } | null> {
+    const known = store.knownTitle(id);
+    if (known) return { title: known };
+    return detailsFor(id).catch(() => null);
+  }
   // Merge another listing (by its title) into this series.
   app.post<{ Params: { id: string }; Body: { title?: unknown; mangaId?: unknown } }>("/api/manga/:id/merge", async (req, reply) => {
     const id = Number(req.params.id);
     const other = typeof req.body?.title === "string" ? req.body.title.trim() : "";
     if (!Number.isInteger(id) || id < 0 || !other) return reply.code(400).send({ error: "Needs the series and the title to merge." });
-    const manga = await detailsFor(id).catch(() => null);
+    const manga = await titleForMerge(id);
     if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
     const canon = normalizeTitle(manga.title);
     const aliasKey = rawTitleKey(other);
@@ -1220,7 +1229,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     const id = Number(req.params.id);
     const key = typeof req.body?.key === "string" ? req.body.key : "";
     if (!Number.isInteger(id) || id < 0 || !key) return reply.code(400).send({ error: "Needs the series and the name." });
-    const manga = await detailsFor(id).catch(() => null);
+    const manga = await titleForMerge(id);
     if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
     store.setPrimary(normalizeTitle(manga.title), key);
     mergesChanged();
@@ -1290,7 +1299,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   app.delete<{ Params: { id: string; key: string } }>("/api/manga/:id/merge/:key", async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 0) return reply.code(400).send({ error: "Bad id." });
-    const manga = await detailsFor(id).catch(() => null);
+    const manga = await titleForMerge(id);
     if (!manga) return reply.code(502).send({ error: "Couldn't read this series from its source." });
     // Taking this series' own name out of a merge is the same as taking the merge apart from this side.
     const key = req.params.key;
