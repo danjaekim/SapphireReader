@@ -65,3 +65,34 @@ describe("merge suggestion endpoints", () => {
     expect((await app.inject({ url: "/api/merge-suggestions" })).json().suggestions).toEqual([]);
   });
 });
+
+describe("tidied doujin names", () => {
+  const L = (mangaId: number, title: string) => ({ mangaId, title, sourceName: `S${mangaId}`, adult: true });
+  it("pairs doujin-style listings whose shown English names agree, and with a plain listing of that name", () => {
+    const out = suggestMerges(
+      [
+        L(1, "[Σ-Arts (Mikemono Yuu)] Natsu to Inaka to Yuuwaku shite kuru Dekkai Oshiego | Summertime in the Countryside With The Huge Student Seducing Me [English] {RedLantern} [Decensored] [Digital]"),
+        L(2, "[Σ-Arts] Summertime in the Countryside With The Huge Student Seducing Me [English]"),
+        L(3, "Summertime in the Countryside With The Huge Student Seducing Me"),
+        L(4, "[Other Circle] A Different Story [English]"),
+      ],
+      () => null,
+      new Set(),
+    );
+    expect(out.map((s) => [s.a.mangaId, s.b.mangaId].sort().join("+")).sort()).toEqual(["1+2", "1+3"]);
+    expect(out.every((s) => s.reason === "tidy")).toBe(true);
+  });
+
+  it("doesn't pair on a tidied name too short to tell works apart", () => {
+    expect(suggestMerges([L(1, "[A] Ch. 1 [English]"), L(2, "[B] Ch. 1 [English]")], () => null, new Set())).toEqual([]);
+  });
+});
+
+describe("the title tidier's two copies", () => {
+  it("are identical (web/src/titles.ts and server/src/titles.ts)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
+    expect(readFileSync(here("./titles.ts"), "utf8")).toBe(readFileSync(here("../../web/src/titles.ts"), "utf8"));
+  });
+});

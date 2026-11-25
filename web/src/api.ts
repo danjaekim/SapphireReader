@@ -383,7 +383,7 @@ export const mangaBakaBrowse = (tags: number[], genres: string[], page: number, 
 export const mangaBakaTags = (q: string) => getJson<{ tags: { id: number; name: string; path: string; count: number | null }[] }>(`/api/mangabaka/tags?q=${encodeURIComponent(q)}`);
 export const setPrimaryTags = (mangaId: number, tags: string[]) => send("PUT", `/api/manga/${mangaId}/primary-tags`, { tags }) as Promise<{ tags: string[] }>;
 export interface MergeListing { mangaId: number; title: string; sourceName: string | null; adult: boolean; label: string | null }
-export interface MergeSuggestion { key: string; reason: "mangabaka" | "version"; a: MergeListing; b: MergeListing }
+export interface MergeSuggestion { key: string; reason: "mangabaka" | "version" | "tidy"; a: MergeListing; b: MergeListing }
 export const mergeSuggestions = () => getJson<{ suggestions: MergeSuggestion[] }>("/api/merge-suggestions");
 export const dismissMerge = (pair: { key: string } | { a: string; b: string }) => send("POST", "/api/merge-suggestions/dismiss", pair);
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-// The tidier lives with the web app (it only changes what's shown); tested here where the test runner is.
-import { tidyTitle } from "../../web/src/titles.js";
+// The tidier is shared with the web app (identical copies; see mergehints.test.ts).
+import { tidyTitle } from "./titles.js";
 
 describe("tidyTitle", () => {
   it.each([

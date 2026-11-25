@@ -6,7 +6,11 @@
  * a " | " between names, or a word like Uncensored). From those it drops the bracketed tags, the
  * circle/artist up front, trailing notes like "(Artist)" or "Uncensored", and when there are two
  * names ("A | B" or "A / B") keeps the one that reads most like English. Ordinary titles come back
- * unchanged, and the full title is still used for search, matching and sorting.
+ * unchanged, and the full title is still used for search, matching and sorting (and, on the server,
+ * to suggest merges of listings whose tidied names agree).
+ *
+ * Kept as two identical copies, web/src/titles.ts and server/src/titles.ts (each is built on its own);
+ * a test fails if they differ.
  */
 
 const NOTE_WORDS =

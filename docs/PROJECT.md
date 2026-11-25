@@ -95,7 +95,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `notify.ts` | ntfy client. |
 | `tracker.ts` | AniList tracking (token, search, set progress). |
 | `bakatags.ts` | MangaBaka tag vectors, cosine, taste vector, `boostFrom`. |
-| `mergehints.ts` | Suggested merges: `splitVersion` ("X (Uncensored)" → base + label), `suggestMerges` (pairs by same MangaBaka entry or same base name), `pairKey`. |
+| `mergehints.ts` | Suggested merges: `splitVersion` ("X (Uncensored)" → base + label), `suggestMerges` (pairs by same MangaBaka entry, same base name, or same tidied doujin name via `shownKey`), `pairKey`. |
 | `mangabaka.ts` | MangaBaka client on the **v1** API (`search`, `series`, `similar`, `byTag`) (v2 records have no tags and no plain title; verified live Nov 23) (spaced calls: search 2.5s apart, others 0.5s), tolerant parsing of `tags_v2` (name, path, weight, genre, spoiler), content rating, provider ids; `findOnBaka` matching. |
 | `updater.ts`, `engineupdate.ts` | "Is a newer version out?" for the app (GHCR digests + commits) and the engine (GitHub releases); asking Watchtower to update. |
 | `extensions.ts` | Install/update/remove extensions through the engine. |
@@ -116,7 +116,7 @@ Sapphire server --> ntfy (push)    --> AniList / MangaUpdates (ratings, recommen
 | `FilterBar.tsx`, `SortSelect.tsx`, `genres.ts` | Sticky filter bar: tabs, genre sheet, source sheet, sort. |
 | `usePaged.ts` | Paged loading with an in-memory cache that restores lists and scroll on Back (`clearPagedCache`), one-page-ahead prefetch and background cover warming (`warmCovers`). |
 | `shared.ts` | Library id cache and toggle, ratings batching, hidden-adult checks (`useHiddenAdult`, `resetHiddenCache`). |
-| `titles.ts` | `tidyTitle`: display-only cleanup of doujin-style titles. |
+| `titles.ts` | `tidyTitle`: display-only cleanup of doujin-style titles. An identical copy lives at `server/src/titles.ts` (used for merge suggestions); a test fails if the two differ. |
 | `offline.tsx`, `useDownloads.ts` | On-device offline chapters (Cache Storage, https only), `saveManyOffline`, auto-remove setting, `OfflineHome`; NAS downloads. |
 | `toast.tsx` | `toast()` / `toastError()` confirmations. |
 | `update.tsx`, `theme.ts`, `util.ts`, `Loading.tsx`, `styles.css` | Update cards, light/dark/auto theme, helpers, spinner, all styles (CSS variables for both themes). |
@@ -409,7 +409,10 @@ looked up elsewhere. An update row is "read" once that chapter number (or later)
   {key} | {a, b}`): from every known listing (`knownListings`: opened, library, seen together), pairs that
   match the same MangaBaka entry (listed first) or have the same name once a version word is taken off
   ("Uncensored", "Censored", "Raw", "Colored"/"Full color", "Official"; bracketed or trailing). A plain
-  base group alone isn't a pair. Already merged listings share a key so never pair; dismissed pairs stay
+  base group alone isn't a pair. Since Nov 25 (Dan: doujin names carry too many tags and notes to match),
+  listings also pair when the name shown after `tidyTitle` agrees, without a version word (`shownKey`;
+  at least one of them doujin-style, and at least 6 letters left so "Ch. 1" can't pair). Order: MangaBaka,
+  version, tidied name; the card says "Same title once the tags and notes are tidied away". Already merged listings share a key so never pair; dismissed pairs stay
   gone; 18+ listings are left out while 18+ is locked. Similar also splits such listings out of its
   groups into `sameSeries` for the series-page prompt. Nothing merges without a tap.
 - **Compare before merging** (`CompareSheet`): both listings side by side (cover, full source title,
@@ -530,7 +533,7 @@ downloaded from Settings.
 
 ## 6. Testing and running
 
-- `cd server && npm ci && npx vitest run`: all server tests (and web logic like `titles.ts`).
+- `cd server && npm ci && npx vitest run`: all server tests (and `titles.ts`, shared with the web app).
 - `cd web && npx tsc --noEmit -p .`: type check the web app.
 - Local run: `cd server && npm run dev` and `cd web && npm run dev`.
 - The cloud sandbox can't reach the manga sites; UI changes are checked against a fake engine

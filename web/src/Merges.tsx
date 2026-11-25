@@ -275,7 +275,7 @@ export function Merges() {
         <ul className="mergePicks">
           {list.map((s) => (
             <li key={s.key} className="card">
-              <p className="muted small mergeWhy">{s.reason === "mangabaka" ? "Both match the same MangaBaka entry" : "Same name apart from the version"}</p>
+              <p className="muted small mergeWhy">{s.reason === "mangabaka" ? "Both match the same MangaBaka entry" : s.reason === "tidy" ? "Same title once the tags and notes are tidied away" : "Same name apart from the version"}</p>
               <div className="mergePickPair">
                 <Side l={s.a} />
                 <Side l={s.b} />

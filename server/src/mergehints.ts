@@ -1,9 +1,11 @@
 import { normalizeTitle } from "./search.js";
+import { looksCluttered, tidyTitle } from "./titles.js";
 
 /**
- * Spotting listings that are the same series under slightly different names: either both matched the
- * same MangaBaka entry, or their names are the same once a version word ("(Uncensored)", "[Raw]") is
- * taken off. Only ever suggestions; nothing merges without a tap.
+ * Spotting listings that are the same series under slightly different names: both matched the same
+ * MangaBaka entry, their names are the same once a version word ("(Uncensored)", "[Raw]") is taken off,
+ * or (doujin-style names full of circles, tags and translator notes) the names shown after tidying agree.
+ * Only ever suggestions; nothing merges without a tap.
  */
 const VERSION_WORD = /(uncensored|censored|raws?|colou?red|full[\s-]colou?r|official)/;
 const LABELS: [RegExp, string][] = [
@@ -33,12 +35,23 @@ export interface KnownListing {
 }
 export interface MergeSuggestion {
   key: string;
-  reason: "mangabaka" | "version";
+  reason: "mangabaka" | "version" | "tidy";
   a: KnownListing & { label: string | null };
   b: KnownListing & { label: string | null };
 }
 
 export const pairKey = (x: string, y: string) => [x, y].sort().join("|");
+
+/**
+ * The key of the name a doujin-style title is shown as ("[Circle (Artist)] Romaji | English Title [English]
+ * {Group} [Decensored]" → "english title"), without a version word; for any other title, its own name
+ * without a version word. Null when what's left is too short to say two listings are the same work.
+ */
+export function shownKey(title: string): string | null {
+  const shown = looksCluttered(title) ? tidyTitle(title) : title;
+  const key = normalizeTitle(splitVersion(shown).base);
+  return key.replace(/\s+/g, "").length >= 6 ? key : null;
+}
 
 /**
  * Pairs of listings worth merging. `mbOf` gives the MangaBaka id for a title key (when matched). Listings
@@ -63,12 +76,16 @@ export function suggestMerges(listings: KnownListing[], mbOf: (key: string) => n
     const baseKey = normalizeTitle(base);
     // A name with a version word pairs with the same name without it (or with another version word).
     if (baseKey) add(`base:${baseKey}`, "version", k + (label ? "" : "\u0000plain"));
+    // Doujin-style names: the tidied name shown for each (a tidy name pairs with a plain one too).
+    const shown = shownKey(l.title);
+    if (shown) add(`tidy:${shown}`, "tidy", k + (looksCluttered(l.title) ? "" : "\u0000plain"));
   }
   const out = new Map<string, MergeSuggestion>();
   for (const g of groups.values()) {
     const keys = g.keys.map((k) => k.replace("\u0000plain", ""));
-    // A base group needs at least one versioned name, else it's just one title seen once.
-    if (g.reason === "version" && !g.keys.some((k) => !k.endsWith("\u0000plain"))) continue;
+    // A base group needs at least one versioned name (a tidy group one doujin-style name), else it's just
+    // ordinary titles that happen to be equal.
+    if (g.reason !== "mangabaka" && !g.keys.some((k) => !k.endsWith("\u0000plain"))) continue;
     if (keys.length < 2) continue;
     const [first, ...rest] = keys;
     for (const other of rest) {
@@ -79,6 +96,7 @@ export function suggestMerges(listings: KnownListing[], mbOf: (key: string) => n
       out.set(key, { key, reason: g.reason, a: { ...a, label: splitVersion(a.title).label }, b: { ...b, label: splitVersion(b.title).label } });
     }
   }
-  // MangaBaka matches first: they're the surer ones.
-  return [...out.values()].sort((x, y) => (x.reason === y.reason ? 0 : x.reason === "mangabaka" ? -1 : 1));
+  // MangaBaka matches first (the surest), then version words, then tidied doujin names.
+  const order = { mangabaka: 0, version: 1, tidy: 2 } as const;
+  return [...out.values()].sort((x, y) => order[x.reason] - order[y.reason]);
 }

@@ -27,7 +27,8 @@ import { checkLibrary } from "./checker.js";
 import { MangaBaka, bakaUrl, findOnBaka, type BakaSeries, type BakaTag, type TagWeight, type UpdatesRec } from "./mangabaka.js";
 import { bakaVector, boostFrom, cosine, tasteVector, type TagVector } from "./bakatags.js";
 import { findOnSources } from "./alsoliked.js";
-import { pairKey, splitVersion, suggestMerges } from "./mergehints.js";
+import { pairKey, shownKey, splitVersion, suggestMerges } from "./mergehints.js";
+import { looksCluttered } from "./titles.js";
 import { createNotifier } from "./notify.js";
 import { Store, type ProgressInput, type SwitchOffer } from "./store.js";
 import {
@@ -1336,13 +1337,15 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const mbOf = (key: string) => store.bakaLink(key)?.mbId ?? null;
   /**
    * Splits Similar's results into other series and listings that look like this same series (same
-   * MangaBaka entry, or the same name apart from a version word), which are offered as a merge instead.
+   * MangaBaka entry, the same name apart from a version word, or the same tidied doujin name), which are
+   * offered as a merge instead.
    */
   function splitSame(selfTitle: string, groups: SeriesGroup[]): { groups: SeriesGroup[]; sameSeries: { mangaId: number; title: string; sourceName: string; label: string | null; selfLabel: string | null }[] } {
     const selfKey = normalizeTitle(selfTitle);
     const selfMb = mbOf(selfKey);
     const self = splitVersion(selfTitle);
     const selfBase = normalizeTitle(self.base);
+    const selfShown = shownKey(selfTitle);
     const dismissed = store.dismissedMerges();
     const keep: SeriesGroup[] = [];
     const same: { mangaId: number; title: string; sourceName: string; label: string | null; selfLabel: string | null }[] = [];
@@ -1351,7 +1354,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       const other = splitVersion(hit.title);
       const sameMb = selfMb !== null && mbOf(g.key) === selfMb;
       const sameBase = normalizeTitle(other.base) === selfBase && (other.label !== null || self.label !== null);
-      if ((sameMb || sameBase) && g.key !== selfKey && !dismissed.has(pairKey(selfKey, g.key))) {
+      // Doujin-style names that tidy to the same shown name.
+      const sameShown = selfShown !== null && shownKey(hit.title) === selfShown && (looksCluttered(selfTitle) || looksCluttered(hit.title));
+      if ((sameMb || sameBase || sameShown) && g.key !== selfKey && !dismissed.has(pairKey(selfKey, g.key))) {
         same.push({ mangaId: hit.mangaId, title: hit.title, sourceName: hit.sourceName, label: other.label, selfLabel: self.label });
       } else keep.push(g);
     }
