@@ -410,6 +410,24 @@ describe("marking several titles at once", () => {
 });
 
 describe("changing merges", () => {
+  it("unmerges a listing with a very long name (path parameters used to stop at 100 characters)", async () => {
+    const store = new Store(":memory:");
+    store.recordSeriesMeta(10, "Nano Machine", "Asura Scans", false);
+    const app = await buildApp(config, { fetchImpl: fakeEngine(), store });
+    const { setTitleAliases } = await import("./search.js");
+    const long = "[Circle Name (Artist)] A Very Long Doujin Title That Goes On and On About Something Else Entirely (Another Subtitle) [English] [Digital]";
+    try {
+      const merged = await app.inject({ method: "POST", url: "/api/manga/10/merge", payload: { title: long, mangaId: 77 } });
+      const other = merged.json().mergedWith.find((m: { canon: boolean }) => !m.canon);
+      expect(other.key.length).toBeGreaterThan(100);
+      const gone = await app.inject({ method: "DELETE", url: `/api/manga/10/merge/${encodeURIComponent(other.key)}` });
+      expect(gone.statusCode).toBe(200);
+      expect(gone.json().mergedWith).toEqual([]);
+    } finally {
+      setTitleAliases(new Map());
+    }
+  });
+
   it("unmerges without waiting on the series' source, using the name Sapphire already knows", async () => {
     const store = new Store(":memory:");
     store.recordSeriesMeta(10, "Nano Machine", "Asura Scans", false);

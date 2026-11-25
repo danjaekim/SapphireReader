@@ -398,7 +398,9 @@ looked up elsewhere. An update row is "read" once that chapter number (or later)
   `/series/1234` address and leaves out the series itself and what's already merged.
   Merge, unmerge and "make main" only need the series' name, so they use the name Sapphire last saw it under
   (`titleForMerge`, falling back to reading the source) and never wait on a slow or blocked site (Nov 25: unmerge
-  failed with "Couldn't change that"). The series page's merge-change toast now says the real reason.
+  failed with "Couldn't change that"). The series page's merge-change toast now says the real reason. The real cause of that failure was Fastify's default
+  100-character limit on path parameters: the unmerge URL carries the listing's name key, and long doujin
+  titles went over it (414 shown as "Bad Request"), so the server is built with `maxParamLength: 1000`.
 - **Display choice** (`title_primary`): name, cover and description can each come from any merged
   listing (Edit name, cover & description sheet). The description is read live from the chosen
   listing (falls back to the opened one's). Unmerging a listing the display used resets the display.

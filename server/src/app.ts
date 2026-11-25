@@ -89,7 +89,7 @@ const pageOf = (v: string | undefined) => {
 };
 
 export async function buildApp(config: Config, options: AppOptions = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, maxParamLength: 1000 });
   // Smaller API and app downloads, which matters most on a phone over Tailscale. Images are left alone.
   await app.register(fastifyCompress, { global: true, threshold: 1024, encodings: ["br", "gzip"] });
   const { fetchImpl } = options;
